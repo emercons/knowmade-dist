@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROFILE="$ROOT/profiles/query-lite/SKILL.md"
+DRY_RUN=0
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+  shift
+fi
+
+if [[ ! -f "$PROFILE" ]]; then
+  echo "llm-wiki query profile is missing: $PROFILE" >&2
+  exit 1
+fi
+
+if [[ -n "${PI_CLI:-}" ]]; then
+  PI=(node "$PI_CLI")
+else
+  GLOBAL_ROOT="$(npm root -g 2>/dev/null || true)"
+  GLOBAL_CLI="$GLOBAL_ROOT/@mariozechner/pi-coding-agent/dist/cli.js"
+  if [[ -f "$GLOBAL_CLI" ]]; then
+    PI=(node "$GLOBAL_CLI")
+  elif command -v pi >/dev/null 2>&1; then
+    PI=(pi)
+  else
+    echo "Pi CLI not found. Set PI_CLI to @mariozechner/pi-coding-agent/dist/cli.js." >&2
+    exit 1
+  fi
+fi
+
+COMMAND=(
+  "${PI[@]}"
+  --offline
+  --thinking off
+  --tools read,grep,find,ls
+  --no-extensions
+  --no-skills
+  --no-prompt-templates
+  --no-themes
+  --append-system-prompt "$PROFILE"
+  "$@"
+)
+
+if (( DRY_RUN )); then
+  printf '%q ' "${COMMAND[@]}"
+  printf '\n'
+  exit 0
+fi
+
+exec "${COMMAND[@]}"

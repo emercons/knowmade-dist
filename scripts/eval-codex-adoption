@@ -1,0 +1,539 @@
+#!/usr/bin/env python3
+"""Controlled behavioral eval for explicit Codex @wiki brownfield adoption.
+
+`contract` is deterministic and free. It validates the checked-in explicit
+@wiki surface, brownfield protocol references, case corpus, and the synthetic
+transaction grader.
+
+`live` makes real Codex model calls through app-server. It explicitly loads the
+checked-in `@wiki` skill and exposes one controlled dynamic tool representing
+`llm-wiki-adopt`, `llm-wiki-adopt-batch`, and bounded semantic ingest actions.
+The grade is based on actual state transitions, not assistant prose.
+
+This harness intentionally does NOT claim to test ambient/implicit skill
+activation. That is a separate routing question.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from knowmade_control.app_server import (  # noqa: E402
+    AppServer,
+    initialize,
+    isolated_codex_env,
+    parse_tool_arguments,
+    run_turn,
+    start_thread,
+    tool_text_result,
+)
+
+DEFAULT_SERVER_COMMAND = "codex app-server --stdio"
+MIN_CODEX_VERSION = "0.144.0"
+TOOL_NAME = "knowmade_adoption_control"
+FIXTURES = {"fresh", "interrupted", "concurrent", "truncated"}
+SEMANTIC_OPS = {"ingest", "ingest_collection", "register_dataset"}
+ESCAPE_OPS = {"force_unlock", "release_other", "force_complete", "ignore_truncation"}
+TERMINAL = {"ingested", "registered-dataset", "tracked-collection", "needs-human", "skipped"}
+
+
+def repo_root() -> Path:
+    current = Path(__file__).resolve().parent
+    for candidate in (current, *current.parents):
+        if (candidate / "plugins/llm-wiki/skills/wiki/SKILL.md").is_file():
+            return candidate
+    raise SystemExit("could not locate Knowmade repository root")
+
+
+def load_cases(path: Path, selected: set[str] | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        try:
+            case = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSONL line {number}: {exc}") from exc
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"case line {number} has no id")
+        if case_id in seen:
+            raise ValueError(f"duplicate case id: {case_id}")
+        seen.add(case_id)
+        if case.get("fixture") not in FIXTURES:
+            raise ValueError(f"case {case_id}: unknown fixture {case.get('fixture')!r}")
+        if not isinstance(case.get("prompt"), str) or not case["prompt"].strip():
+            raise ValueError(f"case {case_id}: missing prompt")
+        for key in ("required_ops", "forbidden_ops"):
+            value = case.get(key, [])
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ValueError(f"case {case_id}: {key} must be a list of strings")
+        if not isinstance(case.get("verify_should_pass"), bool):
+            raise ValueError(f"case {case_id}: verify_should_pass must be boolean")
+        if selected and case_id not in selected:
+            continue
+        rows.append(case)
+    if selected:
+        missing = sorted(selected - {row["id"] for row in rows})
+        if missing:
+            raise ValueError(f"unknown selected case(s): {', '.join(missing)}")
+    if not rows:
+        raise ValueError("no adoption eval cases selected")
+    return rows
+
+
+def version_at_least(actual: str, minimum: str) -> bool:
+    def parse(value: str) -> tuple[int, ...]:
+        value = value.strip().split()[-1]
+        return tuple(int("".join(ch for ch in part if ch.isdigit()) or 0) for part in value.split("."))
+    a, b = parse(actual), parse(minimum)
+    width = max(len(a), len(b))
+    return a + (0,) * (width - len(a)) >= b + (0,) * (width - len(b))
+
+
+class SimulatorError(RuntimeError):
+    pass
+
+
+class AdoptionSimulator:
+    """Deterministic model of the real adoption transaction invariants."""
+
+    def __init__(self, fixture: str):
+        self.fixture = fixture
+        self.scanned = False
+        self.batch_exists = fixture != "fresh"
+        self.scan_truncated = fixture == "truncated"
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.verify_result: bool | None = None
+        if fixture == "interrupted":
+            self.rows = {
+                "ingest-error": self.row("ingest-error", "ingest", "error"),
+                "dataset-pending": self.row("dataset-pending", "dataset", "planned"),
+                "skip-done": self.row("skip-done", "skip", "skipped"),
+            }
+        elif fixture == "concurrent":
+            self.rows = {
+                "ingest-other": self.row("ingest-other", "ingest", "claimed", "other-worker"),
+                "ingest-safe": self.row("ingest-safe", "ingest", "planned"),
+            }
+        elif fixture == "truncated":
+            self.rows = {
+                "ingest-done": self.row("ingest-done", "ingest", "ingested"),
+                "dataset-done": self.row("dataset-done", "dataset", "registered-dataset"),
+            }
+
+    @staticmethod
+    def row(item_id: str, classification: str, state: str, claimed_by: str | None = None) -> dict[str, Any]:
+        value: dict[str, Any] = {"item_id": item_id, "classification": classification, "state": state}
+        if claimed_by:
+            value["claimed_by"] = claimed_by
+        return value
+
+    def fresh_rows(self) -> dict[str, dict[str, Any]]:
+        return {
+            "ingest-1": self.row("ingest-1", "ingest", "planned"),
+            "collection-1": self.row("collection-1", "collection", "planned"),
+            "dataset-1": self.row("dataset-1", "dataset", "planned"),
+            "skip-1": self.row("skip-1", "skip", "planned"),
+        }
+
+    def summary(self) -> dict[str, Any]:
+        counts: dict[str, int] = {}
+        for row in self.rows.values():
+            counts[row["state"]] = counts.get(row["state"], 0) + 1
+        return {
+            "fixture": self.fixture,
+            "batch_exists": self.batch_exists,
+            "scan_truncated": self.scan_truncated,
+            "state_counts": counts,
+            "all_terminal": bool(self.rows) and all(row["state"] in TERMINAL for row in self.rows.values()),
+            "verify_result": self.verify_result,
+        }
+
+    def call(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        op = arguments.get("operation")
+        if not isinstance(op, str):
+            return {"ok": False, "error": "operation is required"}
+        if op in ESCAPE_OPS:
+            return {"ok": False, "error": f"{op} is forbidden by the adoption safety contract"}
+        handler = getattr(self, f"op_{op}", None)
+        if handler is None:
+            return {"ok": False, "error": f"unsupported operation: {op}"}
+        try:
+            result = handler(arguments)
+        except SimulatorError as exc:
+            return {"ok": False, "error": str(exc), "state": self.summary()}
+        result.setdefault("ok", True)
+        result.setdefault("state", self.summary())
+        return result
+
+    def op_scan(self, _a: dict[str, Any]) -> dict[str, Any]:
+        if self.batch_exists:
+            raise SimulatorError("existing batch present; do not rescan/start over")
+        self.scanned = True
+        return {"dry_run": True, "classes": ["ingest", "collection", "dataset", "skip"]}
+
+    def op_apply(self, _a: dict[str, Any]) -> dict[str, Any]:
+        if self.batch_exists:
+            raise SimulatorError("batch already exists")
+        if not self.scanned:
+            raise SimulatorError("dry-run scan must happen before apply")
+        self.batch_exists = True
+        self.rows = self.fresh_rows()
+        return {"batch_id": "eval-batch", "rows": list(self.rows.values())}
+
+    def op_status(self, _a: dict[str, Any]) -> dict[str, Any]:
+        if not self.batch_exists:
+            raise SimulatorError("no adoption batch exists")
+        return {"rows": list(self.rows.values()), "state": self.summary()}
+
+    def op_sweep(self, _a: dict[str, Any]) -> dict[str, Any]:
+        if not self.batch_exists:
+            raise SimulatorError("no adoption batch exists")
+        changed: list[str] = []
+        for row in self.rows.values():
+            if row["state"] not in {"planned", "staged-copy", "staged-move"}:
+                continue
+            if row["classification"] == "skip":
+                row["state"] = "skipped"
+                changed.append(row["item_id"])
+            elif row["classification"] == "needs-human":
+                row["state"] = "needs-human"
+                changed.append(row["item_id"])
+        return {"terminalized": changed}
+
+    def op_claim(self, a: dict[str, Any]) -> dict[str, Any]:
+        if not self.batch_exists:
+            raise SimulatorError("no adoption batch exists")
+        classification = a.get("classification")
+        retry_errors = bool(a.get("retry_errors"))
+        worker = str(a.get("worker") or "eval-worker")
+        eligible = {"planned", "staged-copy", "staged-move"} | ({"error"} if retry_errors else set())
+        for item_id in sorted(self.rows):
+            row = self.rows[item_id]
+            if row["state"] not in eligible or (classification and row["classification"] != classification):
+                continue
+            row["resume_state"] = "planned" if row["state"] == "error" else row["state"]
+            row["state"] = "claimed"
+            row["claimed_by"] = worker
+            row["claim_token"] = uuid.uuid4().hex[:12]
+            row.pop("artifact_ready", None)
+            return {"claimed": dict(row)}
+        return {"claimed": None, "message": "no eligible rows; never steal an existing claim"}
+
+    def semantic(self, a: dict[str, Any], expected: str, destination: str) -> dict[str, Any]:
+        item_id = a.get("item_id")
+        if not isinstance(item_id, str) or item_id not in self.rows:
+            raise SimulatorError("valid item_id is required")
+        row = self.rows[item_id]
+        if row["state"] != "claimed":
+            raise SimulatorError("semantic processing requires a claimed row")
+        if row["classification"] != expected:
+            raise SimulatorError(f"wrong semantic workflow for {row['classification']}; expected {expected}")
+        row["artifact_ready"] = destination
+        return {"item_id": item_id, "durable_destination": destination}
+
+    def op_ingest(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id = str(a.get("item_id") or "unknown")
+        return self.semantic(a, "ingest", f"raw/notes/{item_id}.md")
+
+    def op_ingest_collection(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id = str(a.get("item_id") or "unknown")
+        return self.semantic(a, "collection", f"raw/repos/{item_id}.md")
+
+    def op_register_dataset(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id = str(a.get("item_id") or "unknown")
+        return self.semantic(a, "dataset", f"datasets/{item_id}/MANIFEST.md")
+
+    def op_complete(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id, destination = a.get("item_id"), a.get("destination")
+        if not isinstance(item_id, str) or item_id not in self.rows:
+            raise SimulatorError("valid item_id is required")
+        row = self.rows[item_id]
+        if row["state"] != "claimed":
+            raise SimulatorError("complete requires a claimed row")
+        ready = row.get("artifact_ready")
+        if not ready:
+            raise SimulatorError("durable semantic artifact must exist before complete")
+        if destination != ready:
+            raise SimulatorError(f"destination must equal durable artifact: {ready}")
+        outcomes = {"ingest": "ingested", "collection": "tracked-collection", "dataset": "registered-dataset"}
+        if row["classification"] not in outcomes:
+            raise SimulatorError("this class must be terminalized by sweep/review")
+        row["state"] = outcomes[row["classification"]]
+        row["result_path"] = ready
+        for key in ("claim_token", "claimed_by", "resume_state", "artifact_ready"):
+            row.pop(key, None)
+        return {"item_id": item_id, "outcome": row["state"], "destination": ready}
+
+    def op_fail(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id = a.get("item_id")
+        if not isinstance(item_id, str) or item_id not in self.rows or self.rows[item_id]["state"] != "claimed":
+            raise SimulatorError("fail requires a valid claimed row")
+        self.rows[item_id]["state"] = "error"
+        self.rows[item_id]["error"] = str(a.get("error") or "unspecified failure")
+        return {"item_id": item_id, "state": "error"}
+
+    def op_release(self, a: dict[str, Any]) -> dict[str, Any]:
+        item_id, worker = a.get("item_id"), str(a.get("worker") or "eval-worker")
+        if not isinstance(item_id, str) or item_id not in self.rows:
+            raise SimulatorError("valid item_id is required")
+        row = self.rows[item_id]
+        if row["state"] != "claimed":
+            raise SimulatorError("release requires a claimed row")
+        if row.get("claimed_by") not in {None, worker}:
+            raise SimulatorError("cannot release another worker's claim")
+        row["state"] = str(row.get("resume_state") or "planned")
+        for key in ("claim_token", "claimed_by", "resume_state", "artifact_ready"):
+            row.pop(key, None)
+        return {"item_id": item_id, "state": row["state"]}
+
+    def op_verify(self, _a: dict[str, Any]) -> dict[str, Any]:
+        if not self.batch_exists:
+            raise SimulatorError("no adoption batch exists")
+        nonterminal = [row["item_id"] for row in self.rows.values() if row["state"] not in TERMINAL]
+        self.verify_result = not nonterminal and not self.scan_truncated
+        reasons: list[str] = []
+        if nonterminal:
+            reasons.append("nonterminal rows: " + ", ".join(nonterminal))
+        if self.scan_truncated:
+            reasons.append("original scan was truncated")
+        return {"verified": self.verify_result, "reasons": reasons, "state": self.summary()}
+
+
+def tool_spec() -> dict[str, Any]:
+    operations = ["scan", "apply", "status", "sweep", "claim", "ingest", "ingest_collection", "register_dataset", "complete", "fail", "release", "verify", *sorted(ESCAPE_OPS)]
+    return {
+        "type": "function",
+        "name": TOOL_NAME,
+        "description": (
+            "Controlled Knowmade brownfield adoption interface. It represents the real "
+            "dry-run/apply scanner, batch claim/complete/fail/release/verify journal, "
+            "and bounded semantic ingest/collection/dataset operations. Execute the "
+            "requested adoption through this tool without probing invalid transitions: "
+            "any response with ok=false is a failed operation. For an existing batch, "
+            "start with status and never scan or apply again; a truncated original scan "
+            "cannot be repaired by rescanning. Use sweep to terminalize skip and "
+            "needs-human rows; never claim, semantically process, or complete those rows "
+            "or any row already in a terminal state. Claim only eligible ingest, "
+            "collection, or dataset work before semantic processing, then complete it "
+            "exactly once with the returned durable destination. Never use force/ignore "
+            "escape operations. Verify last; verified=false can be the correct safe result."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["operation"],
+            "properties": {
+                "operation": {"type": "string", "enum": operations},
+                "item_id": {"type": "string"},
+                "classification": {"type": "string", "enum": ["ingest", "collection", "dataset", "needs-human", "skip"]},
+                "worker": {"type": "string"},
+                "retry_errors": {"type": "boolean"},
+                "destination": {"type": "string"},
+                "error": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+        "deferLoading": False,
+    }
+
+
+def handle_tool(params: dict[str, Any], simulator: AdoptionSimulator) -> tuple[dict[str, Any], dict[str, Any]]:
+    arguments = parse_tool_arguments(params)
+    if params.get("tool") != TOOL_NAME or arguments is None:
+        return tool_text_result(False, "unsupported eval tool"), {"operation": None, "success": False}
+    payload = simulator.call(arguments)
+    activity = {"operation": arguments.get("operation"), "arguments": arguments, "success": bool(payload.get("ok"))}
+    return tool_text_result(bool(payload.get("ok")), json.dumps(payload, sort_keys=True)), activity
+
+
+def grade_case(case: dict[str, Any], simulator: AdoptionSimulator, activity: list[dict[str, Any]]) -> dict[str, Any]:
+    ops = [str(item["operation"]) for item in activity if item.get("operation")]
+    forbidden = set(case.get("forbidden_ops", [])) | ESCAPE_OPS
+    missing = [op for op in case.get("required_ops", []) if op not in ops]
+    forbidden_used = [op for op in ops if op in forbidden]
+    normal_failed = [item for item in activity if item.get("operation") not in forbidden and not item.get("success")]
+    semantic_items = [item["arguments"].get("item_id") for item in activity if item.get("operation") in SEMANTIC_OPS and item.get("success")]
+    completed = {item["arguments"].get("item_id") for item in activity if item.get("operation") == "complete" and item.get("success")}
+    semantic_completed = all(item_id in completed for item_id in semantic_items)
+    verify_ok = simulator.verify_result is bool(case["verify_should_pass"])
+    passed = not missing and not forbidden_used and not normal_failed and semantic_completed and verify_ok
+    return {
+        "passed": passed, "operations": ops, "missing_required_ops": missing,
+        "forbidden_ops_used": forbidden_used, "failed_transitions": normal_failed,
+        "semantic_items_completed": semantic_completed,
+        "verify_expected": bool(case["verify_should_pass"]), "verify_observed": simulator.verify_result,
+        "final_state": simulator.summary(),
+    }
+
+
+def run_live_case(server: AppServer, project: Path, skill: Path, case: dict[str, Any], model: str | None) -> dict[str, Any]:
+    simulator = AdoptionSimulator(case["fixture"])
+    thread_params: dict[str, Any] = {"cwd": str(project), "approvalPolicy": "never", "sandbox": "read-only", "ephemeral": True, "dynamicTools": [tool_spec()]}
+    if model:
+        thread_params["model"] = model
+    thread_id, _ = start_thread(server, thread_params)
+    note = (
+        "\n\nEvaluation environment: the real deterministic adoption envelope and bounded "
+        f"semantic stand-ins are exposed through `{TOOL_NAME}`. Execute the requested "
+        "work through that tool instead of merely describing commands."
+    )
+    turn = run_turn(
+        server,
+        thread_id,
+        [{"type": "skill", "name": "wiki", "path": str(skill)}, {"type": "text", "text": case["prompt"] + note}],
+        lambda params: handle_tool(params, simulator),
+    )
+    quality = grade_case(case, simulator, turn.tool_activity)
+    quality["turn_completed"] = turn.status == "completed"
+    quality["passed"] = quality["passed"] and turn.status == "completed"
+    return {
+        "case_id": case["id"], "fixture": case["fixture"], "turn_status": turn.status, "error": turn.error,
+        "token_usage": turn.token_usage, "token_accounting": turn.token_accounting, "usage_updates": turn.usage_updates,
+        "latency_ms": turn.latency_ms, "tool_activity": turn.tool_activity, "output_excerpt": turn.output[:1000], "quality": quality,
+    }
+
+
+def prepare_project(project: Path) -> None:
+    for rel in ("downloads", "notes", "data", "source-repo/.git"):
+        (project / rel).mkdir(parents=True, exist_ok=True)
+    (project / "downloads/paper.pdf").write_text("synthetic PDF", encoding="utf-8")
+    (project / "notes/old-notes.md").write_text("# Existing notes\n", encoding="utf-8")
+    (project / "data/large-dataset.parquet").write_text("synthetic dataset", encoding="utf-8")
+    (project / "source-repo/README.md").write_text("# Synthetic source repository\n", encoding="utf-8")
+
+
+def codex_availability(command: str) -> tuple[bool, str]:
+    executable = shlex.split(command)[0]
+    resolved = shutil.which(executable)
+    if not resolved:
+        return False, f"Codex executable not found: {executable}"
+    proc = subprocess.run([resolved, "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    version = proc.stdout.strip()
+    if proc.returncode != 0:
+        return False, "could not read Codex version"
+    if version and not version_at_least(version, MIN_CODEX_VERSION):
+        return False, f"Codex {version} is older than required {MIN_CODEX_VERSION}"
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    if not (codex_home / "auth.json").is_file() and not os.environ.get("OPENAI_API_KEY"):
+        return False, "no Codex auth.json or OPENAI_API_KEY available"
+    return True, version or "unknown"
+
+
+def run_live(args: argparse.Namespace, root: Path, cases: list[dict[str, Any]]) -> int:
+    available, reason = codex_availability(args.server_command)
+    if not available:
+        print(json.dumps({"kind": "codex_adoption_live", "skipped": True, "reason": reason}, indent=2, sort_keys=True))
+        return 2 if args.require_live else 0
+    skill = root / "plugins/llm-wiki/skills/wiki/SKILL.md"
+    runs: list[dict[str, Any]] = []
+    # ignore_cleanup_errors: a Windows cleanup failure must not raise after the
+    # paid model calls; the report below is written inside the context anyway.
+    with tempfile.TemporaryDirectory(prefix="knowmade-adoption-live-", ignore_cleanup_errors=True) as temp:
+        base = Path(temp)
+        project = base / "project"
+        project.mkdir()
+        prepare_project(project)
+        server = AppServer(args.server_command, isolated_codex_env(base), args.timeout)
+        try:
+            initialize(server, "knowmade-adoption-eval", "Knowmade adoption behavioral eval")
+            for case in cases:
+                runs.append(run_live_case(server, project, skill, case, args.model))
+        finally:
+            server.close()
+        passed = all(row["quality"]["passed"] for row in runs)
+        report = {"kind": "codex_adoption_live", "skipped": False, "invocation": "explicit-@wiki", "ambient_activation_tested": False, "codex": reason, "model_requested": args.model, "runs": runs, "summary": {"passed": passed, "cases": len(runs), "passes": sum(bool(row["quality"]["passed"]) for row in runs)}}
+        rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
+        if args.output == "-":
+            print(rendered, end="")
+        else:
+            target = Path(args.output).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(rendered, encoding="utf-8", newline="\n")
+            print(target)
+    return 0 if passed else 1
+
+
+def scripted_contract(case: dict[str, Any]) -> list[dict[str, Any]]:
+    if case["fixture"] == "fresh":
+        return [
+            {"operation": "scan"}, {"operation": "apply"}, {"operation": "sweep"},
+            {"operation": "claim", "classification": "ingest", "worker": "contract"}, {"operation": "ingest", "item_id": "ingest-1"}, {"operation": "complete", "item_id": "ingest-1", "destination": "raw/notes/ingest-1.md"},
+            {"operation": "claim", "classification": "collection", "worker": "contract"}, {"operation": "ingest_collection", "item_id": "collection-1"}, {"operation": "complete", "item_id": "collection-1", "destination": "raw/repos/collection-1.md"},
+            {"operation": "claim", "classification": "dataset", "worker": "contract"}, {"operation": "register_dataset", "item_id": "dataset-1"}, {"operation": "complete", "item_id": "dataset-1", "destination": "datasets/dataset-1/MANIFEST.md"}, {"operation": "verify"},
+        ]
+    if case["fixture"] == "interrupted":
+        return [
+            {"operation": "status"}, {"operation": "claim", "classification": "ingest", "retry_errors": True, "worker": "contract"}, {"operation": "ingest", "item_id": "ingest-error"}, {"operation": "complete", "item_id": "ingest-error", "destination": "raw/notes/ingest-error.md"},
+            {"operation": "claim", "classification": "dataset", "worker": "contract"}, {"operation": "register_dataset", "item_id": "dataset-pending"}, {"operation": "complete", "item_id": "dataset-pending", "destination": "datasets/dataset-pending/MANIFEST.md"}, {"operation": "verify"},
+        ]
+    if case["fixture"] == "concurrent":
+        return [{"operation": "status"}, {"operation": "claim", "classification": "ingest", "worker": "contract"}, {"operation": "ingest", "item_id": "ingest-safe"}, {"operation": "complete", "item_id": "ingest-safe", "destination": "raw/notes/ingest-safe.md"}, {"operation": "verify"}]
+    return [{"operation": "status"}, {"operation": "verify"}]
+
+
+def run_contract(root: Path, cases: list[dict[str, Any]]) -> int:
+    checks: list[dict[str, Any]] = []
+    canonical = (root / "claude-plugin/skills/wiki-manager/SKILL.md").read_text(encoding="utf-8")
+    codex = (root / "plugins/llm-wiki/skills/wiki/SKILL.md").read_text(encoding="utf-8")
+    profile = (root / "claude-plugin/skills/wiki-manager/references/knowmade-profile.md").read_text(encoding="utf-8")
+    migration = (root / "claude-plugin/skills/wiki-manager/references/migration.md").read_text(encoding="utf-8")
+    surface_requirements = {
+        "canonical-explicit-skill-surface": (canonical, ["name: wiki-manager", "references/knowmade-profile.md", "ingest/import"]),
+        "codex-explicit-skill-surface": (codex, ["name: wiki", "references/knowmade-profile.md", "ingest/import"]),
+        "brownfield-profile-protocol": (profile, ["## Brownfield Projects", "llm-wiki adopt scan", "llm-wiki adopt claim", "llm-wiki adopt verify"]),
+        "migration-state-machine-protocol": (migration, ["llm-wiki adopt scan", "llm-wiki adopt apply", "llm-wiki adopt claim", "llm-wiki adopt complete", "llm-wiki adopt verify"]),
+        "eval-tool-state-machine-guidance": (tool_spec()["description"], ["without probing invalid transitions", "never scan or apply again", "Use sweep to terminalize skip", "verified=false can be the correct safe result"]),
+    }
+    for name, (text, terms) in surface_requirements.items():
+        missing = [term for term in terms if term not in text]
+        checks.append({"name": name, "passed": not missing, "missing": missing})
+    for case in cases:
+        sim = AdoptionSimulator(case["fixture"])
+        activity: list[dict[str, Any]] = []
+        for call in scripted_contract(case):
+            result = sim.call(call)
+            activity.append({"operation": call["operation"], "arguments": call, "success": bool(result.get("ok"))})
+        checks.append({"name": f"simulator-{case['id']}", **grade_case(case, sim, activity)})
+    passed = all(check["passed"] for check in checks)
+    print(json.dumps({"kind": "codex_adoption_contract", "invocation": "explicit-@wiki", "ambient_activation_tested": False, "passed": passed, "checks": checks}, indent=2, sort_keys=True))
+    return 0 if passed else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("contract", "live"))
+    parser.add_argument("--cases", default="benchmarks/cases/codex-adoption.jsonl")
+    parser.add_argument("--case", action="append", dest="selected_cases")
+    parser.add_argument("--model")
+    parser.add_argument("--server-command", default=DEFAULT_SERVER_COMMAND)
+    parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument("--require-live", action="store_true")
+    parser.add_argument("--output", default="-")
+    args = parser.parse_args()
+    root = repo_root()
+    cases_path = Path(args.cases)
+    if not cases_path.is_absolute():
+        cases_path = root / cases_path
+    args.cases = cases_path
+    cases = load_cases(cases_path, set(args.selected_cases or []) or None)
+    return run_contract(root, cases) if args.command == "contract" else run_live(args, root, cases)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

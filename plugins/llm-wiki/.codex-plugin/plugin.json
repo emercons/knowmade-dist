@@ -1,0 +1,71 @@
+{
+  "name": "wiki",
+  "version": "0.5.1.25.1",
+  "description": "Knowmade practical knowledge bases for Codex with goal-directed private work, hub inbox dispatch, public/private topic pairs, fuzzy Idea capture, Project promotion, explicitly trusted private adapters, personal specialist skills, Project Knowledge Checkpoints Export, inventory, datasets, ingestion, audits, sessions, and outputs.",
+  "author": {
+    "name": "emercons",
+    "url": "https://github.com/emercons"
+  },
+  "homepage": "https://github.com/emercons/knowmade",
+  "repository": "https://github.com/emercons/knowmade",
+  "license": "MIT",
+  "keywords": [
+    "wiki",
+    "knowledge-base",
+    "research",
+    "markdown",
+    "obsidian",
+    "codex",
+    "audit",
+    "librarian",
+    "schema",
+    "topic-guide",
+    "collect",
+    "inventory",
+    "datasets",
+    "archive",
+    "sessions",
+    "feedback",
+    "hooks",
+    "context",
+    "ideas",
+    "projects",
+    "adapters",
+    "private-adapters",
+    "specialists",
+    "personal-skills",
+    "skill-factory",
+    "checkpoints",
+    "knowledge-handoff"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Knowmade",
+    "shortDescription": "Research, shape Ideas, and export project knowledge checkpoints",
+    "longDescription": "Bundle the Knowmade workflow for Codex: use private goals as planning context, dispatch mixed-topic hub intake, capture and shape Ideas, apply personal specialist methods, export privacy-sealed Project Knowledge Checkpoints, promote approved briefs into Projects, and maintain public/private topic-scoped sources, compiled knowledge, inventory, datasets, sessions, audits, and outputs.",
+    "developerName": "emercons",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/emercons/knowmade",
+    "defaultPrompt": [
+      "Export a Project Knowledge Checkpoint from relevant research across my topic wikis, with privacy checks.",
+      "Triage my hub inbox and route each item to the right public or private topic inbox.",
+      "Capture this rough Idea, research it, shape alternatives, and wait for approval before creating a Project.",
+      "Run a registered private adapter and review only its wiki-safe evidence candidates.",
+      "Research a new topic and compile it into a wiki.",
+      "Collect a catalog of examples, tools, memes, media, projects, or source candidates and decide what should become inventory.",
+      "Archive an old topic wiki so it stays preserved but out of default context.",
+      "Track this source queue as inventory, then ingest selected candidates into my wiki.",
+      "Index this large dataset with a manifest, schema notes, samples, and query recipes.",
+      "Ingest these notes or an external source collection into my wiki and update the indexes.",
+      "Audit this wiki output and tell me if I can trust it.",
+      "Lint this wiki and fix structural issues.",
+      "Enable automated session capture and rehydrate context for this project.",
+      "Review feedback candidates from this session and promote durable corrections into my wiki."
+    ],
+    "brandColor": "#2F855A"
+  }
+}

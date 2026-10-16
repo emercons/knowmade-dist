@@ -1,0 +1,1824 @@
+#!/usr/bin/env python3
+"""Deterministic and live token-efficiency benchmarks for llm-wiki.
+
+The static benchmark is safe for CI and never calls a model. Provider-specific
+live and pair benchmarks use Codex, Claude Code, or local DS4 through Pi.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import queue
+import re
+import shlex
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from collections import Counter
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable, Iterable, Iterator
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from knowmade_control.app_server import (  # noqa: E402
+    AppServer,
+    AppServerError,
+    Event,
+    cli_version,
+    initialize,
+    isolated_codex_env,
+    parse_tool_arguments,
+    resolve_command,
+    run_turn,
+    start_thread,
+    tool_text_result,
+)
+
+
+SCHEMA_VERSION = 1
+DEFAULT_SERVER_COMMAND = (
+    "codex app-server --stdio --disable code_mode_host --disable code_mode"
+)
+FIXTURE = "tests/fixtures/golden-wiki"
+
+
+def repo_root(start: Path | None = None) -> Path:
+    current = (start or Path(__file__).resolve()).resolve()
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / "plugins/llm-wiki/skills/wiki/SKILL.md").is_file():
+            return candidate
+    raise SystemExit("could not locate llm-wiki repository root")
+
+
+def git_commit(root: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else "unknown"
+
+
+def display_path(path: Path, root: Path) -> str:
+    # Reports are compared across machines, so paths in them must not depend on
+    # the local separator.
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def write_json(data: dict[str, Any], output: str | None) -> None:
+    rendered = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    if not output or output == "-":
+        sys.stdout.write(rendered)
+        return
+    target = Path(output).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    print(target)
+
+
+def folded_frontmatter_value(path: Path, key: str) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise ValueError(f"missing frontmatter in {path}")
+    index = 1
+    while index < len(lines) and lines[index].strip() != "---":
+        line = lines[index]
+        if line.startswith(f"{key}:"):
+            value = line.split(":", 1)[1].strip()
+            if value in {">", "|", ">-", "|-"}:
+                parts: list[str] = []
+                index += 1
+                while index < len(lines):
+                    continuation = lines[index]
+                    if continuation and not continuation[0].isspace():
+                        break
+                    if continuation.strip():
+                        parts.append(continuation.strip())
+                    index += 1
+                return " ".join(parts)
+            return value.strip("\"'")
+        index += 1
+    raise ValueError(f"missing {key!r} in {path}")
+
+
+def file_bytes(path: Path) -> int:
+    return path.stat().st_size
+
+
+# A command names a reference as `references/<name>.md`, usually prefixed with
+# `skills/wiki-manager/`. `wiki/references/` is a topic wiki's own directory,
+# not a protocol file, so a match preceded by `wiki/` does not count.
+REFERENCE_MENTION = re.compile(r"(?<!wiki/)references/([A-Za-z0-9_-]+\.md)")
+READ_LINE = re.compile(r"\bread\b", re.IGNORECASE)
+
+
+def command_first_read_metrics(root: Path) -> dict[str, int]:
+    """Per-command first-read context in tokens (bytes/4, rounded up).
+
+    `command_first_read_tokens.<command>` is the command file plus every
+    reference it names anywhere: an upper bound on what an agent reads before
+    it starts. `command_read_lines_tokens.<command>` counts only references
+    named on a line that says "read". Neither includes SKILL.md, which every
+    command shares (see `claude_skill_bytes`), nor references that a named
+    reference names in turn.
+    """
+    commands = root / "claude-plugin/commands"
+    references = root / "claude-plugin/skills/wiki-manager/references"
+    metrics: dict[str, int] = {}
+    for command in sorted(commands.glob("*.md")):
+        text = command.read_text(encoding="utf-8")
+        named: set[str] = set()
+        read: set[str] = set()
+        for line in text.splitlines():
+            names = set(REFERENCE_MENTION.findall(line))
+            named |= names
+            if READ_LINE.search(line):
+                read |= names
+        missing = sorted(name for name in named if not (references / name).is_file())
+        if missing:
+            raise ValueError(f"{display_path(command, root)} names missing references: {missing}")
+        base = file_bytes(command)
+        first = base + sum(file_bytes(references / name) for name in named)
+        lines = base + sum(file_bytes(references / name) for name in read)
+        metrics[f"command_first_read_tokens.{command.stem}"] = -(-first // 4)
+        metrics[f"command_read_lines_tokens.{command.stem}"] = -(-lines // 4)
+    return metrics
+
+
+def collect_static_metrics(root: Path) -> dict[str, int]:
+    claude_skill = root / "claude-plugin/skills/wiki-manager/SKILL.md"
+    claude_manifest = root / "claude-plugin/.claude-plugin/plugin.json"
+    claude_manifest_data = json.loads(claude_manifest.read_text(encoding="utf-8"))
+    claude_commands = root / "claude-plugin/commands"
+    codex_skill = root / "plugins/llm-wiki/skills/wiki/SKILL.md"
+    agents_metadata = root / "plugins/llm-wiki/skills/wiki/agents/openai.yaml"
+    references = root / "plugins/llm-wiki/skills/wiki/references"
+    query_lite_reference = (
+        root / "claude-plugin/skills/wiki-manager/references/query-lite.md"
+    )
+    query_lite_profile = root / "profiles/query-lite/SKILL.md"
+    codex_query_skill = root / "plugins/llm-wiki/skills/wiki-query/SKILL.md"
+    codex_query_metadata = (
+        root / "plugins/llm-wiki/skills/wiki-query/agents/openai.yaml"
+    )
+    opencode_skill = root / "plugins/llm-wiki-opencode/skills/wiki-manager/SKILL.md"
+    opencode_query_skill = root / "plugins/llm-wiki-opencode/skills/wiki-query/SKILL.md"
+    ds4_query_extension = root / "profiles/ds4/pi-query-tools.ts"
+    pi_query_launcher = root / "scripts/pi-wiki-query"
+    ds4_query_launcher = root / "scripts/pi-ds4-wiki-query"
+    description = folded_frontmatter_value(codex_skill, "description")
+    return {
+        "portable_protocol_bytes": file_bytes(root / "AGENTS.md"),
+        "claude_skill_bytes": file_bytes(claude_skill),
+        "claude_skill_description_chars": len(
+            folded_frontmatter_value(claude_skill, "description")
+        ),
+        "claude_plugin_manifest_bytes": file_bytes(claude_manifest),
+        "claude_plugin_description_chars": len(claude_manifest_data["description"]),
+        "claude_lazy_commands_bytes": sum(
+            file_bytes(path) for path in sorted(claude_commands.glob("*.md"))
+        ),
+        "claude_query_command_bytes": file_bytes(claude_commands / "query.md"),
+        "codex_skill_bytes": file_bytes(codex_skill),
+        "codex_skill_description_chars": len(description),
+        "codex_agents_metadata_bytes": file_bytes(agents_metadata),
+        "codex_lazy_references_bytes": sum(
+            file_bytes(path) for path in sorted(references.glob("*.md"))
+        ),
+        "query_lite_reference_bytes": file_bytes(query_lite_reference),
+        "query_lite_profile_bytes": file_bytes(query_lite_profile),
+        "query_lite_profile_description_chars": len(
+            folded_frontmatter_value(query_lite_profile, "description")
+        ),
+        "codex_query_skill_bytes": file_bytes(codex_query_skill),
+        "codex_query_agents_metadata_bytes": file_bytes(codex_query_metadata),
+        "opencode_skill_bytes": file_bytes(opencode_skill),
+        "opencode_skill_description_chars": len(
+            folded_frontmatter_value(opencode_skill, "description")
+        ),
+        "opencode_query_skill_bytes": file_bytes(opencode_query_skill),
+        "ds4_query_extension_bytes": file_bytes(ds4_query_extension),
+        "pi_query_launcher_bytes": file_bytes(pi_query_launcher),
+        "ds4_query_launcher_bytes": file_bytes(ds4_query_launcher),
+        **command_first_read_metrics(root),
+    }
+
+
+def static_report(root: Path, budgets_path: Path) -> dict[str, Any]:
+    budgets = json.loads(budgets_path.read_text(encoding="utf-8"))
+    if budgets.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"unsupported budget schema in {budgets_path}")
+    measured = collect_static_metrics(root)
+    rows: dict[str, Any] = {}
+    passed = True
+    configured = budgets.get("metrics", {})
+    missing = sorted(set(configured) - set(measured))
+    unknown = sorted(set(measured) - set(configured))
+    if missing or unknown:
+        raise ValueError(
+            f"budget/measurement mismatch: missing={missing}, unbudgeted={unknown}"
+        )
+    for name, value in measured.items():
+        budget = configured[name]
+        baseline = int(budget["baseline"])
+        maximum = int(budget["max"])
+        metric_passed = value <= maximum
+        passed = passed and metric_passed
+        rows[name] = {
+            "value": value,
+            "baseline": baseline,
+            "delta_from_baseline": value - baseline,
+            "max": maximum,
+            "passed": metric_passed,
+        }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "static_context_budget",
+        "git_commit": git_commit(root),
+        "budgets": display_path(budgets_path, root),
+        "metrics": rows,
+        "passed": passed,
+    }
+
+
+def load_cases(path: Path, selected: set[str] | None = None) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        case = json.loads(raw)
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"case on line {number} has no id")
+        if case_id in seen:
+            raise ValueError(f"duplicate case id: {case_id}")
+        seen.add(case_id)
+        if selected and case_id not in selected:
+            continue
+        if not isinstance(case.get("prompt"), str):
+            raise ValueError(f"case {case_id} has no prompt")
+        if not isinstance(case.get("required", []), list):
+            raise ValueError(f"case {case_id} required must be a list")
+        cases.append(case)
+    if selected:
+        missing = sorted(selected - {case["id"] for case in cases})
+        if missing:
+            raise ValueError(f"unknown case id(s): {', '.join(missing)}")
+    if not cases:
+        raise ValueError("no benchmark cases selected")
+    return cases
+
+
+def tree_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        # as_posix keeps the corpus digest identical on Windows and POSIX,
+        # so the same_case_corpus/same_fixture_corpus gates stay meaningful
+        # when two machines exchange reports.
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def item_activity(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Report row for a completed non-message app-server item, or None."""
+    kind = item.get("type")
+    if kind == "commandExecution":
+        return {
+            "type": "commandExecution",
+            "command": item.get("command"),
+            "status": item.get("status"),
+            "exit_code": item.get("exitCode"),
+            "output_excerpt": (item.get("aggregatedOutput") or "")[:1000],
+        }
+    if kind == "fileChange":
+        return {
+            "type": "fileChange",
+            "status": item.get("status"),
+            "change_count": len(item.get("changes", [])),
+        }
+    if kind == "mcpToolCall":
+        return {"type": kind, "tool": item.get("tool"), "status": item.get("status")}
+    return None
+
+
+def grade_output(case: dict[str, Any], output: str) -> dict[str, Any]:
+    folded = output.casefold()
+    missing = [term for term in case.get("required", []) if term.casefold() not in folded]
+    forbidden = [term for term in case.get("forbidden", []) if term.casefold() in folded]
+    maximum = int(case.get("max_output_chars", 4000))
+    return {
+        "passed": not missing and not forbidden and len(output) <= maximum,
+        "missing_required": missing,
+        "found_forbidden": forbidden,
+        "max_output_chars": maximum,
+    }
+
+
+def fixture_tool_spec() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "name": "wiki_fixture_read",
+        "description": (
+            "Read one UTF-8 file from the benchmark project's local .wiki. "
+            "Use relative paths such as _index.md or wiki/concepts/sample-concept.md."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {"path": {"type": "string"}},
+            "additionalProperties": False,
+        },
+        "deferLoading": False,
+    }
+
+
+def handle_fixture_tool(
+    params: dict[str, Any], fixture_root: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    tool = params.get("tool")
+    arguments = parse_tool_arguments(params)
+    activity: dict[str, Any] = {"type": "dynamicToolCall", "tool": tool}
+    if tool != "wiki_fixture_read" or arguments is None:
+        activity["success"] = False
+        return tool_text_result(False, "unsupported benchmark tool"), activity
+    relative = arguments.get("path")
+    activity["path"] = relative
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        activity["success"] = False
+        return tool_text_result(False, "path must be relative"), activity
+    candidate = (fixture_root / relative).resolve()
+    try:
+        candidate.relative_to(fixture_root.resolve())
+    except ValueError:
+        activity["success"] = False
+        return tool_text_result(False, "path escapes .wiki"), activity
+    if not candidate.is_file():
+        activity["success"] = False
+        return tool_text_result(False, f"not found: {relative}"), activity
+    content = candidate.read_text(encoding="utf-8")
+    if len(content) > 100_000:
+        content = content[:100_000] + "\n[truncated by benchmark harness]"
+    activity["success"] = True
+    activity["bytes"] = candidate.stat().st_size
+    return tool_text_result(True, content), activity
+
+
+def run_case_turn(
+    server: AppServer,
+    thread_id: str,
+    skill_name: str,
+    skill_path: Path,
+    fixture_root: Path,
+    case: dict[str, Any],
+    repeat: int,
+    require_fixture_read: bool,
+) -> dict[str, Any]:
+    turn = run_turn(
+        server,
+        thread_id,
+        [
+            {"type": "skill", "name": skill_name, "path": str(skill_path)},
+            {"type": "text", "text": case["prompt"]},
+        ],
+        lambda params: handle_fixture_tool(params, fixture_root),
+        on_item=item_activity,
+    )
+    grade = grade_output(case, turn.output)
+    fixture_reads = sum(
+        item.get("tool") == "wiki_fixture_read" and item.get("success") is True
+        for item in turn.tool_activity
+    )
+    grade["fixture_reads"] = fixture_reads
+    grade["fixture_read_required"] = require_fixture_read
+    if require_fixture_read:
+        grade["passed"] = grade["passed"] and fixture_reads > 0
+    return {
+        "case_id": case["id"],
+        "repeat": repeat,
+        "warm": repeat > 1,
+        "turn_status": turn.status,
+        "error": turn.error,
+        "token_usage": turn.token_usage,
+        "token_accounting": turn.token_accounting,
+        "usage_updates": turn.usage_updates,
+        "latency_ms": turn.latency_ms,
+        "ttft_ms": turn.ttft_ms,
+        "compactions": turn.compactions,
+        "tool_calls": len(turn.tool_activity),
+        "tool_activity": turn.tool_activity,
+        "output_chars": len(turn.output),
+        "output_excerpt": turn.output[:500],
+        "quality": grade,
+    }
+
+
+def summarize_runs(runs: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    rows = list(runs)
+
+    def total(key: str) -> int:
+        return sum(int(row["token_usage"].get(key, 0)) for row in rows)
+
+    def total_float(key: str) -> float:
+        return sum(float(row.get(key, 0.0)) for row in rows)
+
+    latencies = [float(row["latency_ms"]) for row in rows]
+    ttfts = [float(row["ttft_ms"]) for row in rows if row["ttft_ms"] is not None]
+    input_tokens = total("input_tokens")
+    cached = total("cached_input_tokens")
+    summary = {
+        "turns": len(rows),
+        "quality_passes": sum(bool(row["quality"]["passed"]) for row in rows),
+        "completed_turns": sum(row["turn_status"] == "completed" for row in rows),
+        "total_tokens": total("total_tokens"),
+        "input_tokens": input_tokens,
+        "cached_input_tokens": cached,
+        "uncached_input_tokens": total("uncached_input_tokens"),
+        "output_tokens": total("output_tokens"),
+        "reasoning_output_tokens": total("reasoning_output_tokens"),
+        "cache_read_ratio": round(cached / input_tokens, 4) if input_tokens else 0.0,
+        "median_latency_ms": round(statistics.median(latencies), 1) if latencies else None,
+        "median_ttft_ms": round(statistics.median(ttfts), 1) if ttfts else None,
+        "compactions": sum(int(row["compactions"]) for row in rows),
+        "tool_calls": sum(int(row["tool_calls"]) for row in rows),
+        "fixture_reads": sum(int(row["quality"].get("fixture_reads", 0)) for row in rows),
+    }
+    if any("provider_payload_bytes" in row for row in rows):
+        summary["provider_payload_bytes"] = sum(
+            int(row.get("provider_payload_bytes", 0)) for row in rows
+        )
+        summary["provider_payload_chars"] = sum(
+            int(row.get("provider_payload_chars", 0)) for row in rows
+        )
+        summary["provider_payload_estimated_tokens"] = sum(
+            int(row.get("provider_payload_estimated_tokens", 0)) for row in rows
+        )
+        summary["provider_requests"] = sum(
+            int(row.get("provider_requests", 0)) for row in rows
+        )
+        summary["usage_available"] = input_tokens > 0
+    if any("cache_creation_input_tokens" in row["token_usage"] for row in rows):
+        summary["base_input_tokens"] = total("base_input_tokens")
+        summary["cache_creation_input_tokens"] = total("cache_creation_input_tokens")
+        summary["cache_read_input_tokens"] = total("cache_read_input_tokens")
+        summary["total_cost_usd"] = round(total_float("cost_usd"), 8)
+        api_durations = [
+            float(row["duration_api_ms"])
+            for row in rows
+            if row.get("duration_api_ms") is not None
+        ]
+        summary["median_duration_api_ms"] = (
+            round(statistics.median(api_durations), 1) if api_durations else None
+        )
+    return summary
+
+
+def prepare_fixture_project(root: Path, workspace: Path) -> tuple[Path, str]:
+    """Copy the golden wiki into ``workspace/project/.wiki``; return it and its digest."""
+    fixture_source = root / FIXTURE
+    if not fixture_source.is_dir():
+        raise ValueError(f"benchmark fixture is missing: {fixture_source}")
+    project = workspace / "project"
+    project.mkdir()
+    shutil.copytree(fixture_source, project / ".wiki")
+    return project, tree_digest(project / ".wiki")
+
+
+def finish_report(
+    root: Path,
+    cases_path: Path,
+    project: Path,
+    before: str,
+    runs: list[dict[str, Any]],
+    repeats: int,
+    fields: dict[str, Any],
+    extra_gate: Callable[[dict[str, Any]], bool] | None = None,
+) -> dict[str, Any]:
+    """Shared epilogue: fixture immutability, summary, pass gate, common fields."""
+    fixture_changed = before != tree_digest(project / ".wiki")
+    for row in runs:
+        row["fixture_changed"] = fixture_changed
+        if fixture_changed:
+            row["quality"]["passed"] = False
+    summary = summarize_runs(runs)
+    summary["fixture_changed"] = fixture_changed
+    summary["passed"] = (
+        not fixture_changed
+        and summary["turns"] == summary["quality_passes"]
+        and summary["turns"] == summary["completed_turns"]
+        and (extra_gate is None or extra_gate(summary))
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": utc_now(),
+        "git_commit": git_commit(root),
+        "cases": display_path(cases_path, root),
+        "cases_sha256": file_digest(cases_path),
+        "fixture": FIXTURE,
+        "fixture_sha256": before,
+        "repeats_per_case": repeats,
+        **fields,
+        "runs": runs,
+        "summary": summary,
+    }
+
+
+def run_live_benchmark(
+    args: argparse.Namespace,
+    root: Path,
+    cases_path: Path,
+    selected: set[str] | None,
+    workspace: Path,
+) -> dict[str, Any]:
+    cases = load_cases(cases_path, selected)
+    profile = args.profile
+    skill_name = "wiki-query" if profile == "query" else "wiki"
+    skill_path = (
+        root / "plugins/llm-wiki/skills/wiki-query/SKILL.md"
+        if profile == "query"
+        else root / "plugins/llm-wiki/skills/wiki/SKILL.md"
+    )
+    if not skill_path.is_file():
+        raise ValueError(f"Codex skill is missing: {skill_path}")
+    # Resolved before any model call: a version lookup must never be the
+    # reason a paid run's report is lost afterwards.
+    version = cli_version(args.server_command, {"codex"}, "test-server")
+    project, before = prepare_fixture_project(root, workspace)
+    server = AppServer(args.server_command, isolated_codex_env(workspace), args.timeout)
+    runs: list[dict[str, Any]] = []
+    actual_models: set[str] = set()
+    providers: set[str] = set()
+    try:
+        initialize(server, "llm-wiki-token-benchmark", "llm-wiki token benchmark")
+        for case in cases:
+            params: dict[str, Any] = {
+                "cwd": str(project),
+                "approvalPolicy": "never",
+                "sandbox": "read-only",
+                "ephemeral": True,
+                "dynamicTools": [fixture_tool_spec()],
+            }
+            if args.model:
+                params["model"] = args.model
+            thread_id, thread = start_thread(server, params)
+            if thread.get("model"):
+                actual_models.add(thread["model"])
+            if thread.get("modelProvider"):
+                providers.add(thread["modelProvider"])
+            for repeat in range(1, args.repeats + 1):
+                runs.append(
+                    run_case_turn(
+                        server,
+                        thread_id,
+                        skill_name,
+                        skill_path,
+                        project / ".wiki",
+                        case,
+                        repeat,
+                        repeat == 1,
+                    )
+                )
+    finally:
+        server.close()
+    return finish_report(
+        root,
+        cases_path,
+        project,
+        before,
+        runs,
+        args.repeats,
+        {
+            "kind": "codex_app_server",
+            "codex_version": version,
+            "server_command": args.server_command,
+            "profile": profile,
+            "skill": display_path(skill_path, root),
+            "model_requested": args.model,
+            "models_observed": sorted(actual_models),
+            "model_providers": sorted(providers),
+            "isolated_codex_home": True,
+        },
+    )
+
+
+def path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def parse_claude_stream(
+    stdout: str,
+    stderr: str,
+    returncode: int,
+    case: dict[str, Any],
+    repeat: int,
+    fixture_root: Path,
+    expected_tools: set[str],
+    route: str,
+) -> tuple[dict[str, Any], set[str]]:
+    events: list[dict[str, Any]] = []
+    for number, line in enumerate(stdout.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"non-JSON Claude output on line {number}: {line[:200]}") from exc
+    result_events = [event for event in events if event.get("type") == "result"]
+    if not result_events:
+        detail = stderr.strip()[-2000:]
+        raise ValueError(f"Claude emitted no result event (exit {returncode}): {detail}")
+    result = result_events[-1]
+    models: set[str] = set(result.get("modelUsage", {}).keys())
+    tool_activity: list[dict[str, Any]] = []
+    fixture_reads: set[str] = set()
+    tools_observed: set[str] = set()
+    permission_modes: set[str] = set()
+    wiki_plugin_loaded = False
+    for event in events:
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            if event.get("model"):
+                models.add(event["model"])
+            tools_observed.update(event.get("tools", []))
+            if event.get("permissionMode"):
+                permission_modes.add(event["permissionMode"])
+            wiki_plugin_loaded = any(
+                plugin.get("name") == "wiki" for plugin in event.get("plugins", [])
+            )
+        if event.get("type") == "assistant":
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") != "tool_use":
+                    continue
+                tool_input = block.get("input")
+                if isinstance(tool_input, dict):
+                    tool_input = dict(tool_input)
+                    file_path = tool_input.get("file_path")
+                    if file_path and path_is_within(Path(file_path), fixture_root):
+                        relative = Path(file_path).resolve().relative_to(
+                            fixture_root.resolve()
+                        )
+                        tool_input["file_path"] = f".wiki/{relative}"
+                activity = {
+                    "type": "tool_use",
+                    "tool": block.get("name"),
+                    "input": tool_input,
+                }
+                tool_activity.append(activity)
+        if event.get("type") != "user":
+            continue
+        tool_result = event.get("tool_use_result")
+        if not isinstance(tool_result, dict):
+            continue
+        file_info = tool_result.get("file")
+        if not isinstance(file_info, dict) or not file_info.get("filePath"):
+            continue
+        path = Path(file_info["filePath"])
+        if path_is_within(path, fixture_root):
+            fixture_reads.add(path.resolve().relative_to(fixture_root.resolve()).as_posix())
+    output = result.get("result") or ""
+    grade = grade_output(case, output)
+    grade["fixture_reads"] = len(fixture_reads)
+    grade["fixture_read_required"] = True
+    grade["passed"] = grade["passed"] and bool(fixture_reads)
+    grade["tool_surface_valid"] = tools_observed == expected_tools
+    grade["wiki_plugin_loaded"] = wiki_plugin_loaded
+    grade["route"] = route
+    grade["passed"] = (
+        grade["passed"] and grade["tool_surface_valid"] and wiki_plugin_loaded
+    )
+    usage = result.get("usage", {})
+    base_input = int(usage.get("input_tokens", 0))
+    cache_creation = int(usage.get("cache_creation_input_tokens", 0))
+    cache_read = int(usage.get("cache_read_input_tokens", 0))
+    output_tokens = int(usage.get("output_tokens", 0))
+    total_input = base_input + cache_creation + cache_read
+    success = (
+        returncode == 0
+        and result.get("subtype") == "success"
+        and not result.get("is_error", False)
+    )
+    permission_denials = result.get("permission_denials", [])
+    grade["passed"] = grade["passed"] and success and not permission_denials
+    return {
+        "case_id": case["id"],
+        "repeat": repeat,
+        "warm": repeat > 1,
+        "turn_status": "completed" if success else "failed",
+        "error": None if success else result.get("result") or stderr.strip()[-1000:],
+        "token_usage": {
+            "total_tokens": total_input + output_tokens,
+            "input_tokens": total_input,
+            "cached_input_tokens": cache_read,
+            "uncached_input_tokens": base_input + cache_creation,
+            "base_input_tokens": base_input,
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
+            "output_tokens": output_tokens,
+            "reasoning_output_tokens": 0,
+        },
+        "latency_ms": float(result.get("duration_ms", 0)),
+        "duration_api_ms": float(result.get("duration_api_ms", 0)),
+        "ttft_ms": result.get("ttft_ms"),
+        "cost_usd": float(result.get("total_cost_usd", 0.0)),
+        "compactions": 0,
+        "tool_calls": len(tool_activity),
+        "tool_activity": tool_activity,
+        "permission_denials": permission_denials,
+        "permission_modes_observed": sorted(permission_modes),
+        "tools_observed": sorted(tools_observed),
+        "output_chars": len(output),
+        "output_excerpt": output[:500],
+        "quality": grade,
+    }, models
+
+
+def run_claude_benchmark(
+    args: argparse.Namespace,
+    root: Path,
+    cases_path: Path,
+    selected: set[str] | None,
+    workspace: Path,
+) -> dict[str, Any]:
+    cases = load_cases(cases_path, selected)
+    plugin_dir = root / "claude-plugin"
+    if not plugin_dir.is_dir():
+        raise ValueError(f"Claude plugin is missing: {plugin_dir}")
+    version = cli_version(args.claude_command, {"claude"}, "test-cli")
+    project, before = prepare_fixture_project(root, workspace)
+    route = args.route
+    runs: list[dict[str, Any]] = []
+    actual_models: set[str] = set()
+    expected_tools = (
+        {"Read", "Glob", "Grep"} if route == "command" else {"Read", "Skill"}
+    )
+    tool_csv = ",".join(sorted(expected_tools))
+    for case in cases:
+        for repeat in range(1, args.repeats + 1):
+            prompt = (
+                case.get("claude_command_prompt")
+                if route == "command"
+                else case["prompt"]
+            )
+            if not isinstance(prompt, str) or not prompt:
+                raise ValueError(
+                    f"case {case['id']} has no Claude command-route prompt"
+                )
+            command = [
+                *resolve_command(args.claude_command),
+                "-p",
+                prompt,
+                "--plugin-dir",
+                str(plugin_dir),
+                "--model",
+                args.model,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--tools",
+                tool_csv,
+                "--allowedTools",
+                tool_csv,
+                "--permission-mode",
+                "dontAsk",
+                "--setting-sources",
+                "project",
+                "--strict-mcp-config",
+                "--mcp-config",
+                '{"mcpServers":{}}',
+                "--exclude-dynamic-system-prompt-sections",
+                "--no-session-persistence",
+                "--no-chrome",
+                "--max-budget-usd",
+                str(args.max_budget_usd),
+            ]
+            try:
+                proc = subprocess.run(
+                    command,
+                    cwd=project,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=args.timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError(
+                    f"Claude timed out after {args.timeout}s for case {case['id']}"
+                ) from exc
+            row, observed = parse_claude_stream(
+                proc.stdout,
+                proc.stderr,
+                proc.returncode,
+                case,
+                repeat,
+                project / ".wiki",
+                expected_tools,
+                route,
+            )
+            runs.append(row)
+            actual_models.update(observed)
+    return finish_report(
+        root,
+        cases_path,
+        project,
+        before,
+        runs,
+        args.repeats,
+        {
+            "kind": "claude_code",
+            "claude_version": version,
+            "claude_command": args.claude_command,
+            "route": route,
+            "model_requested": args.model,
+            "models_observed": sorted(actual_models),
+            "model_providers": ["anthropic"],
+            "max_budget_usd_per_turn": args.max_budget_usd,
+        },
+    )
+
+
+def read_jsonl_process(
+    command: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    timeout: float,
+) -> tuple[list[Event], str, int, float, float]:
+    started = time.monotonic()
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        encoding="utf-8",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_queue: queue.Queue[Event | BaseException | None] = queue.Queue()
+    stderr_lines: list[str] = []
+
+    def read_stdout() -> None:
+        try:
+            for number, line in enumerate(process.stdout, 1):
+                if not line.strip():
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"non-JSON Pi output on line {number}: {line[:200]}"
+                    ) from exc
+                stdout_queue.put(Event(time.monotonic(), payload))
+        except BaseException as exc:  # surfaced on the main thread
+            stdout_queue.put(exc)
+        finally:
+            stdout_queue.put(None)
+
+    def read_stderr() -> None:
+        for line in process.stderr:
+            stderr_lines.append(line.rstrip())
+            if len(stderr_lines) > 200:
+                del stderr_lines[:40]
+
+    stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    events: list[Event] = []
+    deadline = started + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                item = stdout_queue.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise subprocess.TimeoutExpired(command, timeout) from exc
+            if item is None:
+                break
+            if isinstance(item, BaseException):
+                raise item
+            events.append(item)
+        remaining = max(0.01, deadline - time.monotonic())
+        returncode = process.wait(timeout=remaining)
+    except subprocess.TimeoutExpired as exc:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+        raise ValueError(f"Pi timed out after {timeout}s") from exc
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        raise
+    finally:
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+    completed = time.monotonic()
+    return events, "\n".join(stderr_lines), returncode, started, completed
+
+
+def message_text(message: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for block in message.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text", "")))
+    return "".join(parts)
+
+
+def load_payload_metrics(path: Path) -> dict[str, int]:
+    totals = {
+        "provider_payload_bytes": 0,
+        "provider_payload_chars": 0,
+        "provider_payload_estimated_tokens": 0,
+        "provider_requests": 0,
+    }
+    if not path.is_file():
+        return totals
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid Pi payload metric on line {number}") from exc
+        totals["provider_payload_bytes"] += int(row.get("payload_bytes", 0))
+        totals["provider_payload_chars"] += int(row.get("payload_chars", 0))
+        totals["provider_payload_estimated_tokens"] += int(
+            row.get("estimated_tokens", 0)
+        )
+        totals["provider_requests"] += 1
+    return totals
+
+
+def normalize_fixture_path(
+    value: Any, project: Path, fixture_root: Path
+) -> tuple[str | None, bool]:
+    if not isinstance(value, str) or not value:
+        return None, False
+    path = Path(value).expanduser()
+    candidate = path if path.is_absolute() else project / path
+    try:
+        relative = candidate.resolve().relative_to(fixture_root.resolve())
+    except ValueError:
+        return value, False
+    return f".wiki/{relative}", True
+
+
+def parse_pi_stream(
+    events: list[Event],
+    stderr: str,
+    returncode: int,
+    started: float,
+    completed: float,
+    case: dict[str, Any],
+    repeat: int,
+    project: Path,
+    fixture_root: Path,
+    metrics_path: Path,
+) -> tuple[dict[str, Any], set[str], set[str]]:
+    final_output = ""
+    final_stop_reason = "unknown"
+    first_output_at: float | None = None
+    assistant_messages: list[dict[str, Any]] = []
+    tool_starts: dict[str, dict[str, Any]] = {}
+    tool_activity: list[dict[str, Any]] = []
+    fixture_reads: set[str] = set()
+    models: set[str] = set()
+    providers: set[str] = set()
+    compactions = 0
+    agent_ended = False
+
+    for event in events:
+        payload = event.payload
+        event_type = payload.get("type")
+        if event_type == "message_update":
+            update = payload.get("assistantMessageEvent", {})
+            if update.get("type") == "text_delta" and update.get("delta"):
+                if first_output_at is None:
+                    first_output_at = event.received_at
+        elif event_type == "message_end":
+            message = payload.get("message", {})
+            if message.get("role") != "assistant":
+                continue
+            assistant_messages.append(message)
+            if message.get("model"):
+                models.add(str(message["model"]))
+            if message.get("provider"):
+                providers.add(str(message["provider"]))
+            text = message_text(message)
+            if text:
+                final_output = text
+                final_stop_reason = str(message.get("stopReason", "unknown"))
+        elif event_type == "tool_execution_start":
+            tool_call_id = str(payload.get("toolCallId", ""))
+            tool_starts[tool_call_id] = {
+                "tool": payload.get("toolName"),
+                "args": payload.get("args", {}),
+            }
+        elif event_type == "tool_execution_end":
+            tool_call_id = str(payload.get("toolCallId", ""))
+            start = tool_starts.get(tool_call_id, {})
+            tool_name = str(payload.get("toolName") or start.get("tool") or "")
+            args = start.get("args", {})
+            if not isinstance(args, dict):
+                args = {}
+            raw_path = args.get("path", args.get("file_path"))
+            normalized_path, in_fixture = normalize_fixture_path(
+                raw_path, project, fixture_root
+            )
+            success = not bool(payload.get("isError", False))
+            activity = {
+                "type": "tool_execution",
+                "tool": tool_name,
+                "path": normalized_path,
+                "success": success,
+            }
+            tool_activity.append(activity)
+            if tool_name == "read" and success and in_fixture and normalized_path:
+                fixture_reads.add(normalized_path)
+        elif event_type == "auto_compaction_start":
+            compactions += 1
+        elif event_type == "agent_end":
+            agent_ended = True
+
+    usage = {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+    }
+    for message in assistant_messages:
+        row = message.get("usage", {})
+        if not isinstance(row, dict):
+            continue
+        for key in usage:
+            usage[key] += int(row.get(key, 0) or 0)
+    input_tokens = usage["input"]
+    cached_tokens = usage["cacheRead"]
+    success = (
+        returncode == 0
+        and agent_ended
+        and final_stop_reason == "stop"
+        and bool(final_output)
+    )
+    unexpected_tools = sorted(
+        {
+            str(activity.get("tool"))
+            for activity in tool_activity
+            if activity.get("tool") not in {"read", "grep", "find", "ls"}
+        }
+    )
+    grade = grade_output(case, final_output)
+    grade["fixture_reads"] = len(fixture_reads)
+    grade["fixture_read_required"] = True
+    grade["unexpected_tools_used"] = unexpected_tools
+    grade["read_only_tool_surface"] = not unexpected_tools
+    grade["passed"] = (
+        grade["passed"]
+        and success
+        and bool(fixture_reads)
+        and not unexpected_tools
+    )
+    payload_metrics = load_payload_metrics(metrics_path)
+    if payload_metrics["provider_requests"] == 0:
+        grade["passed"] = False
+    error = None
+    if not success:
+        error = stderr.strip()[-1000:] or f"Pi stopped with {final_stop_reason}"
+    row = {
+        "case_id": case["id"],
+        "repeat": repeat,
+        "warm": repeat > 1,
+        "turn_status": "completed" if success else "failed",
+        "error": error,
+        "token_usage": {
+            "total_tokens": usage["totalTokens"],
+            "input_tokens": input_tokens,
+            "cached_input_tokens": cached_tokens,
+            "uncached_input_tokens": max(0, input_tokens - cached_tokens),
+            "output_tokens": usage["output"],
+            "reasoning_output_tokens": 0,
+            "cache_write_input_tokens": usage["cacheWrite"],
+        },
+        "latency_ms": round((completed - started) * 1000, 1),
+        "ttft_ms": (
+            round((first_output_at - started) * 1000, 1)
+            if first_output_at is not None
+            else None
+        ),
+        "compactions": compactions,
+        "tool_calls": len(tool_activity),
+        "tool_activity": tool_activity,
+        "output_chars": len(final_output),
+        "output_excerpt": final_output[:500],
+        "quality": grade,
+        **payload_metrics,
+    }
+    return row, models, providers
+
+
+def resolve_root_path(root: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def write_ds4_models(
+    agent_dir: Path,
+    base_url: str,
+    model: str,
+    context_window: int,
+    max_tokens: int,
+) -> None:
+    config = {
+        "providers": {
+            "ds4": {
+                "baseUrl": base_url.rstrip("/"),
+                "apiKey": "local-ds4",
+                "api": "openai-completions",
+                "models": [
+                    {
+                        "id": model,
+                        "name": f"{model} (ds4 benchmark)",
+                        "reasoning": False,
+                        "input": ["text"],
+                        "contextWindow": context_window,
+                        "maxTokens": max_tokens,
+                        "compat": {
+                            "supportsStore": False,
+                            "supportsDeveloperRole": False,
+                            "supportsReasoningEffort": False,
+                            "supportsUsageInStreaming": False,
+                            "maxTokensField": "max_tokens",
+                            "supportsStrictMode": False,
+                        },
+                    }
+                ],
+            }
+        }
+    }
+    (agent_dir / "models.json").write_text(
+        json.dumps(config, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def run_ds4_benchmark(
+    args: argparse.Namespace,
+    root: Path,
+    cases_path: Path,
+    selected: set[str] | None,
+    workspace: Path,
+) -> dict[str, Any]:
+    cases = load_cases(cases_path, selected)
+    instruction = resolve_root_path(root, args.instruction)
+    payload_meter = root / "benchmarks/helpers/pi-payload-metrics.ts"
+    query_extension = root / "profiles/ds4/pi-query-tools.ts"
+    extension_paths = [resolve_root_path(root, value) for value in args.extension]
+    missing = [
+        str(path)
+        for path in [instruction, query_extension, payload_meter, *extension_paths]
+        if not path.exists()
+    ]
+    if missing:
+        raise ValueError(f"missing DS4 benchmark input(s): {', '.join(missing)}")
+    version = cli_version(args.pi_command, {"pi", "cli.js"}, "test-cli", full_command=True)
+    project, before = prepare_fixture_project(root, workspace)
+    home = workspace / "home"
+    agent_dir = workspace / "pi-agent"
+    home.mkdir()
+    agent_dir.mkdir()
+    write_ds4_models(
+        agent_dir, args.base_url, args.model, args.context_window, args.max_tokens
+    )
+    runs: list[dict[str, Any]] = []
+    actual_models: set[str] = set()
+    providers: set[str] = set()
+    for case in cases:
+        for repeat in range(1, args.repeats + 1):
+            metrics_path = workspace / f"{case['id']}-{repeat}-payload.jsonl"
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+            env["LLM_WIKI_PI_METRICS_PATH"] = str(metrics_path)
+            command = [
+                *shlex.split(args.pi_command),
+                "--mode",
+                "json",
+                "--no-session",
+                "--offline",
+                "--provider",
+                "ds4",
+                "--model",
+                args.model,
+                "--thinking",
+                "off",
+                "--tools",
+                "read,grep,find,ls",
+                "--no-extensions",
+            ]
+            for extension in [*extension_paths, query_extension, payload_meter]:
+                command.extend(["--extension", str(extension)])
+            command.extend(
+                [
+                    "--no-skills",
+                    "--no-prompt-templates",
+                    "--no-themes",
+                    "--append-system-prompt",
+                    str(instruction),
+                    case["prompt"],
+                ]
+            )
+            events, stderr, returncode, started, completed = read_jsonl_process(
+                command, project, env, args.timeout
+            )
+            row, observed_models, observed_providers = parse_pi_stream(
+                events,
+                stderr,
+                returncode,
+                started,
+                completed,
+                case,
+                repeat,
+                project,
+                project / ".wiki",
+                metrics_path,
+            )
+            runs.append(row)
+            actual_models.update(observed_models)
+            providers.update(observed_providers)
+    return finish_report(
+        root,
+        cases_path,
+        project,
+        before,
+        runs,
+        args.repeats,
+        {
+            "kind": "pi_ds4",
+            "pi_version": version,
+            "pi_command": args.pi_command,
+            "base_url": args.base_url,
+            "model_requested": args.model,
+            "models_observed": sorted(actual_models),
+            "model_providers": sorted(providers),
+            "instruction": display_path(instruction, root),
+            "instruction_bytes": instruction.stat().st_size,
+            "instruction_sha256": hashlib.sha256(instruction.read_bytes()).hexdigest(),
+            "query_extension": display_path(query_extension, root),
+            "extra_extensions": [display_path(path, root) for path in extension_paths],
+            "tool_surface": ["read", "grep", "find", "ls"],
+            "isolated_pi_agent_dir": True,
+        },
+        extra_gate=lambda summary: summary.get("provider_requests", 0) > 0,
+    )
+
+
+def percentage_delta(baseline: float, candidate: float) -> float | None:
+    if baseline == 0:
+        return None if candidate else 0.0
+    return round((candidate - baseline) * 100 / baseline, 2)
+
+
+def compare_reports(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    max_input_regression_pct: float,
+    max_cost_regression_pct: float = 5.0,
+) -> dict[str, Any]:
+    base = baseline["summary"]
+    cand = candidate["summary"]
+    metric_names = [
+        "total_tokens",
+        "input_tokens",
+        "cached_input_tokens",
+        "uncached_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+        "base_input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "total_cost_usd",
+        "median_latency_ms",
+        "median_ttft_ms",
+        "median_duration_api_ms",
+        "provider_payload_bytes",
+        "provider_payload_chars",
+        "provider_payload_estimated_tokens",
+        "provider_requests",
+    ]
+    metrics: dict[str, Any] = {}
+    for name in metric_names:
+        before = base.get(name)
+        after = cand.get(name)
+        metrics[name] = {
+            "baseline": before,
+            "candidate": after,
+            "delta": (after - before) if before is not None and after is not None else None,
+            "delta_pct": (
+                percentage_delta(float(before), float(after))
+                if before is not None and after is not None
+                else None
+            ),
+        }
+    base_models = baseline.get("models_observed", [])
+    candidate_models = candidate.get("models_observed", [])
+    same_model = base_models == candidate_models
+    same_turns = base.get("turns") == cand.get("turns")
+    base_cases = Counter(
+        (row.get("case_id"), row.get("repeat")) for row in baseline.get("runs", [])
+    )
+    candidate_cases = Counter(
+        (row.get("case_id"), row.get("repeat")) for row in candidate.get("runs", [])
+    )
+    quality_preserved = cand.get("quality_passes", 0) >= base.get("quality_passes", 0)
+    is_ds4 = baseline.get("kind") == candidate.get("kind") == "pi_ds4"
+    harness_mode_key = {
+        "codex_app_server": "profile",
+        "claude_code": "route",
+    }.get(baseline.get("kind"))
+    same_harness_mode = (
+        baseline.get(harness_mode_key) == candidate.get(harness_mode_key)
+        if harness_mode_key
+        else True
+    )
+    same_case_corpus = bool(baseline.get("cases_sha256")) and baseline.get(
+        "cases_sha256"
+    ) == candidate.get("cases_sha256")
+    same_fixture_corpus = bool(baseline.get("fixture_sha256")) and baseline.get(
+        "fixture_sha256"
+    ) == candidate.get("fixture_sha256")
+    context_metric = "provider_payload_bytes" if is_ds4 else "uncached_input_tokens"
+    context_delta = metrics[context_metric]["delta_pct"]
+    input_gate = context_delta is not None and context_delta <= max_input_regression_pct
+    gates = {
+        "baseline_valid": bool(base.get("passed")),
+        "candidate_valid": bool(cand.get("passed")),
+        "same_backend": baseline.get("kind") == candidate.get("kind"),
+        "same_harness_mode": same_harness_mode,
+        "same_case_corpus": same_case_corpus,
+        "same_fixture_corpus": same_fixture_corpus,
+        "same_model": same_model,
+        "same_turn_count": same_turns,
+        "same_case_matrix": base_cases == candidate_cases,
+        "candidate_completed": cand.get("completed_turns") == cand.get("turns"),
+        "quality_preserved": quality_preserved,
+        "fixture_unchanged": not cand.get("fixture_changed", False),
+        (
+            "provider_payload_regression_within_pct"
+            if is_ds4
+            else "uncached_input_regression_within_pct"
+        ): input_gate,
+    }
+    cost_delta = metrics["total_cost_usd"]["delta_pct"]
+    if cost_delta is not None:
+        gates["cost_regression_within_pct"] = cost_delta <= max_cost_regression_pct
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "benchmark_comparison",
+        "generated_at": utc_now(),
+        "baseline_commit": baseline.get("git_commit"),
+        "candidate_commit": candidate.get("git_commit"),
+        "max_uncached_input_regression_pct": max_input_regression_pct,
+        "context_regression_metric": context_metric,
+        "max_cost_regression_pct": max_cost_regression_pct,
+        "metrics": metrics,
+        "gates": gates,
+        "passed": all(gates.values()),
+    }
+
+
+def merge_live_reports(reports: list[dict[str, Any]], variant: str) -> dict[str, Any]:
+    first = reports[0]
+    runs: list[dict[str, Any]] = []
+    for index, report in enumerate(reports, 1):
+        for row in report["runs"]:
+            copied = dict(row)
+            copied["sequence_run"] = index
+            runs.append(copied)
+    summary = summarize_runs(runs)
+    summary["fixture_changed"] = any(
+        report["summary"].get("fixture_changed", False) for report in reports
+    )
+    summary["passed"] = (
+        not summary["fixture_changed"]
+        and summary["turns"] == summary["quality_passes"]
+        and summary["turns"] == summary["completed_turns"]
+    )
+    return {
+        **{key: value for key, value in first.items() if key not in {"runs", "summary"}},
+        "variant": variant,
+        "runs": runs,
+        "summary": summary,
+    }
+
+
+def parse_common_live(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cases", help="JSONL benchmark cases")
+    parser.add_argument("--case", action="append", dest="selected_cases")
+    parser.add_argument("--model", help="explicit Codex model; default uses Codex config")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "query"),
+        default="full",
+        help="full write-capable wiki skill or explicit read-only query preset",
+    )
+    parser.add_argument("--repeats", type=int, default=1, help="turns per case in one thread")
+    parser.add_argument(
+        "--server-command",
+        default=DEFAULT_SERVER_COMMAND,
+        help="app-server command (used by deterministic fake-server tests too)",
+    )
+    parser.add_argument("--timeout", type=float, default=300.0, help="seconds per response/turn")
+
+
+def parse_common_claude(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cases", help="JSONL benchmark cases")
+    parser.add_argument("--case", action="append", dest="selected_cases")
+    parser.add_argument("--model", default="claude-sonnet-4-6")
+    parser.add_argument(
+        "--route",
+        choices=("skill", "command"),
+        default="skill",
+        help="benchmark natural skill activation or the real /wiki:query command",
+    )
+    parser.add_argument("--repeats", type=int, default=1, help="fresh Claude runs per case")
+    parser.add_argument(
+        "--claude-command",
+        default="claude",
+        help="Claude CLI command (used by deterministic fake-CLI tests too)",
+    )
+    parser.add_argument("--timeout", type=float, default=300.0, help="seconds per Claude run")
+    parser.add_argument(
+        "--max-budget-usd",
+        type=float,
+        default=0.50,
+        help="Claude CLI budget ceiling per case/repeat",
+    )
+
+
+def parse_common_ds4(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cases", help="JSONL benchmark cases")
+    parser.add_argument("--case", action="append", dest="selected_cases")
+    parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--repeats", type=int, default=1, help="fresh Pi runs per case")
+    parser.add_argument(
+        "--pi-command",
+        default=os.environ.get("LLM_WIKI_PI_COMMAND", "pi"),
+        help="Pi CLI command (used by deterministic fake-CLI tests too)",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("DS4_BASE_URL", "http://127.0.0.1:8000/v1"),
+    )
+    parser.add_argument(
+        "--extension",
+        action="append",
+        default=(
+            [os.environ["DS4_PI_EXTENSION"]]
+            if os.environ.get("DS4_PI_EXTENSION")
+            else []
+        ),
+        help="extra transport adapter loaded before the query adapter (repeatable)",
+    )
+    parser.add_argument("--context-window", type=int, default=85000)
+    parser.add_argument("--max-tokens", type=int, default=4096)
+    parser.add_argument("--timeout", type=float, default=300.0, help="seconds per Pi run")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    static = sub.add_parser("static", help="measure deterministic checked-in context budgets")
+    static.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
+    static.add_argument("--budgets", help="budget JSON (default: tests/budgets/token-budgets.json)")
+    static.add_argument("--output", default="-")
+    static.add_argument("--check", action="store_true", help="exit non-zero on budget failure")
+
+    live = sub.add_parser("live", help="run the cost-bearing Codex app-server benchmark")
+    live.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
+    parse_common_live(live)
+    live.add_argument("--output", default="-")
+
+    claude_live = sub.add_parser(
+        "claude-live", help="run the cost-bearing Claude Code benchmark"
+    )
+    claude_live.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
+    parse_common_claude(claude_live)
+    claude_live.add_argument("--output", default="-")
+
+    ds4_live = sub.add_parser(
+        "ds4-live", help="run the local DS4 benchmark through Pi"
+    )
+    ds4_live.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
+    parse_common_ds4(ds4_live)
+    ds4_live.add_argument(
+        "--instruction",
+        default="profiles/query-lite/SKILL.md",
+        help="system-prompt file, absolute or relative to --root",
+    )
+    ds4_live.add_argument("--output", default="-")
+
+    compare = sub.add_parser("compare", help="compare two live benchmark JSON reports")
+    compare.add_argument("baseline")
+    compare.add_argument("candidate")
+    compare.add_argument("--max-input-regression-pct", type=float, default=2.0)
+    compare.add_argument("--max-cost-regression-pct", type=float, default=5.0)
+    compare.add_argument("--output", default="-")
+    compare.add_argument("--check", action="store_true")
+
+    pair = sub.add_parser(
+        "pair", help="run baseline/candidate in AB/BA order and compare aggregate reports"
+    )
+    pair.add_argument("--baseline-root", required=True)
+    pair.add_argument("--candidate-root", required=True)
+    pair.add_argument("--output-dir", required=True)
+    pair.add_argument("--max-input-regression-pct", type=float, default=2.0)
+    pair.add_argument("--max-cost-regression-pct", type=float, default=5.0)
+    parse_common_live(pair)
+
+    claude_pair = sub.add_parser(
+        "claude-pair",
+        help="run Claude baseline/candidate in AB/BA order and compare aggregates",
+    )
+    claude_pair.add_argument("--baseline-root", required=True)
+    claude_pair.add_argument("--candidate-root", required=True)
+    claude_pair.add_argument("--output-dir", required=True)
+    claude_pair.add_argument("--max-input-regression-pct", type=float, default=2.0)
+    claude_pair.add_argument("--max-cost-regression-pct", type=float, default=5.0)
+    parse_common_claude(claude_pair)
+
+    ds4_pair = sub.add_parser(
+        "ds4-pair",
+        help="compare full and lite DS4 instructions in AB/BA order through Pi",
+    )
+    ds4_pair.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
+    ds4_pair.add_argument("--output-dir", required=True)
+    ds4_pair.add_argument(
+        "--baseline-instruction",
+        default="plugins/llm-wiki-opencode/skills/wiki-manager/SKILL.md",
+    )
+    ds4_pair.add_argument(
+        "--candidate-instruction",
+        default="profiles/query-lite/SKILL.md",
+    )
+    ds4_pair.add_argument("--max-input-regression-pct", type=float, default=2.0)
+    ds4_pair.add_argument("--max-cost-regression-pct", type=float, default=5.0)
+    parse_common_ds4(ds4_pair)
+    return parser
+
+
+def resolve_cases(root: Path, value: str | None) -> Path:
+    return (
+        Path(value).expanduser().resolve()
+        if value
+        else root / "benchmarks/cases/wiki-query.jsonl"
+    )
+
+
+def resolve_ds4_cases(root: Path, value: str | None) -> Path:
+    return (
+        Path(value).expanduser().resolve()
+        if value
+        else root / "benchmarks/cases/ds4-wiki-query.jsonl"
+    )
+
+
+@dataclass(frozen=True)
+class Backend:
+    """One live lane: its report kind, workspace policy, case file, and runner.
+
+    ``run(args, root, cases_path, selected, workspace)`` returns the report
+    dict; it never writes it and never creates its own temporary directory.
+    """
+
+    kind: str
+    workspace_prefix: str
+    # Keep the Claude and Pi projects beside the checkout so an outer nono
+    # sandbox can permit their Read tools without granting the real wiki.
+    workspace_beside_checkout: bool
+    cases: Callable[[Path, str | None], Path]
+    run: Callable[
+        [argparse.Namespace, Path, Path, set[str] | None, Path], dict[str, Any]
+    ]
+
+
+CODEX_BACKEND = Backend(
+    "codex_app_server", "llm-wiki-token-bench-", False, resolve_cases, run_live_benchmark
+)
+CLAUDE_BACKEND = Backend(
+    "claude_code", ".claude-wiki-token-bench-", True, resolve_cases, run_claude_benchmark
+)
+DS4_BACKEND = Backend(
+    "pi_ds4", ".ds4-wiki-token-bench-", True, resolve_ds4_cases, run_ds4_benchmark
+)
+
+
+@contextmanager
+def benchmark_workspace(backend: Backend, root: Path) -> Iterator[Path]:
+    options: dict[str, Any] = {
+        "prefix": backend.workspace_prefix,
+        "ignore_cleanup_errors": True,
+    }
+    if backend.workspace_beside_checkout:
+        options["dir"] = root.parent
+    with tempfile.TemporaryDirectory(**options) as temp:
+        yield Path(temp)
+
+
+def run_variant(
+    backend: Backend,
+    args: argparse.Namespace,
+    root: Path,
+    cases_path: Path,
+    selected: set[str] | None,
+    output: str,
+) -> dict[str, Any]:
+    """Run one report in a fresh workspace; write it before the workspace goes.
+
+    This is the only place a live report is written, and it happens inside
+    the workspace context. A cleanup failure after the model calls (a child
+    still holding a file open on Windows) can no longer discard a paid run;
+    ``ignore_cleanup_errors`` then leaves the directory behind instead.
+    """
+    with benchmark_workspace(backend, root) as workspace:
+        report = backend.run(args, root, cases_path, selected, workspace)
+        write_json(report, output)
+    return report
+
+
+def require_repeats(args: argparse.Namespace) -> None:
+    if args.repeats < 1:
+        raise SystemExit("--repeats must be at least 1")
+
+
+def selected_cases(args: argparse.Namespace) -> set[str] | None:
+    return set(args.selected_cases or []) or None
+
+
+def resolve_root(value: str | None) -> Path:
+    return Path(value).expanduser().resolve() if value else repo_root()
+
+
+def run_backend(backend: Backend, args: argparse.Namespace) -> int:
+    require_repeats(args)
+    root = resolve_root(args.root)
+    report = run_variant(
+        backend, args, root, backend.cases(root, args.cases), selected_cases(args), args.output
+    )
+    return 0 if report["summary"]["passed"] else 1
+
+
+def ab_ba(baseline: Any, candidate: Any) -> list[tuple[str, Any]]:
+    """Baseline, candidate, candidate, baseline: cancels simple ordering bias."""
+    return [
+        ("baseline", baseline),
+        ("candidate", candidate),
+        ("candidate", candidate),
+        ("baseline", baseline),
+    ]
+
+
+def run_pair(
+    backend: Backend,
+    args: argparse.Namespace,
+    cases_path: Path,
+    sequence: list[tuple[str, Path, argparse.Namespace]],
+) -> int:
+    """Run an AB/BA sequence of (variant, root, args) and compare the aggregates."""
+    require_repeats(args)
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    selected = selected_cases(args)
+    by_variant: dict[str, list[dict[str, Any]]] = {"baseline": [], "candidate": []}
+    for index, (variant, root, variant_args) in enumerate(sequence, 1):
+        report = run_variant(
+            backend,
+            variant_args,
+            root,
+            cases_path,
+            selected,
+            str(output_dir / f"{index:02d}-{variant}.json"),
+        )
+        by_variant[variant].append(report)
+    baseline = merge_live_reports(by_variant["baseline"], "baseline")
+    candidate = merge_live_reports(by_variant["candidate"], "candidate")
+    write_json(baseline, str(output_dir / "baseline-aggregate.json"))
+    write_json(candidate, str(output_dir / "candidate-aggregate.json"))
+    comparison = compare_reports(
+        baseline,
+        candidate,
+        args.max_input_regression_pct,
+        args.max_cost_regression_pct,
+    )
+    write_json(comparison, str(output_dir / "comparison.json"))
+    return 0 if comparison["passed"] else 1
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.command == "static":
+        root = resolve_root(args.root)
+        budgets = (
+            Path(args.budgets).expanduser().resolve()
+            if args.budgets
+            else root / "tests/budgets/token-budgets.json"
+        )
+        report = static_report(root, budgets)
+        write_json(report, args.output)
+        return 1 if args.check and not report["passed"] else 0
+
+    if args.command == "live":
+        return run_backend(CODEX_BACKEND, args)
+    if args.command == "claude-live":
+        return run_backend(CLAUDE_BACKEND, args)
+    if args.command == "ds4-live":
+        return run_backend(DS4_BACKEND, args)
+
+    if args.command == "compare":
+        baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+        candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
+        report = compare_reports(
+            baseline,
+            candidate,
+            args.max_input_regression_pct,
+            args.max_cost_regression_pct,
+        )
+        write_json(report, args.output)
+        return 1 if args.check and not report["passed"] else 0
+
+    if args.command in {"pair", "claude-pair"}:
+        backend = CODEX_BACKEND if args.command == "pair" else CLAUDE_BACKEND
+        base_root = resolve_root(args.baseline_root)
+        candidate_root = resolve_root(args.candidate_root)
+        return run_pair(
+            backend,
+            args,
+            resolve_cases(candidate_root, args.cases),
+            [(variant, root, args) for variant, root in ab_ba(base_root, candidate_root)],
+        )
+
+    if args.command == "ds4-pair":
+        root = resolve_root(args.root)
+        sequence = [
+            (variant, root, argparse.Namespace(**{**vars(args), "instruction": instruction}))
+            for variant, instruction in ab_ba(
+                args.baseline_instruction, args.candidate_instruction
+            )
+        ]
+        return run_pair(DS4_BACKEND, args, resolve_ds4_cases(root, args.cases), sequence)
+
+    raise AssertionError(args.command)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (AppServerError, ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2)

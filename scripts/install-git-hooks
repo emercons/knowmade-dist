@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Point git at the repository's versioned hooks.
+#
+# The checks that used to run as a GitHub Actions job now run here, so the hook
+# has to be installed once per clone. Hooks live in .githooks/ and are tracked,
+# so they stay reviewable and travel with the repository.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+current="$(git config --get core.hooksPath || true)"
+if [ "$current" = ".githooks" ]; then
+  echo "already installed: core.hooksPath=.githooks"
+else
+  git config core.hooksPath .githooks
+  echo "installed: core.hooksPath=.githooks (was ${current:-unset})"
+fi
+
+for hook in .githooks/*; do
+  [ -f "$hook" ] || continue
+  chmod +x "$hook"
+  echo "  enabled: $hook"
+done
+
+echo
+echo "The pre-push hook runs scripts/run-checks. Bypass a single push with"
+echo "  git push --no-verify"

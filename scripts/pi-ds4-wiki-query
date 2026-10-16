@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROFILE="$ROOT/profiles/query-lite/SKILL.md"
+ADAPTER="$ROOT/profiles/ds4/pi-query-tools.ts"
+AGENT_DIR="${PI_CODING_AGENT_DIR:-${LLM_WIKI_PI_DS4_STATE_DIR:-$HOME/.pi-ds4}}"
+BASE_URL="${DS4_BASE_URL:-http://127.0.0.1:8000/v1}"
+MODEL="${DS4_MODEL:-deepseek-v4-flash}"
+CONTEXT_WINDOW="${DS4_PI_CONTEXT_WINDOW:-85000}"
+MODEL_MAX_TOKENS="${DS4_PI_MAX_TOKENS:-4096}"
+PYTHON="${PYTHON:-python3}"
+DRY_RUN=0
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+  shift
+fi
+
+if [[ ! -f "$PROFILE" || ! -f "$ADAPTER" ]]; then
+  echo "llm-wiki DS4 query profile is incomplete under $ROOT" >&2
+  exit 1
+fi
+
+MODELS="$AGENT_DIR/models.json"
+if [[ -f "$MODELS" ]]; then
+  if ! "$PYTHON" - "$MODELS" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+raise SystemExit(0 if "ds4" in data.get("providers", {}) else 1)
+PY
+  then
+    echo "$MODELS exists but has no ds4 provider; set PI_CODING_AGENT_DIR to a DS4 Pi state directory." >&2
+    exit 1
+  fi
+elif (( DRY_RUN )); then
+  # A dry run prints the command and touches nothing: the state directory and
+  # its models.json are seeded only by a real launch.
+  echo "note: $MODELS would be seeded with the ds4 provider (not written in --dry-run)" >&2
+else
+  mkdir -p "$AGENT_DIR"
+  "$PYTHON" - "$MODELS" "$BASE_URL" "$MODEL" "$CONTEXT_WINDOW" "$MODEL_MAX_TOKENS" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+target, base_url, model, context, max_tokens = sys.argv[1:]
+data = {
+    "providers": {
+        "ds4": {
+            "baseUrl": base_url.rstrip("/"),
+            "apiKey": "local-ds4",
+            "api": "openai-completions",
+            "models": [{
+                "id": model,
+                "name": f"{model} (ds4)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": int(context),
+                "maxTokens": int(max_tokens),
+                "compat": {
+                    "supportsStore": False,
+                    "supportsDeveloperRole": False,
+                    "supportsReasoningEffort": False,
+                    "supportsUsageInStreaming": False,
+                    "maxTokensField": "max_tokens",
+                    "supportsStrictMode": False,
+                },
+            }],
+        }
+    }
+}
+Path(target).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+fi
+
+if [[ -n "${PI_CLI:-}" ]]; then
+  PI=(node "$PI_CLI")
+else
+  GLOBAL_ROOT="$(npm root -g 2>/dev/null || true)"
+  GLOBAL_CLI="$GLOBAL_ROOT/@mariozechner/pi-coding-agent/dist/cli.js"
+  if [[ -f "$GLOBAL_CLI" ]]; then
+    PI=(node "$GLOBAL_CLI")
+  elif command -v pi >/dev/null 2>&1; then
+    PI=(pi)
+  else
+    echo "Pi CLI not found. Set PI_CLI to @mariozechner/pi-coding-agent/dist/cli.js." >&2
+    exit 1
+  fi
+fi
+
+export PI_CODING_AGENT_DIR="$AGENT_DIR"
+COMMAND=(
+  "${PI[@]}"
+  --offline
+  --provider ds4
+  --model "$MODEL"
+  --thinking off
+  --tools read,grep,find,ls
+  --no-extensions
+  --extension "$ADAPTER"
+  --no-skills
+  --no-prompt-templates
+  --no-themes
+  --append-system-prompt "$PROFILE"
+  "$@"
+)
+
+if (( DRY_RUN )); then
+  printf 'PI_CODING_AGENT_DIR=%q ' "$PI_CODING_AGENT_DIR"
+  printf '%q ' "${COMMAND[@]}"
+  printf '\n'
+  exit 0
+fi
+
+exec "${COMMAND[@]}"

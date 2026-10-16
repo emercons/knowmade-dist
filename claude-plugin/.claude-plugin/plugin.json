@@ -1,0 +1,38 @@
+{
+  "name": "wiki",
+  "description": "Knowmade practical knowledge base derived from upstream llm-wiki, with goal-directed private work, public/private topic pairs, hub inbox dispatch, fuzzy Concept-to-Idea-to-Project workflows, Project Knowledge Checkpoints Export, explicitly trusted private adapters, personal specialist skills, token-efficient queries, collector catalogs, inventory, datasets, source ingestion, audits, topic guides, session memory, research, and artifact generation.",
+  "version": "0.5.1.25.1",
+  "author": {
+    "name": "emercons"
+  },
+  "license": "MIT",
+  "keywords": [
+    "wiki",
+    "knowledge-base",
+    "llm",
+    "markdown",
+    "research",
+    "obsidian",
+    "karpathy",
+    "audit",
+    "librarian",
+    "schema",
+    "topic-guide",
+    "collect",
+    "inventory",
+    "ideas",
+    "projects",
+    "checkpoints",
+    "knowledge-handoff",
+    "adapters",
+    "private-adapters",
+    "specialists",
+    "personal-skills",
+    "datasets",
+    "archive",
+    "sessions",
+    "feedback",
+    "hooks",
+    "context"
+  ]
+}

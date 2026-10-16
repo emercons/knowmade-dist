@@ -1,0 +1,8 @@
+interface:
+  display_name: "Knowmade"
+  short_description: "Research practical goals, run private adapters, apply personal specialists, shape Ideas, review portfolios, dispatch intake, and maintain Knowmade wikis."
+  brand_color: "#2F855A"
+  default_prompt: "Capture and shape an Idea around my goals, run a registered private adapter, apply a personal specialist, research a topic, or compile evidence into a Knowmade wiki."
+
+policy:
+  allow_implicit_invocation: true

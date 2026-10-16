@@ -1,0 +1,20 @@
+{
+  "name": "knowmade",
+  "interface": {
+    "displayName": "Knowmade"
+  },
+  "plugins": [
+    {
+      "name": "wiki",
+      "source": {
+        "source": "local",
+        "path": "./plugins/llm-wiki"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
