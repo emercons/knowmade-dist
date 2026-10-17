@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import hub as _hub
 from . import rules as _rules
 from .adoption_legacy import (
     DEFAULT_HASH_LIMIT,
@@ -47,7 +48,54 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--small-data-limit", type=int, default=DEFAULT_SMALL_DATA_LIMIT, help="Bytes; larger CSV/JSON/XML/YAML becomes dataset-class.")
     parser.add_argument("--hash-limit", type=int, default=DEFAULT_HASH_LIMIT, help="Bytes; larger files are not hashed during planning.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable plan/summary.")
+    add_gitignore_option(parser)
     return parser
+
+
+def add_gitignore_option(parser: argparse.ArgumentParser) -> None:
+    """The ``--no-gitignore`` opt-out, shared by ``llm-wiki-adopt`` and ``llm-wiki adopt``."""
+    parser.add_argument(
+        "--no-gitignore",
+        action="store_true",
+        help="With --apply, do not append the wiki directory to the project's .gitignore.",
+    )
+
+
+def ensure_wiki_ignored(project_root: Path, wiki_root: Path, opt_out: bool = False) -> dict[str, Any]:
+    """Keep an adopted ``.wiki/`` out of the project's git history (knowmade#95).
+
+    The adopted tree holds staged copies of the adopted material and batch
+    state, so a plain ``git add -A`` in the project would publish it. Inside a
+    git work tree whose ignore rules do not already cover the wiki directory,
+    append its rule to ``<project>/.gitignore`` (created when absent, the
+    file's newline style kept) through the shared hub helper. Outside git, or
+    when the wiki lives outside the project, nothing is written.
+
+    Returns ``{"action": ..., "rule": ...}``; ``action`` is one of ``not-git``,
+    ``outside-project``, ``already-ignored``, ``appended`` and ``opted-out``.
+    """
+    try:
+        relative = wiki_root.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return {"action": "outside-project", "rule": None}
+    if relative in ("", "."):
+        return {"action": "outside-project", "rule": None}
+    rule = ".wiki/" if relative == ".wiki" else f"/{relative}/"
+    if not _hub.is_inside_git_work_tree(project_root):
+        return {"action": "not-git", "rule": rule}
+    ignored = _hub.git_ignores_path(project_root, f"{relative}/knowmade-ignore-probe")
+    if ignored is None:
+        ignored = rule in _hub.gitignore_rules(project_root)
+    if ignored:
+        return {"action": "already-ignored", "rule": rule}
+    if opt_out:
+        return {"action": "opted-out", "rule": rule}
+    _hub.append_ignore_block(
+        project_root,
+        "Knowmade project wiki: staged copies and batch state of adopted material",
+        [rule],
+    )
+    return {"action": "appended", "rule": rule}
 
 
 def _preflight_existing_config(wiki_root: Path) -> None:
@@ -117,6 +165,9 @@ def run(args: argparse.Namespace) -> int:
         result["created_paths"] = ensure_local_wiki(
             wiki_root, project_root, title
         )
+        result["gitignore"] = ensure_wiki_ignored(
+            project_root, wiki_root, bool(getattr(args, "no_gitignore", False))
+        )
         try:
             result["rule_set_changed"] = _rules.declare_rule_set(wiki_root)
         except ValueError as exc:
@@ -150,6 +201,14 @@ def run(args: argparse.Namespace) -> int:
             print(f"WARNING: scan truncated at --max-files={args.max_files}")
         if args.apply:
             print(f"Batch written: {result['batch']['batch_root']}")
+            ignore = result["gitignore"]
+            if ignore["action"] == "appended":
+                print(f"Ignore:  appended `{ignore['rule']}` to .gitignore (the wiki holds staged copies and batch state)")
+            elif ignore["action"] == "opted-out":
+                print(
+                    f"WARNING: `{ignore['rule']}` is not ignored by git. Add it to .gitignore or commit it "
+                    "deliberately; `git add -A` would publish the staged copies under inbox/.imports/."
+                )
             print("Next: ask the full Knowmade workflow to process manifest.jsonl.")
         else:
             visible = [item for item in rows if item["classification"] != "skip"]

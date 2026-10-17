@@ -426,11 +426,24 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {key: counter.get(key, 0) for key in ["ingest", "collection", "dataset", "needs-human", "skip"]}
 
 
+def relative_posix(target: Path, start: Path) -> str | None:
+    """``target`` relative to ``start`` with forward slashes, or None across drives."""
+    try:
+        return Path(os.path.relpath(target.resolve(), start.resolve())).as_posix()
+    except ValueError:
+        return None
+
+
+def wiki_label(project_root: Path, wiki_root: Path) -> str:
+    """How persisted text names the wiki: relative to the project, never an absolute path."""
+    return relative_posix(wiki_root, project_root) or wiki_root.name
+
+
 def render_plan(project_root: Path, wiki_root: Path, batch_id: str, mode: str, rows: list[dict[str, Any]], truncated: bool) -> str:
     counts = summary(rows)
     lines = [
         f"# Brownfield Adoption Plan — {project_root.name}", "", f"- Batch: `{batch_id}`",
-        f"- Project root: `{project_root}`", f"- Wiki root: `{wiki_root}`", f"- Mode: `{mode}`",
+        f"- Project: `{project_root.name}`", f"- Wiki root: `{wiki_label(project_root, wiki_root)}`", f"- Mode: `{mode}`",
         f"- Scan truncated: `{'yes' if truncated else 'no'}`", "", "## Classification Summary", "",
         "| Class | Count | Intended handling |", "|---|---:|---|",
         f"| ingest | {counts['ingest']} | normal inbox ingestion; copy/move modes may stage these files |",
@@ -464,8 +477,12 @@ def _state_payload(
 ) -> dict[str, Any]:
     payload = {
         "schema": "knowmade/adoption-batch/v1", "batch_id": batch_id, "created": today(),
-        "project_root": str(project_root.resolve()), "wiki_root": str(wiki_root.resolve()),
-        "wiki_root_relative": Path(os.path.relpath(wiki_root.resolve(), batch_root.resolve())).as_posix(),
+        # No absolute machine paths: this file sits under .wiki/ in a project
+        # that may be committed (knowmade#95). Both roots are located from the
+        # batch directory instead; resolve_wiki_root falls back to --wiki-root.
+        "project_name": project_root.name,
+        "project_root_relative": relative_posix(project_root, batch_root),
+        "wiki_root_relative": relative_posix(wiki_root, batch_root),
         "mode": mode, "status": "planned" if staged == 0 else "staged", "scan_truncated": truncated,
         "counts": summary(rows), "rows": len(rows), "staged_files": staged,
         "staging_warnings": warnings, "manifest": "manifest.jsonl", "plan": "PLAN.md",
@@ -584,6 +601,6 @@ def write_batch(project_root: Path, wiki_root: Path, batch_id: str, mode: str, r
         raise
     payload = _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, staged, warnings, "complete")
     with (wiki_root / "log.md").open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(f"\n## [{today()}] adopt | Brownfield batch `{batch_id}` planned from `{project_root}` in `{mode}` mode ({len(rows)} rows).\n")
+        handle.write(f"\n## [{today()}] adopt | Brownfield batch `{batch_id}` planned from `{project_root.name}` in `{mode}` mode ({len(rows)} rows).\n")
     payload["batch_root"] = str(batch_root)
     return payload

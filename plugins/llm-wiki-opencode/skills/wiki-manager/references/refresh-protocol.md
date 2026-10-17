@@ -91,7 +91,7 @@ After all actions, update the article's `verified` date to today.
 
 ### --due Mode
 
-When `--due` is set:
+When `--due` is set (`llm-wiki freshness report --path <topic> --json` lists the articles past their day window deterministically; the score below ranks them):
 
 1. Read all wiki articles (glob `wiki/**/*.md`, exclude `_index.md`)
 2. For each, read `volatility` and `verified` from frontmatter

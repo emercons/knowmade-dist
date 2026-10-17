@@ -13,12 +13,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import frontmatter as _frontmatter
-    from .stdio import configure_utf8_stdio
-except ImportError:  # executed directly as a script, not imported as a package
-    import frontmatter as _frontmatter
-    from stdio import configure_utf8_stdio
+from . import frontmatter as _frontmatter
+from .common import add_scope_arguments
+from .roots import resolve_wiki_root_args
+from .stdio import configure_utf8_stdio
 
 RULE_SET_KEY = "knowmade_rule_set"
 CURRENT_RULE_SET = 3
@@ -242,11 +240,33 @@ RULES_DESCRIPTION = "Inspect and declare the Knowmade corpus rule-set contract."
 
 
 def _add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable rule-set metadata.")
+    # The namespace-level flag has its own dest: sharing ``json`` with the
+    # subcommands let their default overwrite it, so ``rules --json check``
+    # printed text (knowmade#101).
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="rules_json",
+        help="Emit machine-readable rule-set metadata.",
+    )
     sub = parser.add_subparsers(dest="rules_command")
 
-    check = sub.add_parser("check", help="Compare one wiki declaration with the running engine.")
-    check.add_argument("--path", required=True, help="Wiki root containing config.md.")
+    check = sub.add_parser(
+        "check",
+        help="Compare one wiki declaration with the running engine.",
+        description=(
+            "Compare one wiki's rule-set declaration and engine pins with the running "
+            "engine. The root resolves like lint: --path, --local, --wiki <slug> through "
+            "the hub registry, else ./.wiki, else the hub."
+        ),
+    )
+    check.add_argument("--path", help="Wiki root containing config.md.")
+    add_scope_arguments(
+        check,
+        local_help="Check ./.wiki in the current directory.",
+        public_help="Resolve --wiki <slug> to the public sibling without -PRIVATE.",
+        include_archived_help="Allow --wiki to resolve an archived topic.",
+    )
     check.add_argument("--json", action="store_true")
 
     declare = sub.add_parser("declare", help="Write a supported rule-set declaration to config.md.")
@@ -269,32 +289,60 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     return parser
 
 
+def _engine_lines(engine: dict[str, Any]) -> list[str]:
+    """The engine-contract half of ``rules check`` as text lines."""
+    lines = [
+        f"Engine: version {engine['version'] or 'unknown'}, commit {engine['commit'] or 'unknown'}",
+        f"Engine contract: {engine['state']}",
+    ]
+    declared = []
+    if engine["declared_version"]:
+        declared.append(f"{engine['declared_version_key']} {engine['declared_version']}")
+    if engine["declared"]:
+        declared.append(f"knowmade_checker_sha {engine['declared']}")
+    if declared:
+        source = engine.get("pin_config")
+        suffix = f" (from {source})" if source and engine.get("pin_source") == "hub" else ""
+        lines.append(f"Declared pin: {', '.join(declared)}{suffix}")
+    else:
+        lines.append("Declared pin: none")
+    return lines
+
+
 def run(args: argparse.Namespace) -> int:
+    json_output = bool(getattr(args, "json", False) or getattr(args, "rules_json", False))
     if args.rules_command is None:
         payload = rules_payload()
-        if args.json:
+        if json_output:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             _print_report(payload)
         return 0
 
-    wiki_root = Path(args.path).expanduser().resolve(strict=False)
     if args.rules_command == "declare":
+        wiki_root = Path(args.path).expanduser().resolve(strict=False)
         try:
             changed = declare_rule_set(wiki_root, args.rule_set)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         payload = check_payload(wiki_root)
         payload["changed"] = changed
-        if args.json:
+        if json_output:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             action = "declared" if changed else "already declared"
             print(f"{action}: rules/{args.rule_set} in {wiki_root / 'config.md'}")
         return 0
 
+    # Imported here: ``engine`` imports this module for the rule-set contract.
+    from . import engine as _engine
+
+    wiki_root = Path(resolve_wiki_root_args(args)).expanduser().resolve(strict=False)
     payload = check_payload(wiki_root)
-    if args.json:
+    # The exit status stays the rule-set verdict; the engine contract is the
+    # same one lint reports, so the two commands agree on one config.md.
+    payload["engine"] = _engine.contract_state(wiki_root) if payload["path_exists"] else None
+    if json_output:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         declared = payload["declared"]
@@ -307,6 +355,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"Running: rules/{payload['current']}")
         if payload["upgrade_available"]:
             print(f"Upgrade available: llm-wiki rules declare --path {wiki_root}")
+        if payload["engine"] is not None:
+            for line in _engine_lines(payload["engine"]):
+                print(line)
     return 0 if payload["ok"] else 2
 
 

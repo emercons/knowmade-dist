@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Run the pinned Knowmade engine's lint in a consumer's CI (knowmade#119).
+
+    python3 ci-lint [WIKI] [--engine DIR] [--allow-skip] [--github-annotations]
+                    [--max-warnings N] [--fail-on LEVEL]
+
+1. Read the engine pin (``knowmade_version``) from ``WIKI/config.md``, or from
+   the hub's ``config.md`` when WIKI is a hub topic that declares none. It
+   must be a release tag (``v0.6.0``); any other value exits 2 before it
+   names a directory or a git ref.
+2. Find that engine: ``--engine DIR``; else the engine this script belongs to,
+   when it is the pinned version; else a shallow clone of the pinned tag of
+   the public distribution repository into ``--cache``.
+3. ``pin verify --engine``: the engine must be the pinned one.
+4. ``lint WIKI --strict-engine --fail-on LEVEL --json``, reported as text and,
+   with ``--github-annotations``, as GitHub workflow annotations.
+
+Exit 0 when lint passes, 1 when it fails (or ``--max-warnings`` is exceeded),
+2 when the engine cannot be fetched or is not the pinned one. An unreachable
+engine is a failure unless ``--allow-skip``, which prints ``SKIP: <reason>``
+and exits 0; it is never reported as a pass.
+
+In GitHub Actions (``GITHUB_ACTIONS=true`` or ``--github-annotations``) no
+printed line can start a workflow command: finding fields have CR, LF and
+``::`` neutralised, and any other line that would start with ``::`` is
+prefixed with ``| ``. Only the annotations themselves are workflow commands.
+
+Standard library only, and independent of the engine it runs, so a consumer
+may also copy this file into its own repository.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+DIST_REPO = "https://github.com/emercons/knowmade-dist.git"
+FAIL_ON = ("critical", "warning", "suggestion", "info")
+ANNOTATION = {"critical": "error", "warning": "warning", "suggestion": "notice", "info": "notice"}
+PIN_KEY = "knowmade_version"
+# A release tag, the only shape the pin may take before it names a cache
+# directory or a git ref: the value comes from the consumer's config.md.
+RELEASE_TAG = re.compile(r"v[0-9]+(?:\.[0-9]+){1,4}")
+COMMIT_PIN_KEY = "knowmade_checker_sha"
+
+
+class Failure(Exception):
+    """A step that cannot run; ``skippable`` when the engine was unreachable."""
+
+    def __init__(self, message: str, skippable: bool = False) -> None:
+        super().__init__(message)
+        self.skippable = skippable
+
+
+def frontmatter_value(config: Path, key: str) -> str | None:
+    """A top-level scalar of ``config``'s frontmatter, without quotes or a trailing comment."""
+    try:
+        text = config.read_text(encoding="utf-8-sig")
+    except OSError:
+        return None
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = re.match(rf"{re.escape(key)}\s*:\s*(.*?)\s*$", line)
+        if match:
+            value = re.split(r"\s+#", match.group(1), maxsplit=1)[0].strip().strip("\"'")
+            return value or None
+    return None
+
+
+def hub_of(wiki: Path) -> Path | None:
+    parent = wiki.parent
+    if parent.name == ".archive" and parent.parent.name == "topics":
+        parent = parent.parent
+    return parent.parent if parent.name == "topics" and (parent.parent / "wikis.json").is_file() else None
+
+
+def read_pin(wiki: Path) -> tuple[str, Path]:
+    """``(tag, config.md that declares it)`` of the Knowmade release pin."""
+    configs = [wiki / "config.md"]
+    hub = hub_of(wiki)
+    if hub is not None:
+        configs.append(hub / "config.md")
+    for config in configs:
+        version = frontmatter_value(config, PIN_KEY)
+        if version:
+            tag = version if version.startswith("v") else f"v{version}"
+            if not RELEASE_TAG.fullmatch(tag):
+                raise Failure(f"{config}: {PIN_KEY} {version!r} is not a release tag (v<major>.<minor>[...])")
+            return tag, config
+        if frontmatter_value(config, COMMIT_PIN_KEY):
+            raise Failure(
+                f"{config} pins a commit ({COMMIT_PIN_KEY}); the distribution repository has release "
+                f"tags only. Pin a release with `llm-wiki pin set --knowmade v<version>`, or pass --engine."
+            )
+    raise Failure(f"no {PIN_KEY} in {' or '.join(str(path) for path in configs)}; declare one with `llm-wiki pin set`")
+
+
+def launcher(engine: Path) -> Path:
+    for candidate in (engine / "scripts" / "llm-wiki", engine / "llm-wiki"):
+        if candidate.is_file():
+            return candidate
+    raise Failure(f"{engine} holds no scripts/llm-wiki")
+
+
+def run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, check=False, **kwargs)
+
+
+def engine_version(cli: Path) -> str | None:
+    result = run([sys.executable, str(cli), "engine", "info", "--json"])
+    try:
+        return str(json.loads(result.stdout)["version"]) if result.returncode == 0 else None
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def fetch(tag: str, cache: Path, repo: str) -> Path:
+    target = cache / tag
+    if not RELEASE_TAG.fullmatch(tag) or target.resolve().parent != cache.resolve():
+        raise Failure(f"refusing engine tag {tag!r}: not a release tag inside {cache}")
+    if (target / "scripts" / "llm-wiki").is_file():
+        return target
+    cache.mkdir(parents=True, exist_ok=True)
+    partial = cache / f".{tag}.partial"
+    shutil.rmtree(partial, ignore_errors=True)
+    result = run(["git", "-c", "core.fsmonitor=false", "clone", "--quiet", "--depth", "1", "--branch", tag, "--", repo, str(partial)])
+    if result.returncode != 0:
+        raise Failure(f"cannot fetch engine {tag} from {repo}: {result.stderr.strip() or 'git clone failed'}", skippable=True)
+    partial.rename(target)
+    return target
+
+
+def find_engine(args: argparse.Namespace, tag: str) -> Path:
+    if args.engine:
+        return launcher(Path(args.engine).expanduser().resolve())
+    own = Path(__file__).resolve().parent / "llm-wiki"
+    if own.is_file() and engine_version(own) == tag[1:]:
+        return own
+    return launcher(fetch(tag, Path(args.cache).expanduser().resolve(), args.dist_repo))
+
+
+def neutral(value: object) -> str:
+    """One output field that cannot start or smuggle a workflow command."""
+    return str(value).replace("\r", "%0D").replace("\n", "%0A").replace("::", ": :")
+
+
+def say(text: str, *, actions: bool, stream=None) -> None:
+    """Print ``text``; in GitHub Actions no line of it can be read as a workflow command."""
+    if actions:
+        text = "\n".join(f"| {line}" if line.lstrip().startswith("::") else line for line in text.splitlines())
+    print(text, file=stream or sys.stdout)
+
+
+def escape(value: str, *, prop: bool = False) -> str:
+    value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return value.replace(":", "%3A").replace(",", "%2C") if prop else value
+
+
+def annotation(issue: dict, root: Path) -> str:
+    kind = ANNOTATION.get(str(issue.get("severity")), "notice")
+    path = Path(str(issue.get("path") or "."))
+    target = path if path.is_absolute() else root / path
+    try:
+        name = Path(os.path.relpath(target, Path.cwd())).as_posix()
+    except ValueError:
+        name = target.as_posix()
+    check = issue.get("check") or "lint"
+    return f"::{kind} file={escape(name, prop=True)},title={escape(f'Knowmade {check}', prop=True)}::{escape(str(issue.get('message', '')))}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="ci-lint", description=__doc__.split("\n\n")[0])
+    parser.add_argument("wiki", nargs="?", default=".wiki", help="Wiki or hub root (default: .wiki).")
+    parser.add_argument("--engine", metavar="DIR", help="Use this engine checkout instead of fetching the pinned one.")
+    parser.add_argument("--cache", metavar="DIR", default=".knowmade-engine", help="Where fetched engines are kept (default: .knowmade-engine).")
+    parser.add_argument("--dist-repo", default=os.environ.get("KNOWMADE_DIST_REPO", DIST_REPO), help="Distribution repository URL.")
+    parser.add_argument("--allow-skip", action="store_true", help="Print SKIP and exit 0 when the engine cannot be fetched.")
+    parser.add_argument("--fail-on", choices=FAIL_ON, default="critical", help="Lowest severity that fails (default: critical).")
+    parser.add_argument("--max-warnings", type=int, metavar="N", help="Also fail when lint reports more than N warnings.")
+    parser.add_argument("--github-annotations", action="store_true", help="Print every finding as a GitHub workflow annotation.")
+    args = parser.parse_args(argv)
+    # Workflow commands are read from both streams of an Actions step.
+    actions = args.github_annotations or os.environ.get("GITHUB_ACTIONS") == "true"
+    wiki = Path(args.wiki).expanduser().resolve()
+    try:
+        if not (wiki / "config.md").is_file():
+            raise Failure(f"{wiki} has no config.md")
+        tag, declared_in = read_pin(wiki)
+        cli = find_engine(args, tag)
+        say(f"ci-lint: engine {tag} pinned in {declared_in}; running {cli}", actions=actions)
+        verify = run([sys.executable, str(cli), "pin", "verify", "--engine", "--path", str(wiki)])
+        if "invalid choice: 'pin'" in verify.stderr:
+            # Engines before `pin verify` (knowmade#115): lint --strict-engine
+            # still fails on a declared/running engine mismatch.
+            print("ci-lint: this engine has no `pin verify`; relying on lint --strict-engine")
+        elif verify.returncode != 0:
+            raise Failure(f"pin verify: {(verify.stdout + verify.stderr).strip()}")
+        lint = run([sys.executable, str(cli), "lint", str(wiki), "--strict-engine", "--fail-on", args.fail_on, "--json"])
+        try:
+            report = json.loads(lint.stdout)
+        except ValueError:
+            raise Failure(f"lint produced no JSON report (exit {lint.returncode}): {lint.stderr.strip()}") from None
+    except Failure as exc:
+        if exc.skippable and args.allow_skip:
+            say(f"SKIP: {exc}", actions=actions)
+            return 0
+        say(f"FAIL: {exc}", actions=actions, stream=sys.stderr)
+        return 2
+    issues = report.get("issues", [])
+    for issue in issues:
+        fields = [issue.get("severity", "?"), issue.get("check") or "-", issue.get("path"), issue.get("message")]
+        severity, check, path, message = (neutral(field) if actions else str(field) for field in fields)
+        say(f"{severity:<10} {check:<5} {path}: {message}", actions=actions)
+        if args.github_annotations:
+            print(annotation(issue, wiki))
+    counts = report.get("counts", {})
+    print("ci-lint: " + ", ".join(f"{counts.get(level, 0)} {level}" for level in FAIL_ON))
+    status = 1 if lint.returncode != 0 else 0
+    if args.max_warnings is not None and counts.get("warning", 0) > args.max_warnings:
+        print(f"ci-lint: {counts.get('warning', 0)} warnings exceed --max-warnings {args.max_warnings}", file=sys.stderr)
+        status = 1
+    print("ci-lint: " + ("FAIL" if status else "PASS"))
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

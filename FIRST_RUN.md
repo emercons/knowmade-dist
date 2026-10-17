@@ -12,10 +12,10 @@ Installing the plugin does **not** automatically scan the directory where you ha
 Follow the [Install section of the README](README.md#install) for your runtime
 (Codex, Claude Code, OpenCode, Pi, or a portable agent file). The README is the
 only place that carries the version-pinned install commands, so they cannot
-drift from the release; this page deliberately does not copy them. The
-repository is private: set up GitHub credentials first, as that section's
-opening paragraph says. To move to a later release, see
-[Upgrade](README.md#upgrade).
+drift from the release; this page deliberately does not copy them. Releases
+install from the public distribution repository `emercons/knowmade-dist`
+without GitHub credentials; only installing from the private source repository
+needs them. To move to a later release, see [Upgrade](README.md#upgrade).
 
 After a Codex install, `@wiki` is the full workflow skill and `$wiki-query` is
 the compact read-only query skill. In a Knowmade source checkout,

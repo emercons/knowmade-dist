@@ -9,6 +9,18 @@ It is the one implementation of hub/registry resolution: ``legacy_cli`` imports
 these functions rather than carrying its own copies.  A permission-denied
 registry read, like any other unreadable or malformed registry, fails visibly
 instead of falling back to an initialized topic path (emercons/knowmade#91).
+
+The hub is selected in this order (knowmade#114): ``--hub``, the
+``LLM_WIKI_HUB`` environment variable, the hub enclosing the current directory
+when ``config.json`` opts in with ``"hub_discovery": "cwd"``, then the
+configured ``hub_path`` / ``resolved_path``, then ``~/wiki``.
+:func:`resolve_hub_selection` applies that order and says which source won;
+:func:`resolve_hub_path` is only its configured rungs (``--hub``, then
+``config.json``, then ``~/wiki``), kept byte-identical to the copy
+``scripts/llm-wiki-session`` vendors, so it ignores ``LLM_WIKI_HUB`` and
+discovery. Mutating commands that
+take ``--require-cwd-hub`` refuse through :func:`require_cwd_hub` when the
+selected hub is not the one the current directory is in.
 """
 
 from __future__ import annotations
@@ -19,23 +31,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from .fsio import (
-        PERMISSION_DENIED_ERRNOS,
-        is_permission_denied,
-        permission_denied_message,
-        read_json_object,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    from fsio import (
-        PERMISSION_DENIED_ERRNOS,
-        is_permission_denied,
-        permission_denied_message,
-        read_json_object,
-    )
+from .fsio import (
+    PERMISSION_DENIED_ERRNOS,
+    is_permission_denied,
+    permission_denied_message,
+    read_json_object,
+)
 
 
 DEFAULT_PRIVATE_SUFFIX = "-PRIVATE"
+HUB_ENV = "LLM_WIKI_HUB"
+HUB_DISCOVERY_KEY = "hub_discovery"
 # A drive path as written on Windows: ``C:\x``, ``C:/x``, ``/C:/x``, or the Git
 # Bash spelling ``/c/x`` (also ``/c`` alone). Whether it applies is decided by
 # the platform, never by the text: see ``normalize_windows_absolute_path``.
@@ -116,6 +122,27 @@ def is_hub(path: Path) -> bool:
     return (path / "wikis.json").exists() and (path / "topics").exists()
 
 
+def enclosing_hub(start: Path) -> Path | None:
+    """The nearest directory at or above ``start`` that is a hub, or None.
+
+    ``start`` is made absolute first, so a relative path walks up from the
+    current directory. A hub is ``wikis.json`` plus ``topics/``.
+    """
+    start = Path(os.path.abspath(start))
+    for candidate in (start, *start.parents):
+        if is_hub(candidate):
+            return candidate
+    return None
+
+
+def same_path(left: Path, right: Path) -> bool:
+    """Whether two paths name the same directory (resolving links and case)."""
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right))
+
+
 def is_archived_registry_entry(entry: dict[str, Any] | None) -> bool:
     """True for a registry entry marked archived or filed under ``topics/.archive``.
 
@@ -180,6 +207,55 @@ def _read_hub_config(config: Path) -> dict[str, Any]:
     return read_json_object(config, "hub config")
 
 
+@dataclass(frozen=True)
+class HubSelection:
+    """The selected hub and which source chose it.
+
+    ``source`` is ``explicit`` (``--hub``), ``env`` (``LLM_WIKI_HUB``), ``cwd``
+    (the enclosing hub, with ``hub_discovery: cwd``), ``config`` (``hub_path``),
+    ``resolved_path`` or ``default`` (``~/wiki``).
+    """
+
+    path: Path
+    source: str
+
+
+def hub_config_path(home: Path | None = None) -> Path:
+    return (home or home_directory()) / ".config" / "llm-wiki" / "config.json"
+
+
+def resolve_hub_selection(
+    explicit_hub: str | Path | None = None,
+    *,
+    home: Path | None = None,
+    config_path: Path | None = None,
+    private_suffix: str = DEFAULT_PRIVATE_SUFFIX,
+    environ: dict[str, str] | None = None,
+    cwd: Path | None = None,
+    discover_cwd: bool = True,
+) -> HubSelection:
+    if explicit_hub:
+        return HubSelection(expand_leading_tilde(str(explicit_hub)), "explicit")
+    environ = os.environ if environ is None else environ
+    from_env = (environ.get(HUB_ENV) or "").strip()
+    if from_env:
+        return HubSelection(expand_leading_tilde(from_env), "env")
+    home = home or home_directory()
+    config = config_path or hub_config_path(home)
+    data = _read_hub_config(config) if config.exists() else {}
+    if discover_cwd and data.get(HUB_DISCOVERY_KEY) == "cwd":
+        found = enclosing_hub(cwd or Path.cwd())
+        if found is not None:
+            return HubSelection(found, "cwd")
+    selected = resolve_hub_path(
+        home=home, config_path=config, private_suffix=private_suffix
+    )
+    for source, key in (("config", "hub_path"), ("resolved_path", "resolved_path")):
+        if data.get(key) and selected == expand_leading_tilde(str(data[key])):
+            return HubSelection(selected, source)
+    return HubSelection(selected, "default")
+
+
 def resolve_hub_path(
     explicit_hub: str | Path | None = None,
     *,
@@ -217,7 +293,30 @@ def resolve_hub_path(
 
 
 def resolve_hub_args(args: Any) -> Path:
-    return resolve_hub_path(getattr(args, "hub", None))
+    hub = resolve_hub_selection(getattr(args, "hub", None)).path
+    if getattr(args, "require_cwd_hub", False):
+        require_cwd_hub(hub)
+    return hub
+
+
+def require_cwd_hub(hub: Path, cwd: Path | None = None) -> None:
+    """Refuse unless ``hub`` is the hub that encloses the current directory.
+
+    The guard for mutating commands on a machine with several checkouts of one
+    hub: a configured ``hub_path`` that points at a sibling checkout must not
+    receive the write meant for the checkout the user is standing in.
+    """
+    here = cwd or Path.cwd()
+    found = enclosing_hub(here)
+    if found is None:
+        raise SystemExit(
+            f"--require-cwd-hub: {here} is not inside a hub; the selected hub is {hub}"
+        )
+    if not same_path(found, hub):
+        raise SystemExit(
+            f"--require-cwd-hub: the selected hub {hub} is not the hub enclosing the "
+            f"current directory ({found}). Pass --hub {found} or change directory."
+        )
 
 
 def _read_registry(hub: Path) -> dict[str, Any]:
@@ -250,12 +349,13 @@ def resolve_wiki_identity(
     if local:
         return RootIdentity(cwd / ".wiki", "local")
 
-    hub_path = resolve_hub_path(
+    hub_path = resolve_hub_selection(
         hub,
         home=home,
         config_path=config_path,
         private_suffix=private_suffix,
-    )
+        cwd=cwd,
+    ).path
     if wiki:
         slug = scoped_wiki_slug(
             wiki,

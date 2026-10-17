@@ -4,10 +4,10 @@ Topic archive/restore with the atomic registry write, the hub ``_index.md``
 writer, and the git-ignore helpers for private topics that both ``archive``
 and the hub lint checks use. The ``schema`` and ``identity`` namespaces are
 implemented by the bounded ``schema`` and ``identity`` modules; their
-argparse wiring is registered here so ``llm-wiki --help`` keeps its order
-(``archive``, ``schema``, ``identity``). Moved verbatim from ``legacy_cli``
-(emercons/knowmade#67 R1.4, ``KM-CLI-001``); the compatibility module
-re-exports every public name.
+argparse wiring is defined here (``register_archive_parser``,
+``register_schema_parser``, ``register_identity_parser``) and listed in
+``cli.NAMESPACES``. Moved verbatim from ``legacy_cli`` (emercons/knowmade#67
+R1.4, ``KM-CLI-001``).
 """
 
 from __future__ import annotations
@@ -20,68 +20,36 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import fsio as _fsio
-    from . import identity as _identity
-    from .common import (
-        PRIVATE_SUFFIX,
-        add_scope_arguments,
-        active_topic_path,
-        archived_topic_path,
-        is_under,
-        markdown_link_destination,
-        read_registry,
-        table_cell,
-        topic_entry,
-        write_registry,
-    )
-    from .markdown import (
-        append_log,
-        append_text_preserving,
-        sniff_style,
-        today_date,
-        topic_title,
-        write_target,
-    )
-    from .roots import (
-        initialized_wiki_root,
-        is_archived_registry_entry,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        scoped_wiki_slug_args as scoped_wiki_slug,
-    )
-    from .schema import run_schema
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
-    import identity as _identity
-    from common import (
-        PRIVATE_SUFFIX,
-        add_scope_arguments,
-        active_topic_path,
-        archived_topic_path,
-        is_under,
-        markdown_link_destination,
-        read_registry,
-        table_cell,
-        topic_entry,
-        write_registry,
-    )
-    from markdown import (
-        append_log,
-        append_text_preserving,
-        sniff_style,
-        today_date,
-        topic_title,
-        write_target,
-    )
-    from roots import (
-        initialized_wiki_root,
-        is_archived_registry_entry,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        scoped_wiki_slug_args as scoped_wiki_slug,
-    )
-    from schema import run_schema
+from . import fsio as _fsio
+from . import identity as _identity
+from .common import (
+    PRIVATE_SUFFIX,
+    add_scope_arguments,
+    active_topic_path,
+    archived_topic_path,
+    is_under,
+    markdown_link_destination,
+    read_registry,
+    table_cell,
+    topic_entry,
+    write_registry,
+)
+from .markdown import (
+    append_log,
+    append_text_preserving,
+    sniff_style,
+    today_date,
+    topic_title,
+    write_target,
+)
+from .roots import (
+    initialized_wiki_root,
+    is_archived_registry_entry,
+    resolve_hub_args as resolve_hub,
+    resolve_registry_path,
+    scoped_wiki_slug_args as scoped_wiki_slug,
+)
+from .schema import run_schema
 
 
 # Canonical hub .gitignore rule for private topics. `*` never matches `/` in
@@ -145,8 +113,9 @@ def is_inside_git_work_tree(path: Path) -> bool:
     if git is not None:
         try:
             result = subprocess.run(
-                [git, "rev-parse", "--is-inside-work-tree"],
+                [git, *_fsio.GIT_READ_OPTIONS, "rev-parse", "--is-inside-work-tree"],
                 cwd=str(path),
+                env=_fsio.git_environment(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -174,8 +143,9 @@ def git_ignores_path(repo: Path, relative_path: str) -> bool | None:
         return None
     try:
         result = subprocess.run(
-            [git, "check-ignore", "-q", "--", relative_path],
+            [git, *_fsio.GIT_READ_OPTIONS, "check-ignore", "-q", "--", relative_path],
             cwd=str(repo),
+            env=_fsio.git_environment(),
             capture_output=True,
             text=True,
             check=False,
@@ -307,8 +277,9 @@ def _git_ls_files(root: Path, extra: list[str]) -> list[str] | None:
     pathspecs = [pathspec for _rule, pathspec, _probes in STATE_IGNORE_RULES]
     try:
         result = subprocess.run(
-            [git, "ls-files", "-z", *extra, "--", *pathspecs],
+            [git, *_fsio.GIT_READ_OPTIONS, "ls-files", "-z", *extra, "--", *pathspecs],
             cwd=str(root),
+            env=_fsio.git_environment(),
             capture_output=True,
             check=False,
         )
@@ -486,6 +457,56 @@ def _refresh_stats(lines: list[str], active: int, archived: int, today: str) -> 
             lines[index] = f"Last updated: {today}{ending}"
 
 
+def _locate_topic_table(
+    lines: list[str],
+) -> tuple[int | None, int | None, tuple[int, int] | None]:
+    """``(first, end, found)`` of the generated topic table in ``lines``.
+
+    Between ``knowmade:topics`` markers when both are present (an empty marked
+    block yields ``first == end`` and ``found`` None), otherwise the first table
+    with a ``Wiki`` header anywhere; ``(None, None, None)`` when there is none.
+    """
+    start = next((i for i, line in enumerate(lines) if line.strip() == TOPICS_START), None)
+    stop = None
+    if start is not None:
+        stop = next((i for i, line in enumerate(lines) if i > start and line.strip() == TOPICS_END), None)
+    if start is not None and stop is not None:
+        found = _find_topic_table(lines, start + 1, stop)
+        first, end = found if found else (start + 1, start + 1)
+        return first, end, found
+    found = _find_topic_table(lines, 0, len(lines))
+    return (found[0], found[1], found) if found else (None, None, None)
+
+
+def topic_table_rows(text: str) -> list[str]:
+    """The data rows of the generated topic table in ``text`` (header excluded)."""
+    lines = text.splitlines(keepends=True)
+    _first, _end, found = _locate_topic_table(lines)
+    if not found:
+        return []
+    return lines[found[0] + 2 : found[1]]
+
+
+def topic_row_slug(row: str) -> str:
+    """The slug a topic-table row lists (the link text of its first cell)."""
+    return _row_slug(row)
+
+
+def stats_last_updated(text: str) -> str | None:
+    """The ``Last updated`` date inside the ``knowmade:stats`` markers, if any."""
+    inside = False
+    for line in text.splitlines():
+        if line.strip() == STATS_START:
+            inside = True
+        elif line.strip() == STATS_END:
+            return None
+        elif inside:
+            match = re.fullmatch(r"Last updated: (\d{4}-\d{2}-\d{2})", line.strip())
+            if match:
+                return match.group(1)
+    return None
+
+
 def refresh_index_text(
     text: str,
     newline: str,
@@ -495,16 +516,7 @@ def refresh_index_text(
 ) -> str:
     """``text`` with only its generated topic table (and marked counts) updated."""
     lines = text.splitlines(keepends=True)
-    start = next((i for i, line in enumerate(lines) if line.strip() == TOPICS_START), None)
-    stop = None
-    if start is not None:
-        stop = next((i for i, line in enumerate(lines) if i > start and line.strip() == TOPICS_END), None)
-    if start is not None and stop is not None:
-        found = _find_topic_table(lines, start + 1, stop)
-        first, end = found if found else (start + 1, start + 1)
-    else:
-        found = _find_topic_table(lines, 0, len(lines))
-        first, end = found if found else (None, None)
+    first, end, found = _locate_topic_table(lines)
     if first is None:
         if lines and not lines[-1].endswith(("\n", "\r")):
             lines[-1] += newline
@@ -526,20 +538,15 @@ def refresh_index_text(
     return "".join(lines)
 
 
-def write_hub_index(hub: Path, data: dict[str, Any]) -> None:
-    """Refresh the topic table of ``hub/_index.md`` and nothing else.
+def hub_index_entries(
+    hub: Path, data: dict[str, Any]
+) -> tuple[dict[str, tuple[str, str, str]], set[str]]:
+    """``(active, archived)`` registry topics as the hub index lists them.
 
-    Only the generated table changes: the one between ``knowmade:topics``
-    markers when present, otherwise the table found by its ``Wiki`` header row.
-    ``-PRIVATE`` topics are listed by slug only: no title, description or
-    summary, and their ``config.md`` is not read (knowmade#90).
-    Curated sections, extra columns and rows, the BOM and the file's newline
-    style are kept byte for byte. A missing ``_index.md`` gets the template; an
-    index without any table gets the marked table appended. ``archive topic``
-    and ``archive restore`` both call this, and so should any later hub-index
-    command, so they cannot diverge.
+    ``active`` maps a slug to ``(registry path, title, description)``; a
+    ``-PRIVATE`` slug carries empty title and description and its
+    ``config.md`` is never read (knowmade#90).
     """
-    today = today_date().isoformat()
     active: dict[str, tuple[str, str, str]] = {}
     archived: set[str] = set()
     for slug, entry in sorted(data.get("wikis", {}).items()):
@@ -556,42 +563,78 @@ def write_hub_index(hub: Path, data: dict[str, Any]) -> None:
             continue
         title = topic_title(resolve_registry_path(raw_path, hub), slug)
         active[slug] = (raw_path, title, str(entry.get("description") or ""))
+    return active, archived
 
+
+_INDEX_TEMPLATE = (
+    "# Wiki Hub Index",
+    "",
+    "> Registry of active topic wikis.",
+    "",
+    "## Statistics",
+    "",
+    STATS_START,
+    "Last updated: 1970-01-01",
+    "",
+    "- Active topics: 0",
+    "- Archived topics: 0",
+    STATS_END,
+    "",
+    "## Topic Wikis",
+    "",
+    TOPICS_START,
+    TOPICS_END,
+    "",
+    "## Archive",
+    "",
+    "Archived topics are preserved under `topics/.archive/`.",
+    "",
+)
+
+
+def render_hub_index(
+    hub: Path, data: dict[str, Any], today: str | None = None
+) -> tuple[Path, bytes | None, bytes]:
+    """``(target, current, refreshed)`` bytes of ``hub/_index.md``.
+
+    ``current`` is None when the index does not exist; ``refreshed`` is what
+    :func:`write_hub_index` writes, BOM and newline style included. ``today``
+    dates the statistics and new rows (default: today).
+    """
+    today = today or today_date().isoformat()
+    active, archived = hub_index_entries(hub, data)
     target = hub / "_index.md"
     newline, has_bom = sniff_style(target)
+    current: bytes | None = None
     if target.is_file():
-        raw = target.read_bytes()
-        body = raw[len(_BOM_BYTES) :] if raw.startswith(_BOM_BYTES) else raw
+        current = target.read_bytes()
+        body = current[len(_BOM_BYTES) :] if current.startswith(_BOM_BYTES) else current
         text = body.decode("utf-8")
     else:
-        text = newline.join(
-            [
-                "# Wiki Hub Index",
-                "",
-                "> Registry of active topic wikis.",
-                "",
-                "## Statistics",
-                "",
-                STATS_START,
-                "Last updated: 1970-01-01",
-                "",
-                "- Active topics: 0",
-                "- Archived topics: 0",
-                STATS_END,
-                "",
-                "## Topic Wikis",
-                "",
-                TOPICS_START,
-                TOPICS_END,
-                "",
-                "## Archive",
-                "",
-                "Archived topics are preserved under `topics/.archive/`.",
-                "",
-            ]
-        )
+        text = newline.join(_INDEX_TEMPLATE)
     payload = refresh_index_text(text, newline, active, archived, today).encode("utf-8")
-    _fsio.atomic_write_bytes(write_target(target), (_BOM_BYTES + payload) if has_bom else payload)
+    return target, current, (_BOM_BYTES + payload) if has_bom else payload
+
+
+def write_hub_index(hub: Path, data: dict[str, Any]) -> bool:
+    """Refresh the topic table of ``hub/_index.md`` and nothing else.
+
+    Only the generated table changes: the one between ``knowmade:topics``
+    markers when present, otherwise the table found by its ``Wiki`` header row.
+    ``-PRIVATE`` topics are listed by slug only: no title, description or
+    summary, and their ``config.md`` is not read (knowmade#90).
+    Curated sections, extra columns and rows, the BOM and the file's newline
+    style are kept byte for byte. A missing ``_index.md`` gets the template; an
+    index without any table gets the marked table appended. ``archive topic``
+    and ``archive restore`` both call this, and so does ``hub index --write``
+    (:func:`render_hub_index` is the shared renderer), so they cannot diverge.
+    Returns whether the file changed; an index already current is not written.
+    """
+    target, current, payload = render_hub_index(hub, data)
+    if current == payload:
+        return False
+    _fsio.atomic_write_bytes(write_target(target), payload)
+    return True
 
 
 def ensure_hub_for_archive(hub: Path) -> dict[str, Any]:
@@ -601,6 +644,8 @@ def ensure_hub_for_archive(hub: Path) -> dict[str, Any]:
 
 
 def run_archive(args: argparse.Namespace) -> int:
+    if args.private and args.public:  # one before the subcommand, one after
+        raise SystemExit("llm-wiki archive: --private and --public are mutually exclusive")
     hub = resolve_hub(args)
     data = ensure_hub_for_archive(hub)
     subcommand = args.archive_command
@@ -798,8 +843,8 @@ def restore_topic(hub: Path, data: dict[str, Any], slug: str) -> int:
     return 0
 
 
-def register_parser(subparsers: Any) -> None:
-    """Register ``archive``, ``schema`` and ``identity`` on a top-level subparsers action."""
+def register_archive_parser(subparsers: Any) -> argparse.ArgumentParser:
+    """Register ``archive`` on a parent ``llm-wiki`` parser; dispatch through :func:`run_archive`."""
     archive = subparsers.add_parser(
         "archive",
         help="Archive, restore, or list hub topic wikis.",
@@ -836,9 +881,27 @@ def register_parser(subparsers: Any) -> None:
 
     archive_restore_parser = archive_sub.add_parser("restore", help="Restore an archived topic wiki.")
     archive_restore_parser.add_argument("slug", help="Topic slug to restore.")
+    for writer in (archive_topic_parser, archive_restore_parser):
+        writer.add_argument(
+            "--require-cwd-hub",
+            action="store_true",
+            help="Refuse unless the selected hub is the hub enclosing the current directory.",
+        )
+
+    # The scope flags are accepted after the subcommand too (`archive list --hub X`),
+    # as `schema` and `identity` do; hidden there so the reference lists them once.
+    for child in (archive_list_parser, archive_topic_parser, archive_restore_parser):
+        child.add_argument("--hub", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        child_scope = child.add_mutually_exclusive_group()
+        for flag in ("--private", "--public"):
+            child_scope.add_argument(flag, action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     archive.set_defaults(func=run_archive)
+    return archive
 
+
+def register_schema_parser(subparsers: Any) -> argparse.ArgumentParser:
+    """Register ``schema`` on a parent ``llm-wiki`` parser; dispatch through ``schema.run_schema``."""
     schema = subparsers.add_parser(
         "schema",
         help="Manage the topic guide (`schema.md`).",
@@ -916,7 +979,11 @@ def register_parser(subparsers: Any) -> None:
     schema_adopt_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Print JSON.")
 
     schema.set_defaults(func=run_schema)
+    return schema
 
+
+def register_identity_parser(subparsers: Any) -> argparse.ArgumentParser:
+    """Register ``identity`` on a parent ``llm-wiki`` parser; dispatch through ``identity.run_identity``."""
     identity = subparsers.add_parser(
         "identity",
         help="Read or assign a wiki's stable identity.",
@@ -954,6 +1021,7 @@ def register_parser(subparsers: Any) -> None:
         "--dry-run", action="store_true", help="Report what would happen without writing."
     )
     identity.set_defaults(func=_identity.run_identity)
+    return identity
 
 
 def run(args: argparse.Namespace) -> int:

@@ -96,6 +96,10 @@ deliberate, reviewed copy, not an exception to the write-guard. The checkpoint
 privacy scanner (`llm-wiki checkpoint seal`) is the deterministic backstop for
 `-PRIVATE` path strings; everything else relies on this rule.
 
+**Privacy scan.** `llm-wiki privacy scan` runs the checkpoint pattern pack over
+tracked text files; `--check tracked-private` reports tracked `*-PRIVATE/`
+paths. Options: `references/cli.md`.
+
 ## Inbox-First Source Lifecycle
 
 Sources enter through `inbox/`. The raw layer is not the drop zone.

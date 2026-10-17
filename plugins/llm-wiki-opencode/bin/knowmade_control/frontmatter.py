@@ -34,24 +34,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-try:
-    from . import fsio as _fsio
-    from .markdown import (
-        BOM,
-        detect_newline,
-        frontmatter_bounds,
-        parse_frontmatter_block,
-        write_target,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
-    from markdown import (
-        BOM,
-        detect_newline,
-        frontmatter_bounds,
-        parse_frontmatter_block,
-        write_target,
-    )
+from . import fsio as _fsio
+from .markdown import (
+    BOM,
+    detect_newline,
+    frontmatter_bounds,
+    parse_frontmatter_block,
+    write_target,
+)
 
 __all__ = [
     "Bounds",

@@ -37,10 +37,93 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+# Variables git exports to hooks and `--exec` steps. Inherited by a child git,
+# they make it answer for the invoking repository instead of the directory
+# under ``cwd``: a hub in a temp directory then looks like it sits inside that
+# repository and the private-ignore guard refuses (knowmade#135).
+_GIT_ENV_KEYS = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+})
+
+
+def git_environment() -> dict[str, str]:
+    """``os.environ`` without the repository-selecting ``GIT_*`` variables.
+
+    Every git subprocess the control plane runs against a wiki or hub passes
+    this as ``env`` so the answer is about ``cwd``, whatever process (a git
+    hook, ``git rebase --exec``, a CI step) launched the CLI.
+    """
+    return {key: value for key, value in os.environ.items() if key not in _GIT_ENV_KEYS}
+
+
+# Options for every git command run inside a hub or wiki checkout. That
+# checkout may be a clone whose ``.git/config`` names a program in
+# ``core.fsmonitor``, which ``git status``, ``ls-files`` and ``check-ignore``
+# all start; turning it off keeps a read from running repository-supplied
+# commands. Pass as ``[git, *GIT_READ_OPTIONS, "status", ...]``.
+GIT_READ_OPTIONS: tuple[str, ...] = ("-c", "core.fsmonitor=false")
+
+
+def git_filter_environment(cwd: Path, git: str = "git") -> dict[str, str] | None:
+    """:func:`git_environment` with every filter driver configured at ``cwd`` switched off.
+
+    ``git status`` re-reads a stat-dirty file through its ``filter.<driver>``
+    ``clean`` or ``process`` program, a command the checkout's own config can
+    name. Listing the config names runs nothing; the returned environment adds
+    ``GIT_CONFIG_COUNT`` entries (command-line scope, so they win over every
+    config file) that empty each driver's commands and drop ``required``, and
+    git then compares the raw bytes. The keys travel in their own variables,
+    so a driver name containing ``=`` cannot split one. None when the names
+    cannot be read back exactly (undecodable bytes): the caller must then not
+    run the content-comparing command at all.
+    """
+    env = git_environment()
+    try:
+        result = subprocess.run(
+            [git, *GIT_READ_OPTIONS, "config", "-z", "--name-only", "--get-regexp", r"^filter\."],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # Exit 1 means no filter key is set; anything else is an unreadable config.
+    if result.returncode not in (0, 1):
+        return None
+    try:
+        names = result.stdout.decode("utf-8").split("\0")
+    except UnicodeDecodeError:
+        return None
+    drivers: list[str] = []
+    for name in names:
+        if not name:
+            continue
+        driver = name[len("filter.") :].rpartition(".")[0] if name.startswith("filter.") else ""
+        if not driver or "\0" in driver:
+            return None
+        if driver not in drivers:
+            drivers.append(driver)
+    try:
+        count = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    except ValueError:
+        return None
+    for driver in drivers:
+        for key, value in (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")):
+            env[f"GIT_CONFIG_KEY_{count}"] = f"filter.{driver}.{key}"
+            env[f"GIT_CONFIG_VALUE_{count}"] = value
+            count += 1
+    env["GIT_CONFIG_COUNT"] = str(count)
+    return env
+
 
 __all__ = [
     "JSONReadError",

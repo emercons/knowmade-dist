@@ -130,7 +130,7 @@ Archive is a context filter, not a deletion mechanism.
 | `librarian` / `refresh` | Skip archived by default; archived material should not create freshness chores |
 | `audit` | Skip archived by default, except when the targeted artifact depends on archived material |
 | `retract` | User-directed control-plane operation; selected archived data is included without another mutation gate |
-| `lint` | Active structural checks by default; `--include-archived` and `--archived-only` maintain archived structure explicitly |
+| `lint` | Active structural checks by default; `--wiki <slug> --include-archived` maintains one archived topic explicitly |
 
 ## Lint Semantics
 
@@ -141,7 +141,8 @@ should not resurrect archived maintenance debt.
   counts as skipped.
 - `lint --include-archived` checks archived topic structure in addition to
   active material.
-- `lint --archived-only` checks only archived topic wikis.
+- The lint command's `--archived-only` option (agent-level, not a CLI flag)
+  runs that per archived slug from `archive list --archived --json`.
 - `lint --fix --include-archived` may perform mechanical fixes on archived
   content: indexes, canonical placement, frontmatter aliases, dead index rows,
   and safe source-reference rewrites.

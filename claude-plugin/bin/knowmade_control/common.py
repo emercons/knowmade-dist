@@ -1,16 +1,16 @@
 """Leaf helpers shared by more than one deterministic CLI domain.
 
-``legacy_cli`` used to hold every namespace in one module, so the lint data
-model (``Issue``, ``Document``, ``LintContext``), the hub registry primitives,
-and a handful of Markdown/table/JSON/hash helpers were reachable by every
-domain without an import. Now that the namespaces live in bounded modules
+``legacy_cli`` used to hold every namespace in one module, so the hub
+registry primitives and a handful of Markdown/table/JSON/hash helpers were
+reachable by every domain without an import. (The lint data model, ``Issue``,
+``Document`` and ``LintContext``, lives in ``lint_report``.) Now that the namespaces live in bounded modules
 (``lint``, ``hub``, ``retract``, ``specialists``, ``adapters``,
 ``checkpoints``), the pieces two or more of them need live here, so no domain
 module imports another one in a cycle. This module imports only the leaf
 layers (``markdown``, ``roots``, ``fsio``) and nothing above it.
 
 Everything here moved verbatim from ``legacy_cli`` (emercons/knowmade#67
-R1.4); ``legacy_cli`` re-exports every public name for compatibility callers.
+R1.4). Import names from this module, not from the ``legacy_cli`` shim.
 """
 
 from __future__ import annotations
@@ -20,113 +20,23 @@ import datetime as dt
 import hashlib
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import fsio as _fsio
-    from .markdown import write_text_preserving
-    from .roots import (
-        is_archived_registry_entry,
-        is_permission_denied,
-        permission_denied_message,
-        resolve_registry_path,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
-    from markdown import write_text_preserving
-    from roots import (
-        is_archived_registry_entry,
-        is_permission_denied,
-        permission_denied_message,
-        resolve_registry_path,
-    )
+from . import fsio as _fsio
+from .markdown import write_text_preserving
+from .roots import (
+    is_archived_registry_entry,
+    is_permission_denied,
+    permission_denied_message,
+    resolve_registry_path,
+)
 
 
 PRIVATE_SUFFIX = "-PRIVATE"
 
 
 SPECIALIST_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-
-@dataclass
-class Issue:
-    severity: str
-    message: str
-    path: Path | None = None
-    fixable: bool = False
-    fixed: bool = False
-
-    def sort_key(self) -> tuple[int, str, str]:
-        order = {"critical": 0, "warning": 1, "suggestion": 2, "info": 3}
-        return (order.get(self.severity, 9), self.rel, self.message)
-
-    @property
-    def rel(self) -> str:
-        return str(self.path) if self.path else ""
-
-
-@dataclass
-class Document:
-    """A parsed Markdown file.
-
-    ``raw_text`` is the file's full text as read when it was parsed, so the
-    checks that need the whole file (links, footnotes, source rewrites) reuse
-    it instead of reading the same file again. It is ``None`` once a repair
-    has rewritten the file after parsing; ``lint.document_text`` then reads
-    the file afresh and caches the result.
-    """
-
-    path: Path
-    frontmatter: dict[str, Any]
-    body: str
-    raw_text: str | None = None
-    # The file's on-disk style, so a rewrite can keep it (emercons/knowmade#28):
-    # ``newline`` is "\r\n" or "\n", ``bom`` whether it began with a UTF-8 BOM.
-    newline: str = "\n"
-    bom: bool = False
-
-
-class LintContext:
-    def __init__(self, root: Path, fix: bool = False) -> None:
-        self.root = root.resolve()
-        self.fix = fix
-        self.issues: list[Issue] = []
-        self.fixes: list[str] = []
-        self.documents: dict[Path, Document] = {}
-        self.referenced_raw: set[Path] = set()
-        self.engine: dict[str, Any] | None = None
-
-    def rel(self, path: Path | None) -> str:
-        if path is None:
-            return ""
-        try:
-            return path.resolve().relative_to(self.root).as_posix()
-        except ValueError:
-            return str(path)
-
-    def issue(
-        self,
-        severity: str,
-        message: str,
-        path: Path | None = None,
-        fixable: bool = False,
-        fixed: bool = False,
-    ) -> None:
-        self.issues.append(Issue(severity, message, path, fixable, fixed))
-
-    def fixed(self, message: str) -> None:
-        self.fixes.append(message)
-
-    def active_issues(self) -> list[Issue]:
-        return [issue for issue in self.issues if not issue.fixed]
-
-    def counts(self) -> dict[str, int]:
-        counts = {"critical": 0, "warning": 0, "suggestion": 0, "info": 0}
-        for issue in self.active_issues():
-            counts[issue.severity] = counts.get(issue.severity, 0) + 1
-        return counts
 
 
 def first_body_summary(body: str) -> str:

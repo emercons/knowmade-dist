@@ -170,7 +170,7 @@ Flow: Read `_index.md` → identify relevant articles by summary/tag → read ar
 
 ### Linting
 See [references/linting.md](linting.md).
-Flow: run `llm-wiki lint --json` (structure, indexes, links, provenance, placement, registry) → agent passes for coverage, freshness and the rows marked `agent` → report → optionally `--fix`. Default lint keeps active material healthy and reports archived topics as skipped. Use `--include-archived` or `--archived-only` for explicit archived structural maintenance.
+Flow: run `llm-wiki lint --json` (structure, indexes, links, provenance, placement, registry) → agent passes for coverage, freshness and the rows marked `agent` → report → optionally `--fix`. Default lint keeps active material healthy and reports archived topics as skipped. Use `--wiki <slug> --include-archived` per archived slug for explicit archived structural maintenance (the command's `--archived-only` does that for all of them; it is not a CLI flag).
 
 ### Librarian
 See [references/librarian.md](librarian.md).

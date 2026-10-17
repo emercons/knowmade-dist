@@ -3,7 +3,7 @@
 
 The command specs under claude-plugin/commands/ name deterministic CLI
 invocations. This script is the single source for what those invocations may
-look like: it walks the real parser (``knowmade_control.legacy_cli``) and writes
+look like: it walks the real parser (``knowmade_control.cli``) and writes
 every namespace, subcommand, flag and help string to
 ``claude-plugin/skills/wiki-manager/references/cli.md``.
 
@@ -37,7 +37,7 @@ OUTPUT = ROOT / "claude-plugin" / "skills" / "wiki-manager" / "references" / "cl
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from knowmade_control import legacy_cli  # noqa: E402
+from knowmade_control import cli as control_cli  # noqa: E402
 
 HEADER = """\
 # llm-wiki CLI Reference
@@ -57,7 +57,9 @@ Conventions shared by most namespaces: `--local` targets `.wiki/` in the
 current directory, `--wiki <slug>` names a wiki in the hub registry, `--hub`
 overrides hub resolution, `--private` / `--public` switch between a topic and
 its `-PRIVATE` sibling, and a positional or `--path` wiki root bypasses
-resolution. `--json` prints a machine-readable report where offered.
+resolution. `--json` prints a machine-readable report where offered. Flags
+listed under a namespace go before its subcommand (`archive --hub H list`);
+`archive`, `schema`, `identity` and `specialist` accept them after it too.
 """
 
 
@@ -199,7 +201,7 @@ def render_parser(
 
 
 def generate() -> str:
-    parser = legacy_cli.build_parser()
+    parser = control_cli.build_parser()
     sub = subparser_action(parser)
     assert sub is not None, "llm-wiki parser has no namespaces"
     helps = child_helps(sub)

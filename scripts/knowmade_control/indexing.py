@@ -3,8 +3,7 @@
 Which directories carry a generated ``_index.md``, what each index must link
 to, the renderers that regenerate one under ``lint --fix``, and how a
 Markdown link destination is read and compared. Moved from ``legacy_cli``
-(emercons/knowmade#67 R1.4, ``KM-CLI-001``); ``lint`` is the only caller and
-the compatibility module re-exports every public name.
+(emercons/knowmade#67 R1.4, ``KM-CLI-001``); the ``lint_*`` modules are the only callers.
 
 Link destinations are normalised in one place (emercons/knowmade#34):
 ``./`` prefixes, percent-encoding such as ``%20``, ``[t](path "title")``
@@ -23,32 +22,18 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-try:
-    from .common import (
-        LintContext,
-        as_string_list,
-        first_body_summary,
-        markdown_link_destination,
-        table_cell,
-    )
-    from .markdown import (
-        parse_frontmatter_block,
-        split_markdown_frontmatter,
-        today_date,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    from common import (
-        LintContext,
-        as_string_list,
-        first_body_summary,
-        markdown_link_destination,
-        table_cell,
-    )
-    from markdown import (
-        parse_frontmatter_block,
-        split_markdown_frontmatter,
-        today_date,
-    )
+from .common import (
+    as_string_list,
+    first_body_summary,
+    markdown_link_destination,
+    table_cell,
+)
+from .lint_report import LintContext
+from .markdown import (
+    parse_frontmatter_block,
+    split_markdown_frontmatter,
+    today_date,
+)
 
 
 RAW_INDEX_CATEGORIES = ["articles", "papers", "repos", "notes", "data"]
@@ -340,6 +325,7 @@ def repair_directory_index(
             "warning",
             f"Required {index_contract_label(contract)} entry is missing from directory index.",
             path,
+            check="C3",
         )
     added = len(missing_entries) - len(unplaced)
     changes = []

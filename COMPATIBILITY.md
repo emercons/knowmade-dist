@@ -36,7 +36,7 @@ mirrored as one line in `KNOWMADE_VS_LLM_WIKI.md`.
 
 - **Five-point `confidence` scale** (knowmade#121). Lint accepts `high`,
   `medium-high`, `medium`, `medium-low` and `low` (`CONFIDENCE_VALUES` in
-  `scripts/knowmade_control/lint.py`); upstream accepts `high`, `medium`, `low`
+  `scripts/knowmade_control/lint_docs.py`); upstream accepts `high`, `medium`, `low`
   and warns on the rest. Classification: a superset of upstream's enum, so it
   makes no Knowmade corpus fail and needs no rule-set bump; a corpus that uses
   an intermediate value gets one upstream *warning* per article. Agents writing
@@ -97,6 +97,9 @@ is informational only: in a release commit it names the commit before the
 release commit, and the authoritative release identity remains `VERSION` plus
 the `v<version>` tag. The mirror-sync tests compare `_build.py` with the
 `COMMIT` line filtered out, so a routine commit does not dirty the mirrors.
+`llm-wiki engine info --json` reports that identity (version, tag, commit and
+whether it came from git or `_build.py`, rule sets, upstream baseline), and
+`llm-wiki pin set --knowmade v<version>` pins a wiki or hub by it.
 
 ## Supported Rule-Set Window
 
@@ -221,6 +224,283 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.6.0.25.1 — Sprint G of the 2026-10 audit
+
+Control-plane refactoring round 2, items R1, R2 and R3 of `#105 (control-plane
+refactoring round 2)`, and `#82 (stable lint check ids)`.
+
+**R1 and R2, deterministic CLI and protocol surface — unchanged.** Every namespace, flag,
+help string, exit code and JSON payload is the same; `references/cli.md`
+regenerates byte for byte from the new parser module. The parser is assembled
+in `knowmade_control/cli.py`, whose `NAMESPACES` list is the one registration
+point; `hub` registers `archive`, `schema` and `identity` through one function
+each. `identity` resolves its wiki through `roots` directly instead of through
+`legacy_cli`.
+
+**R1 and R2, distribution and runtime packaging — launchers run the package.** The
+control plane runs only as the `knowmade_control` package: `scripts/llm-wiki`
+and the packaged `bin/llm-wiki` copies import it from their own directory,
+`llm-wiki-adopt` and `llm-wiki-adopt-batch` import it the same way, and
+`python -m knowmade_control.cli` (or `.legacy_cli`) runs the same parser. The
+script-mode import fallbacks are deleted from every module except
+`source_lifecycle`, whose by-path loader external consumers use (knowmade#117).
+Running a module file as a bare script (`python3
+scripts/knowmade_control/lint.py`, `legacy_cli.py`, ...) was never a supported
+entry point: no install instruction, command spec or release note named it,
+and only the schema test's direct-script oracle exercised it, so there is
+nothing to deprecate. `legacy_cli` keeps `build_parser`, `main` and the 22
+names tests still import through it; every other name it used to re-export
+is gone from it and remains importable from its owning module. The unused
+`adoption_batch.append_event` and `engine.engine_root` are removed. Corpus
+rule set unchanged.
+
+**R3, lint split — all three surfaces unchanged.** `lint.py` keeps the parser
+and the run order (`lint.lint_steps`); the checks move verbatim into
+`lint_docs`, `lint_links`, `lint_hub` and `lint_report`, and the lint data
+model (`LintContext`, `Issue`, `Document`) moves from `common` to
+`lint_report`. `lint --json`, the text report and the `--fix` result are
+byte-identical on the golden wiki and every defect fixture, and
+`references/cli.md` is unchanged. `legacy_cli` still re-exports its 22 names,
+now from the owning modules.
+
+**Lint check ids (knowmade#82) — CLI/protocol additive.** Every
+`lint --json` issue gains `check`, the id of the `references/linting.md` rules
+row that found it (`C1`..`C21`, `C4b`, and the newly assigned `C22` engine and
+rule-set contract and `C23` specialist library). No other key, value, order or
+exit code changes, and the text report is unchanged (its finding line has no
+stable column for an id). Consumers that matched findings by message wording
+should match by `check` and `path`. Corpus rule set unchanged: no finding
+changes severity or verdict, so no rule-set bump. Packaging: regenerated
+mirrors only.
+
+**Deterministic CLI and protocol surface — additive: `privacy scan`
+(knowmade#112, privacy scan over tracked files).** New namespace `llm-wiki
+privacy` with one verb, `scan`, and `checkpoint seal --allowlist FILE`. No
+existing flag, output or exit code changes. `privacy scan` runs the checkpoint
+scanner's pattern pack (`checkpoints.checkpoint_pattern_specs`, the shared table
+in `redaction.py`), so it follows `CHECKPOINT_SCANNER_VERSION` and produces the
+same `privacy-<id>` finding ids; extra packs come from `--patterns`. Exit codes:
+0 nothing at or above `--fail-on`, 1 something is, 2 usage or configuration
+error. A listed file the scan cannot read (missing, oversized, undecodable
+name) is an `unscanned` warning finding, never a silent skip. The allow file (`privacy-<id>` lines and `path::kind::match` regexes) is
+shared by both commands; in `seal`, an allow-file entry that matches nothing in
+the bundle is ignored, where `--allow-finding` still rejects a stale id. The
+`private-tracked` kind (`--check tracked-private`, and the plain function
+`privacy.tracked_private_paths`) is recorded under Documented ladder exceptions
+below. Corpus rule set unchanged.
+
+**Engine identity and pins (knowmade#115) — additive CLI.** New namespaces
+`engine info` and `pin status|set|resolve|verify`. `rules check` additionally
+accepts `--local`, `--wiki`, `--hub` and the scope flags `lint` takes (`--path`
+is no longer required), prints the engine contract after the rule-set lines and
+adds an `engine` key to its JSON; its exit status is still the rule-set
+verdict. `rules --json check` now prints JSON (knowmade#101: the namespace and
+subcommand `--json` flags no longer share an argparse dest). A hub may declare
+the engine pin in an optional `HUB/config.md`; a topic that declares no pin key
+inherits it, and the engine state gains `pin_source` and `pin_config`. A topic
+that declared no pin under a hub that declares one is now judged against the
+hub's pin instead of reporting `undeclared`, so `lint` can newly warn about
+drift there; that is the point of the declaration and needs no rule set.
+`engine._engine_checkout` is public as `engine.engine_checkout`. Corpus rule
+set unchanged.
+
+**Hub selection and hub index (knowmade#114) — additive CLI.** New namespace
+`hub index [--check|--write]` and `hub where`. Hub selection gains the
+`LLM_WIKI_HUB` environment variable (after `--hub`, before `config.json`) and an
+opt-in `"hub_discovery": "cwd"` in `config.json`; with neither set, every
+command selects the hub it selected before. `archive topic|restore`,
+`hub index --write` and `pin set` accept `--require-cwd-hub`.
+`hub.write_hub_index` returns whether it changed the file and no longer
+rewrites an index that is already current. `index_drift(hub)` is the read-only
+check for lint's `hub-index-drift`; wiring it into lint is new lint behaviour
+and goes through `rule_lint.issue_versioned`. Not in this slice: `--stats`,
+`wikis.local.json` and nested `topics/<slug>/.wiki` recognition.
+
+**Deterministic CLI and protocol surface — additive: `links check` and `lint
+--all` (knowmade#113, whole-tree link check and `lint --all`).** New namespace
+`llm-wiki links` with one verb, `check`, and new flags `--all`,
+`--include-nested-wiki`, `--skip-private` and `--report-dir` on `lint`. No
+existing flag, output, exit code or JSON key changes, and lint's C4 scope
+(`wiki/` and `inventory/`) is unchanged. `links check` reports `broken-link`,
+`unresolved-wikilink` and (`--warn-absolute`) `absolute-link`, all warnings,
+with the lint link reader and resolvers; exit codes 0, 1 (a finding at or above
+`--fail-on`) and 2 (usage, configuration or git error, never reported clean).
+`lint --all` runs the single-root lint per hub root, prints an aggregate
+`{hub, roots, counts}` report, exits with the worst root, rejects `--fix` with
+exit 2 and writes only inside `--report-dir`. Corpus rule set unchanged: no
+rule or severity is added.
+
+**Freshness windows and snapshots (knowmade#108) — additive corpus keys and
+CLI.** `config.md` may set `freshness_hot_days`, `freshness_warm_days` and
+`freshness_cold_days` (a topic inherits each unset key from `HUB/config.md`),
+and an article may declare `freshness: snapshot`. New read-only namespace
+`freshness report [--due N] [--include-snapshots] [--json]`. Without the new
+keys lint reports what it reported before. A longer window and a snapshot
+only relax C14 (a stale snapshot is info). An invalid window, an unknown
+`freshness:` value and an article stale only under a window shorter than the
+default are new strictness and go through `rule_lint.issue_versioned` from
+rules/3, so a rules/3 corpus sees them as info. `freshness_threshold` stays
+the librarian's score threshold; lint never reads it. The check moved from
+`lint_docs` to `knowmade_control/freshness.py`; the lint step keeps its name.
+`engine.topic_hub` is the shared "which hub is this a topic of" helper.
+
+**Lint fix classes (knowmade#111, lint --fix is all-or-nothing) — CLI/protocol
+additive.** New `lint` flags `--preflight` (alias `--plan`), `--fix-only`,
+`--no-quarantine`, `--no-log` and `--refuse-on`; the repair classes are listed
+once in `references/linting.md` § Fix classes. Every `lint --json` issue gains
+`fix_class` beside `check` (empty when not fixable); a preflight report adds
+`plan[]` and a refusal adds `refused[]`. New exit code 2 only for a
+`--refuse-on` refusal (or `--refuse-on` without `--fix`/`--preflight`). A
+preflight exits 0 unless `--fail-on` is given, so `--fail-on` no longer has a
+parser default; without `--preflight` the effective default is still
+`suggestion`. Plain `lint` and `lint --fix` write and report as before, with
+three corrections to `fixable`: a C3 missing index entry or dead index link
+found without `--fix` is now `fixable: true` (`--fix` repairs it), and the C1
+missing master `_index.md` is now `fixable: false` (no repair writes it).
+Corpus rule set unchanged: no severity or verdict changes. Packaging:
+regenerated mirrors only.
+
+**Hub lint: three checks wired (knowmade#114, knowmade#115, knowmade#112) —
+CLI/protocol additive, one privacy exception.** `lint --json` on a hub gains two
+check ids. `C24` (hub index drift, `hub_index.index_drift`) is `info` in
+`rules/3` through `rule_lint.issue_versioned` with `introduced_in = 3`, so it is
+silent below, `warning` from `rules/4` and `critical` from `rules/5`; the
+`Last updated` date alone is never drift, and `hub index --write` is the
+repair (no lint fixer). `C25` (tracked private files, kind `private-tracked`) is
+`critical` in every supported rule set under the privacy exception recorded
+under Documented ladder exceptions; a hub whose git index tracks a path under a
+`-PRIVATE` directory now exits 1 under `--fail-on critical`, and the hub
+`config.md` key `private_anchors` (comma-separated string or YAML list,
+default none) lists the basenames it tolerates. When git cannot list the files
+the check reports one `warning` instead of passing. Neither check runs on a
+topic root, and no existing finding changes severity. The C22 engine-drift
+finding of a topic that inherits its pin now carries the hub's `config.md` as
+`path` (it was the topic's own file, which declares nothing); the message,
+severity and exit code are unchanged. Corpus rule set unchanged. Packaging:
+regenerated mirrors only.
+
+**Adoption keeps `.wiki/` out of git (knowmade#95, adopt apply leaves `.wiki/`
+un-ignored) — additive flag, one new `.gitignore` write, two state keys
+removed.** `llm-wiki adopt apply` (and `llm-wiki-adopt --apply`) gains
+`--no-gitignore`, and its `--json` result gains a `gitignore` object
+(`action`: `appended`, `already-ignored`, `opted-out`, `not-git` or
+`outside-project`; `rule`). When the wiki directory lies inside the project and
+the project is in a git work tree whose rules (`git check-ignore`, so an outer
+`.gitignore` or the global excludes count) do not already ignore it, the
+default `.wiki/` rule (`/<path>/` for a custom `--wiki-root`) is appended to the
+project's `.gitignore` through the hub ignore helper, under one comment,
+idempotently, in the file's newline style; the file is created when absent.
+`--no-gitignore` writes nothing and prints a warning with the next step.
+Outside git, or with a wiki outside the project, nothing is written. Same
+privacy rationale as the hub rules in C19/C21 and `lint --fix`: git would
+otherwise commit staged copies of adopted material, so the append is the
+default and an opt-out exists, as with `llm-wiki-session enable`. Classification:
+CLI additive; the `.gitignore` append is a new side effect that only adds a
+rule git would otherwise not have and is skipped when the path is already
+ignored, so it is a ladder bypass for privacy, not a graded change. Persisted
+text no longer names the machine: `log.md` says "planned from `<project
+name>`", `PLAN.md` lists the project name and the wiki root relative to the
+project, and batch `state.json` drops `project_root` and `wiki_root` (absolute)
+for `project_name` and `project_root_relative` next to the existing
+`wiki_root_relative`. Removal of the two keys is deliberate: no shipped reader
+needs them (`resolve_wiki_root` uses an existing `--wiki-root`, then
+`wiki_root_relative`, then the `<wiki>/inbox/.imports` layout, then a recorded
+`wiki_root` if an older batch has one), and a batch copied out of its layout now
+needs `--wiki-root`. The stdout and `--json` plan output still print absolute
+paths; they are not stored. Batches written earlier keep their absolute paths
+until the project is cleaned by hand. Corpus rule set unchanged.
+
+**Source lifecycle for adapters (knowmade#118) — additive CLI and pointer
+keys.** New `source` verbs `resolve`, `paths`, `import-pointer`,
+`attach-derived` and `map`; `receive` adds `--note` and repeatable `--alias`;
+`verify` adds `--pointer-file`; every `source` verb accepts `--json` (the
+output was and is JSON). A v1 pointer may carry `retrieved_at`, `note`,
+`aliases` and `imported_from`, and a derived artifact `tool`, each only when
+set, so pointers without them are byte-identical to before. They stay within
+`llm-wiki/source-pointer/v1` because every v1 reader, including the engines
+pinned by consumers, checks only the required keys. Behaviour changes, all
+on surfaces that failed or lost data before: re-receiving a known source
+fills provenance its record lacks and adds aliases (it refuses to replace a
+recorded value, where it used to ignore the flags); `decide` on an existing
+pointer that differs only in those optional keys rewrites it from the record,
+keeping its `recorded_at`, instead of failing; `extract` keeps artifacts
+attached by `attach-derived`; a file in the pointers directory whose `schema`
+is not `llm-wiki/source-pointer/...` is listed under a new `foreign` key of
+`verify` and is no longer a failed row. Lint reports such a file as
+`source-pointer-foreign` (C20) through `rule_lint.issue_versioned` from
+rules/3, where it used to be a critical "Invalid source lifecycle pointer";
+that is a relaxation, so no rule-set change. Packaging: regenerated mirrors
+only.
+
+**Consumer CI entry point (knowmade#119) — packaging additive.** New
+`scripts/ci-lint`, shipped in the distribution tree with the rest of
+`scripts/`. It is a standalone standard-library script, not a `llm-wiki`
+namespace, and drives only existing CLI surface: `pin verify --engine` (it
+falls back to `lint --strict-engine` alone on engines that predate `pin`) and
+`lint --strict-engine --fail-on LEVEL --json`. It accepts only a release pin
+(`knowmade_version`), because the distribution repository has tags and no
+source commits. Its exit codes: 0 pass, 1 lint failure or `--max-warnings`
+exceeded, 2 engine unreachable or not the pinned one. `--allow-skip` turns an
+unreachable engine into `SKIP: <reason>` with exit 0, never into a pass.
+GitHub annotations are rendered from the existing `lint --json` keys; no
+engine flag, payload key or rule changed.
+
+**Adapter namespace split (R6 of knowmade#105, control-plane refactoring
+round 2) — package layout only.** `adapters.py` is split into
+`adapter_manifest` (manifest, request and response validation) and
+`adapter_registry` (the registry file); `adapters` keeps process execution and
+the namespace. CLI, protocol, `--json` output, the registry format and the
+adapter protocol `llm-wiki-adapter/v1` are unchanged; the mirrors carry the new
+
+**Checkpoint namespace split (R7 of knowmade#105, control-plane refactoring
+round 2) — package layout only.** `checkpoints.py` is split into
+`checkpoint_scan` (the pattern pack over `redaction.py`, finding ids, the
+scanner version) and `checkpoint_bundle` (validate, seal, verify);
+`checkpoints` keeps the namespace and re-exports the moved names for one
+release. `privacy` now imports `checkpoint_scan`, which removes the
+privacy↔checkpoints import cycle. CLI, `--json` output, the privacy-report
+format and the scanner version (4) are unchanged; the mirrors carry the new
+files.
+
+**Archive scope flags after the subcommand (knowmade#102, `--archived-only` is not a CLI flag) — CLI
+additive, one stricter usage error.** `archive list|topic|restore` accept `--hub`, `--private` and
+`--public` after the subcommand as well (`archive list --hub X`), as `schema` and `identity` do; the
+copies are hidden from `--help`, so `references/cli.md` gains only a sentence. Giving `--private` and
+`--public` together, one before and one after the subcommand (which argparse cannot see as a
+conflict), exits with a usage error. The command specs and `AGENTS.md` no longer claim a CLI
+`--archived-only` flag: it is the `/wiki:lint` command's loop of `lint --wiki <slug>
+--include-archived` over every archived slug. Corpus rule set and packaging unchanged (regenerated
+mirrors only).
+
+### v0.6.0.25.1 — git environment isolation (knowmade#135)
+
+**Deterministic CLI and protocol surface — bug fix, no flag change.** Every git
+subprocess the control plane runs against a wiki or hub (`hub.is_inside_git_work_tree`,
+`hub.git_ignores_path`, the C21 `git ls-files` probe, `engine` commit lookups)
+now passes `fsio.git_environment()`: `os.environ` without `GIT_DIR`,
+`GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_PREFIX`,
+`GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` and `GIT_NAMESPACE`.
+Before, a CLI launched from a git hook or `git rebase --exec` inherited the
+invoking repository's `GIT_DIR`, so a hub anywhere on disk answered "inside a
+work tree" for that repository and the private-ignore guard refused `archive`
+on a hub that was not in git at all. `scripts/run-checks` unsets the same
+variables for every step. Corpus rule set and packaging unchanged.
+
+**Security fix, no flag change: no repository-configured fsmonitor.** The git
+reads run inside a hub or wiki checkout (`hub where`'s `git status`, the
+`ls-files` and `check-ignore` probes of `hub`, lint and `privacy scan`) pass
+`fsio.GIT_READ_OPTIONS` (`-c core.fsmonitor=false`). Before, a checkout whose
+`.git/config` named a `core.fsmonitor` program, for example a cloned or planted
+hub found by `hub where`, ran that program on every such read. `hub where`'s
+`git status` also runs in `fsio.git_filter_environment`, whose
+`GIT_CONFIG_COUNT` entries empty every configured `filter.<driver>` command,
+so a stat-dirty file is compared as raw bytes rather than through a
+repository-named `clean` or `process` program; a hub that relies on a filter
+(Git LFS) may then show as dirty. It no longer enters submodules
+(`--ignore-submodules=all`), and when the filter names cannot be read back
+exactly it reports no git state instead of running `git status`. Output and
+exit codes are otherwise unchanged.
 
 ### v0.5.1.25.1 — Sprint F of the 2026-10 audit
 
@@ -730,3 +1010,15 @@ normal ladder was bypassed, as the exception clause above requires.
   may hold only public sources and nothing is repaired automatically. Hub
   roots carry no `knowmade_rule_set`, so no corpus declaration changes
   meaning.
+- **Tracked paths under a `-PRIVATE` directory** (knowmade#112, privacy scan;
+  `privacy.tracked_private_paths`, kind `private-tracked`). A hub whose git
+  index holds a path under any `*-PRIVATE/` directory, other than the anchor
+  basenames the hub lists in `private_anchors` (default none), is reported as
+  `critical` in every supported rule set by hub lint (C25, wired in Sprint G)
+  and by `llm-wiki privacy scan --check tracked-private`. Reason: a tracked private file is already committable
+  and, once pushed, public; the `.gitignore` check (`check_hub_private_ignore`)
+  cannot see a file added with `git add -f` or tracked before the ignore rule
+  existed, a privacy failure under the exception clause. It fires only when the
+  hub is inside a git work tree (its root or nested in a larger repository) and
+  never repairs anything. Hub roots carry no `knowmade_rule_set`, so no corpus
+  declaration changes meaning.

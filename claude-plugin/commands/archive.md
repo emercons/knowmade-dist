@@ -91,9 +91,10 @@ lessons-learned, librarian, refresh, and audit workflows. Deep query may surface
 archived index matches separately, but must not cite them as active evidence
 unless the user passes `--include-archived`.
 
-`lint --include-archived` and `lint --archived-only` are the maintenance paths
-for archived structure. `retract` may operate on archived sources when
-explicitly targeted.
+`lint --wiki <slug> --include-archived`, one run per archived slug, is the
+maintenance path for archived structure (the lint command's `--archived-only`
+runs it for every archived slug; the CLI has no `--archived-only` flag).
+`retract` may operate on archived sources when explicitly targeted.
 
 ### Report
 

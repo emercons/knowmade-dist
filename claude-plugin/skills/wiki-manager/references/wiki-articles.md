@@ -122,6 +122,7 @@ aliases: [alternate names for Obsidian discovery]
 confidence: high|medium|low   # lint also accepts medium-high, medium-low (upstream warns on them)
 volatility: hot|warm|cold
 verified: YYYY-MM-DD
+freshness: snapshot          # optional; a dated state, never refreshed
 compiled-from: sources|conversation|mixed   # optional; defaults to "sources"
 summary: "2-3 sentence summary for index"
 ---
@@ -208,7 +209,15 @@ Each dimension's decay curve is scaled by the article's `volatility` tier — a 
 
 Articles with `compiled-from: conversation` have no fetchable raw source chain. For those articles, skip source freshness and source chain integrity, compute verification recency and compilation recency at 0-25 points each, then multiply the 50-point subtotal by 2 so the final score still lands on 0-100. Articles with `compiled-from: mixed` use the standard four-dimension formula because they still carry raw sources.
 
-The freshness threshold is set per wiki in `config.md` (default: 70). Articles scoring below the threshold are flagged by lint. There are no hardcoded day cutoffs — the composite score naturally flags the right articles at the right time based on their volatility and the actual state of their sources.
+The freshness threshold is set per wiki in `config.md` (`freshness_threshold`, default: 70); the librarian and `wiki refresh --due` flag articles scoring below it. Deterministic lint does not compute the score and never reads the threshold: it applies the day windows below.
+
+### Lint Windows And Snapshots
+
+Lint (C14) and `llm-wiki freshness report` call an article stale when more days have passed since `verified` (else `updated`) than its tier's window: hot 30, warm 180, cold 365 by default. `config.md` frontmatter may set `freshness_hot_days`, `freshness_warm_days` and `freshness_cold_days` (positive whole days); a topic under `HUB/topics/` inherits each key it does not set from `HUB/config.md`.
+
+An article with `freshness: snapshot` records a dated state (a research note named for its date) and is old by design: past its window lint reports it as info, and `freshness report` leaves it out unless `--include-snapshots`. `snapshot` is the only value. An invalid window, an unknown `freshness:` value and staleness only under a window shorter than the default are reported through the rule-set ladder (info on a rules/3 corpus).
+
+`llm-wiki freshness report --path <topic> [--due N] --json` lists the articles past their window, or within N days of it, with the windows in force and where each came from.
 
 ## Dual-Link Convention
 

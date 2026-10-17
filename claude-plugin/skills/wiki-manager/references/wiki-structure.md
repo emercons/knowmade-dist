@@ -171,8 +171,13 @@ offer a non-blocking adoption path.
 ## Local Wiki (--local flag)
 
 Same structure as above but rooted at `<project>/.wiki/` without `wikis.json`
-or `topics/`. Local wikis are normally private by default; add `.wiki/` to
-`.gitignore` unless the user explicitly wants it committed.
+or `topics/`. Local wikis are normally private by default. In a git project
+`.wiki/` must be ignored, because `inbox/.imports/` holds staged copies of
+adopted material. `llm-wiki adopt apply` does this itself: when git does not
+already ignore the wiki it appends `.wiki/` to the project's `.gitignore`
+(creating the file if needed) and says so; `--no-gitignore` opts out and prints
+a warning. A hand-made `init --local` appends the same rule unless the user
+wants the wiki committed. Outside git nothing is written.
 
 ## Wiki Resolution Order
 

@@ -22,10 +22,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import frontmatter as _frontmatter
-except ImportError:  # executed directly as a script, not imported as a package
-    import frontmatter as _frontmatter
+from . import frontmatter as _frontmatter
+from . import roots as _roots
 
 WIKI_ID_KEY = "wiki_id"
 _ID = re.compile(r"^wk-[0-9a-f]{16}$")
@@ -128,10 +126,7 @@ def status_payload(wiki_root: Path) -> dict[str, Any]:
 
 def run_identity(args: Any) -> int:
     """`llm-wiki identity status|assign` — read or create a wiki's stable id."""
-    # legacy_cli imports this module, so its resolver is imported at call time.
-    from . import legacy_cli as legacy
-
-    root = legacy.resolve_wiki_root(args)
+    root = _roots.resolve_wiki_root_args(args)
     command = getattr(args, "identity_command", "status")
 
     if command == "status":

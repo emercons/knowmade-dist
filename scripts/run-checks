@@ -19,6 +19,10 @@
 # KNOWMADE_STRICT=1, skipped with a reason).
 set -uo pipefail
 
+# A hook or `git rebase --exec` exports these; a step's own git calls must
+# answer for the step's cwd, not for the invoking repository (#131, #135).
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_DIRECTORY
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -40,7 +44,7 @@ Engine contract and wiki identity	./tests/test-identity-contract.sh
 Engine manifest lookup per packaging	./tests/test-engine-packaging.sh
 Corpus rule-set compatibility	./tests/test-rule-sets.sh
 Shared root identity resolution	./tests/test-control-plane-roots.sh
-Schema control-plane parity	./tests/test-control-plane-schema.sh
+Package entry points and schema domain	./tests/test-control-plane-schema.sh
 Brownfield adoption behavior	./tests/test-local-cli-adopt.sh
 Brownfield batch resume state machine	./tests/test-local-cli-adopt-batch.sh
 Unified adoption compatibility surface	./tests/test-unified-adopt.sh
@@ -50,6 +54,8 @@ Structural fixtures	./tests/test-structure.sh
 Lint rejects every defect fixture	./tests/test-lint-defects.sh
 CLI subcommand smoke	python3 ./tests/test_cli_subcommands.py
 Main deterministic lint suite	./tests/test-local-cli-lint.sh
+Whole-tree link checks and lint --all	./tests/test-local-cli-links.sh
+Lint fix classes and preflight	./tests/test-local-cli-lint-fix.sh
 Source original lifecycle	./tests/test-source-lifecycle.sh
 Codex generated mirror sync	./tests/test-codex-sync.sh
 OpenCode generated mirror sync	./tests/test-opencode-sync.sh
@@ -59,6 +65,7 @@ Retract and privacy-log removal	./tests/test-local-cli-retract.sh
 Private adapter registry and boundary	./tests/test-local-cli-adapters.sh
 Personal specialist library	./tests/test-local-cli-specialists.sh
 Project checkpoint privacy seal	./tests/test-local-cli-checkpoint.sh
+Privacy scan	./tests/test-local-cli-privacy.sh
 Session capture	./tests/test-session-capture.sh
 Session concurrency	./tests/test-session-concurrency.sh
 Token benchmark harness	./tests/test-token-benchmarks.sh

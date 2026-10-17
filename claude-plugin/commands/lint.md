@@ -42,9 +42,10 @@ library, archive container) and never recurses into topics. To lint the topics,
 list them with `<cli> archive list --json` and run one lint per slug with
 `--wiki <slug>`. By default lint only active topics and report
 `Archived topics: N skipped`. With `--include-archived` add the archived slugs
-(`--wiki <slug> --include-archived`). With `--archived-only` lint only the
-archived slugs. Archived topics get structural checks only; skip freshness and
+(`--wiki <slug> --include-archived`). `--archived-only` is a command option,
+not a CLI flag: lint only the archived slugs, the same way. Archived topics get structural checks only; skip freshness and
 coverage pressure unless the user asks for a full archived maintenance pass.
+`<cli> lint --all --json` lints every root of the hub, read-only.
 
 ### 3. Run it
 
@@ -57,20 +58,18 @@ the report. A non-zero exit without JSON (unresolved wiki, archived target,
 usage error) is a failure: show the CLI message and stop. If no wiki is found,
 reply "No wiki found. Run `/wiki init` first."
 
-The report has `status`, `counts`, `fixes`, and `issues[]` with `severity`,
-`message`, `path`, `fixable`. Do not paraphrase away findings; group them for
-the user.
+The report has `status`, `counts`, `fixes`, and `issues[]` with `check` (the
+rules-table id; match by it, not by message), `severity`, `message`, `path`,
+`fixable`. Do not paraphrase away findings; group them for the user.
 
 ### 4. If `--fix`
 
-1. The run in step 3 (without `--fix`) is the dry run. Review its
-   `fixable: true` issues against `references/linting.md` § Fix review. If a
-   proposed fix would touch an archived topic the user did not target, leave
-   that scope out of the `--fix` run.
+1. Dry run: `<cli> lint --preflight --json`. Review its `plan[]` per
+   `references/linting.md` § Fix review, § Fix classes. If a proposed fix
+   would touch an archived topic the user did not target, leave that scope out
+   of the `--fix` run.
 2. Run `<cli> lint --fix --json [same scope flags]`. The CLI applies only
-   unambiguous fixes (indexes, directories, placement, safe frontmatter,
-   unambiguous source refs, registry/ignore drift) and appends its own
-   `log.md` entry.
+   unambiguous fixes and appends its own `log.md` entry.
 3. Report `fixes[]` and the residual `issues[]`. Do not hand-edit what the CLI
    chose not to fix; those are judgment items.
 

@@ -15,9 +15,11 @@ Conventions shared by most namespaces: `--local` targets `.wiki/` in the
 current directory, `--wiki <slug>` names a wiki in the hub registry, `--hub`
 overrides hub resolution, `--private` / `--public` switch between a topic and
 its `-PRIVATE` sibling, and a positional or `--path` wiki root bypasses
-resolution. `--json` prints a machine-readable report where offered.
+resolution. `--json` prints a machine-readable report where offered. Flags
+listed under a namespace go before its subcommand (`archive --hub H list`);
+`archive`, `schema`, `identity` and `specialist` accept them after it too.
 
-Namespaces: `lint`, `archive`, `schema`, `identity`, `retract`, `specialist`, `adapter`, `checkpoint`, `rules`, `adopt`, `source`.
+Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `rules`, `engine`, `pin`, `freshness`, `adopt`, `source`.
 
 ## `llm-wiki lint`
 
@@ -27,6 +29,11 @@ Run deterministic checks that do not require an LLM. Pass a wiki root path, or u
 |---|---|
 | `[path]` | Wiki root path to lint. |
 | `--fix` | Apply unambiguous structural fixes. |
+| `--preflight, --plan` | Plan the --fix writes and write nothing. |
+| `--fix-only CLASS[,CLASS]` | Apply only these fix classes (quarantine, placement, frontmatter, index, create, registry, gitignore, log); implies --fix. |
+| `--no-quarantine` | Leave unexpected files in place. |
+| `--no-log` | Do not append to log.md. |
+| `--refuse-on CLASS[,CLASS]` | Exit 2, writing nothing, if these classes would act. |
 | `--local` | Lint .wiki/ in the current directory. |
 | `--wiki WIKI` | Named wiki from the hub registry. |
 | `--hub HUB` | Override hub path for --wiki resolution. |
@@ -35,7 +42,11 @@ Run deterministic checks that do not require an LLM. Pass a wiki root path, or u
 | `--include-archived` | Allow linting an explicitly targeted archived wiki. |
 | `--json` | Print a machine-readable JSON report. |
 | `--strict-engine` | Treat a mismatch between the declared and running engine as a protocol violation rather than a warning. |
-| `--fail-on {critical,warning,suggestion}` | Lowest severity that makes the command exit non-zero (default: suggestion, i.e. any finding). |
+| `--fail-on {critical,warning,suggestion}` | Lowest severity that makes the command exit non-zero (default: suggestion, i.e. any finding; none for --preflight). |
+| `--all` | Lint every root of the hub. |
+| `--include-nested-wiki` | With --all, add topics/*/.wiki. |
+| `--skip-private` | With --all, skip -PRIVATE roots. |
+| `--report-dir DIR` | With --all, write reports to DIR. |
 
 ## `llm-wiki archive`
 
@@ -68,6 +79,7 @@ Archive an active topic wiki.
 |---|---|
 | `slug` | Topic slug to archive. |
 | `--reason REASON` | Optional archive reason. |
+| `--require-cwd-hub` | Refuse unless the selected hub is the hub enclosing the current directory. |
 
 ### `llm-wiki archive restore`
 
@@ -76,6 +88,7 @@ Restore an archived topic wiki.
 | Argument | Meaning |
 |---|---|
 | `slug` | Topic slug to restore. |
+| `--require-cwd-hub` | Refuse unless the selected hub is the hub enclosing the current directory. |
 
 ## `llm-wiki schema`
 
@@ -185,6 +198,33 @@ Declare a wiki id in config.md if the wiki has none.
 | `--include-archived` | Allow targeting an archived wiki. |
 | `--id ID` | Use this id instead of generating one. |
 | `--dry-run` | Report what would happen without writing. |
+
+## `llm-wiki hub`
+
+Check or refresh the hub index, and show which hub is selected.
+
+Subcommands: `index`, `where`.
+
+### `llm-wiki hub index`
+
+Compare the topic table and statistics of HUB/_index.md with wikis.json. --check (the default) exits 1 when they differ; --write refreshes only the generated table and counts, keeping curated sections, extra columns, the BOM and the newline style.
+
+| Argument | Meaning |
+|---|---|
+| `--check` | Report drift; exit 1 when out of date (default). (not with --write) |
+| `--write` | Refresh the generated table and counts. (not with --check) |
+| `--hub HUB` | Override hub path. |
+| `--require-cwd-hub` | Refuse unless the selected hub is the hub enclosing the current directory. |
+| `--json` | Print JSON. |
+
+### `llm-wiki hub where`
+
+Hub precedence: --hub, then LLM_WIKI_HUB, then the hub enclosing the current directory when config.json sets "hub_discovery": "cwd", then hub_path. Shows the git branch, ahead/behind and dirty state of each hub.
+
+| Argument | Meaning |
+|---|---|
+| `--hub HUB` | Override hub path. |
+| `--json` | Print JSON. |
 
 ## `llm-wiki retract`
 
@@ -395,6 +435,7 @@ Finalize hashes and run the mandatory privacy scan.
 | `path` | Checkpoint bundle directory. |
 | `--audience {private,public,team}` | Declared recipient boundary for source-access validation. (required) |
 | `--allow-finding ALLOW_FINDING` | Explicitly acknowledge one exact finding ID; repeatable. |
+| `--allowlist FILE` | Allow file shared with `privacy scan`; needs --override-reason. |
 | `--allow-source ALLOW_SOURCE` | Explicitly retain one exact wiki:path input above the audience; repeatable. |
 | `--override-reason OVERRIDE_REASON` | One-line reason required for any source or finding override. |
 | `--json` | Print JSON. |
@@ -407,6 +448,55 @@ Recheck bundle structure, hashes, and privacy attestation.
 |---|---|
 | `path` | Checkpoint bundle directory. |
 | `--json` | Print JSON. |
+
+## `llm-wiki privacy`
+
+Privacy scanning with the pattern pack `checkpoint seal` uses.
+
+Subcommands: `scan`.
+
+### `llm-wiki privacy scan`
+
+Scan .md, .json, .html, .txt, .yaml, .yml and .toml files; excerpts never show the match. Exit 0 clean, 1 findings at or above --fail-on, 2 usage error.
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Root directory to scan. |
+| `--local` | Scan ./.wiki. |
+| `--wiki WIKI` | Scan a named wiki. |
+| `--hub HUB` | Hub path; alone, scan the hub itself. |
+| `--scope {tracked,worktree}` | Tracked files or the whole tree (default: tracked inside a work tree). |
+| `--patterns FILE` | Extra JSON pack of {id, kind, regex, severity, description}; repeatable. |
+| `--allowlist FILE` | Allow file shared with `checkpoint seal`: `privacy-<id>` or `path::kind::match` regex lines. |
+| `--fail-on {warning,critical}` | Lowest severity that exits 1. (default: critical) |
+| `--json` | Print JSON. |
+| `--show-allowed` | List allowed findings too. |
+| `--check {tracked-private}` | Run only this check: tracked paths under *-PRIVATE/ (critical). |
+| `--anchors ANCHORS` | Comma-separated basenames the check tolerates. (default: ) |
+
+## `llm-wiki links`
+
+Whole-tree link checks.
+
+Subcommands: `check`.
+
+### `llm-wiki links check`
+
+Exit 0 clean, 1 findings, 2 error.
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Root to check. |
+| `--local` | Check ./.wiki. |
+| `--wiki WIKI` | Named wiki. |
+| `--hub HUB` | Hub path; alone, the hub. |
+| `--scope {wiki,all,tracked}` | wiki (as C4), all or tracked (default: wiki). |
+| `--wikilinks {slug,path,both}` | Resolve [[wiki-links]] by slug, path or both. (default: both) |
+| `--warn-absolute` | Also warn on absolute targets. |
+| `--include-private` | Include -PRIVATE directories. |
+| `--ignore-private-readme` | Skip -PRIVATE/README.md. |
+| `--json` | Print JSON. |
+| `--fail-on {warning,critical}` | Lowest severity that exits 1. (default: warning) |
 
 ## `llm-wiki rules`
 
@@ -422,11 +512,17 @@ Subcommands: `check`, `declare`.
 
 ### `llm-wiki rules check`
 
-Compare one wiki declaration with the running engine.
+Compare one wiki's rule-set declaration and engine pins with the running engine. The root resolves like lint: --path, --local, --wiki <slug> through the hub registry, else ./.wiki, else the hub.
 
 | Argument | Meaning |
 |---|---|
-| `--path PATH` | Wiki root containing config.md. (required) |
+| `--path PATH` | Wiki root containing config.md. |
+| `--local` | Check ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
 | `--json` | - |
 
 ### `llm-wiki rules declare`
@@ -438,6 +534,104 @@ Write a supported rule-set declaration to config.md.
 | `--path PATH` | Wiki root containing config.md. (required) |
 | `--set RULE_SET` | (default: 3) |
 | `--json` | - |
+
+## `llm-wiki engine`
+
+Print the running engine's identity (version, tag, commit, rule sets).
+
+Subcommands: `info`.
+
+### `llm-wiki engine info`
+
+Print the running engine's version, its release tag v<version>, the commit (informational: a packaged copy carries the commit its last sync embedded), the rule sets it supports and the absorbed upstream baseline.
+
+| Argument | Meaning |
+|---|---|
+| `--json` | Print JSON. |
+
+## `llm-wiki pin`
+
+Show, set, resolve and verify the engine pin in config.md. A hub may declare the pin once in HUB/config.md; topics that declare none inherit it.
+
+Subcommands: `status`, `set`, `resolve`, `verify`.
+
+### `llm-wiki pin status`
+
+Show the declared pin and its verdict; for a hub, also every active topic.
+
+| Argument | Meaning |
+|---|---|
+| `--path PATH` | Show the wiki root at this path. |
+| `--local` | Show ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
+| `--json` | Print JSON. |
+
+### `llm-wiki pin set`
+
+Write the engine pin. A tag or version pins the release (knowmade_version / llm_wiki_version); a commit SHA pins knowmade_checker_sha / llm_wiki_checker_sha. Writing one form of a pin removes the other. The hub's config.md is created when missing; newline style and BOM are kept.
+
+| Argument | Meaning |
+|---|---|
+| `--knowmade KNOWMADE` | Knowmade release tag, version or commit SHA. |
+| `--upstream UPSTREAM` | Upstream llm-wiki release tag, version or commit SHA. |
+| `--hub HUB` | Override hub path. |
+| `--path PATH` | Write this wiki root's existing config.md instead of the hub's. |
+| `--write-topics` | Also write the pin into every active topic's config.md under the hub's topics/. |
+| `--require-cwd-hub` | Refuse unless the selected hub is the hub enclosing the current directory. |
+| `--json` | Print JSON. |
+
+### `llm-wiki pin resolve`
+
+Print the commit a tag names.
+
+| Argument | Meaning |
+|---|---|
+| `tag` | Tag to resolve, for example v0.5.1.25.1. |
+| `--repo REPO` | Git clone to resolve in (default: the engine's own checkout). |
+| `--json` | Print JSON. |
+
+### `llm-wiki pin verify`
+
+Exit 2 unless the running engine is the pinned one (the CI step).
+
+| Argument | Meaning |
+|---|---|
+| `--engine` | Verify the running engine against the declared (or inherited) pin. (required) |
+| `--path PATH` | Verify the wiki root at this path. |
+| `--local` | Verify ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
+| `--json` | Print JSON. |
+
+## `llm-wiki freshness`
+
+List compiled articles due for refresh under the configured freshness windows.
+
+Subcommands: `report`.
+
+### `llm-wiki freshness report`
+
+Read-only. Windows come from freshness_hot_days, freshness_warm_days and freshness_cold_days in config.md (a topic inherits HUB/config.md's), default 30/180/365. Articles with freshness: snapshot are left out unless --include-snapshots. Exit 0, or 2 when the root is missing or is a hub.
+
+| Argument | Meaning |
+|---|---|
+| `--path PATH` | Report on the wiki root at this path. |
+| `--local` | Report on ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
+| `--due N` | List articles with fewer than N days left in their window (default 0: already stale). |
+| `--include-snapshots` | Also list freshness: snapshot articles. |
+| `--json` | Print JSON. |
 
 ## `llm-wiki adopt`
 
@@ -462,6 +656,7 @@ Inventory a brownfield project without writing.
 | `--small-data-limit SMALL_DATA_LIMIT` | Bytes; larger CSV/JSON/XML/YAML becomes dataset-class. (default: 20971520) |
 | `--hash-limit HASH_LIMIT` | Bytes; larger files are not hashed during planning. (default: 67108864) |
 | `--json` | Emit machine-readable plan/summary. |
+| `--no-gitignore` | With --apply, do not append the wiki directory to the project's .gitignore. |
 
 ### `llm-wiki adopt apply`
 
@@ -480,6 +675,7 @@ Initialize .wiki and write an adoption batch.
 | `--small-data-limit SMALL_DATA_LIMIT` | Bytes; larger CSV/JSON/XML/YAML becomes dataset-class. (default: 20971520) |
 | `--hash-limit HASH_LIMIT` | Bytes; larger files are not hashed during planning. (default: 67108864) |
 | `--json` | Emit machine-readable plan/summary. |
+| `--no-gitignore` | With --apply, do not append the wiki directory to the project's .gitignore. |
 
 ### `llm-wiki adopt status`
 
@@ -570,9 +766,9 @@ Require every row to be terminal and durable.
 
 ## `llm-wiki source`
 
-Receive, extract, retain, and verify source originals for one wiki.
+Receive, extract, retain, resolve and verify source originals for one wiki.
 
-Subcommands: `receive`, `extract`, `decide`, `verify`.
+Subcommands: `receive`, `extract`, `attach-derived`, `decide`, `verify`, `resolve`, `paths`, `import-pointer`, `map`.
 
 ### `llm-wiki source receive`
 
@@ -582,6 +778,8 @@ Subcommands: `receive`, `extract`, `decide`, `verify`.
 | `--quarantine-reason QUARANTINE_REASON` | - |
 | `--canonical-url CANONICAL_URL` | Record this http(s) URL as the source's canonical URL (for a file captured from the web earlier). |
 | `--retrieved-at RETRIEVED_AT` | ISO 8601 time the bytes were retrieved; recorded with --canonical-url. |
+| `--note NOTE` | Free-text note recorded with the source. |
+| `--alias PATH` | Another name (typically a repository path) of the same bytes; repeatable. |
 | `--path PATH` | Wiki root; defaults to normal wiki resolution. |
 | `--local` | - |
 | `--wiki WIKI` | - |
@@ -592,6 +790,21 @@ Subcommands: `receive`, `extract`, `decide`, `verify`.
 | Argument | Meaning |
 |---|---|
 | `source_id` | - |
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | - |
+| `--wiki WIKI` | - |
+| `--hub HUB` | - |
+
+### `llm-wiki source attach-derived`
+
+Store an externally produced derivative (OCR text) of a received source.
+
+| Argument | Meaning |
+|---|---|
+| `source_id` | - |
+| `file` | - |
+| `--status STATUS` | extraction_status slug, such as ocr-text. (required) |
+| `--tool TOOL` | Program that produced the file. (required) |
 | `--path PATH` | Wiki root; defaults to normal wiki resolution. |
 | `--local` | - |
 | `--wiki WIKI` | - |
@@ -612,10 +825,62 @@ Subcommands: `receive`, `extract`, `decide`, `verify`.
 
 | Argument | Meaning |
 |---|---|
-| `[source_id]` | (not with --all) |
-| `--all` | - |
+| `[source_id]` | (not with --all or --pointer-file) |
+| `--all` | (not with --pointer-file) |
+| `--pointer-file PATH` | Verify one pointer file anywhere; its paths resolve against the wiki root. (not with --all) |
 | `--portable` | Model a clone without the local store: skip hash-checking local originals. (not with --require-originals) |
 | `--require-originals` | Fail when a retention: local pointer's original is missing (it is the only copy). (not with --portable) |
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | - |
+| `--wiki WIKI` | - |
+| `--hub HUB` | - |
+
+### `llm-wiki source resolve`
+
+Print the first available original whose bytes match a SHA-256.
+
+| Argument | Meaning |
+|---|---|
+| `sha256` | - |
+| `--fallback PATH` | Another candidate file, tried after the store; repeatable. |
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | - |
+| `--wiki WIKI` | - |
+| `--hub HUB` | - |
+
+### `llm-wiki source paths`
+
+Print the resolved source_store locations and the ephemeral-CI verdict.
+
+| Argument | Meaning |
+|---|---|
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | - |
+| `--wiki WIKI` | - |
+| `--hub HUB` | - |
+
+### `llm-wiki source import-pointer`
+
+Validate a v1 or legacy pointer file and place it in the pointers directory.
+
+| Argument | Meaning |
+|---|---|
+| `file` | - |
+| `--base DIR` | Directory a legacy pointer's paths are relative to (default: the wiki root's parent). |
+| `--vault DIR` | Directory a legacy vault_relative_path is relative to. |
+| `--derived-status DERIVED_STATUS` | extraction_status for a legacy pointer's derived_text (default: imported). |
+| `--dry-run` | Validate and print the pointer; write nothing. |
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | - |
+| `--wiki WIKI` | - |
+| `--hub HUB` | - |
+
+### `llm-wiki source map`
+
+List the aliases records and pointers name, and aliases claimed by two sources.
+
+| Argument | Meaning |
+|---|---|
 | `--path PATH` | Wiki root; defaults to normal wiki resolution. |
 | `--local` | - |
 | `--wiki WIKI` | - |

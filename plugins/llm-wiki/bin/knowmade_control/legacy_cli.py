@@ -1,710 +1,81 @@
 #!/usr/bin/env python3
-"""Local deterministic helpers for Knowmade.
+"""Compatibility shim over the deterministic Knowmade CLI.
 
-This is not a replacement for the agentic /wiki workflows. It gives agents and
-humans a local command for the checks that can be done without an LLM.
-
-Since emercons/knowmade#67 R1.4 (``KM-CLI-001``) this module is a thin
-compatibility shim. Every namespace lives in a bounded module (``lint``,
-``hub``, ``retract``, ``specialists``, ``adapters``, ``checkpoints``, plus the
-earlier ``rules``, ``adopt_cli``, ``source_lifecycle``, ``schema`` and
-``identity``), each exposing ``register_parser(subparsers)`` and ``run(args)``.
-What remains here is ``build_parser`` (the loop that assembles the one
-``llm-wiki`` parser), ``main``, and the explicit re-exports below, which keep
-``from knowmade_control.legacy_cli import *`` (``scripts/llm-wiki``) and the
-runpy-based tests seeing the same public names as before the split.
+The parser and dispatch live in ``cli`` (``NAMESPACES`` is the one
+registration point); every namespace lives in its own bounded module. This
+module keeps ``python -m knowmade_control.legacy_cli`` working, re-exports
+``build_parser`` and ``main`` from ``cli``, and re-exports exactly the names
+that callers outside the package still reach through it. Everything else is
+imported from its owning module.
 """
 
 from __future__ import annotations
 
-import argparse
 import sys
 
-try:
-    from . import adapters as _adapters
-    from . import checkpoints as _checkpoints
-    from . import hub as _hub
-    from . import lint as _lint
-    from . import retract as _retract
-    from . import rules as _rules
-    from . import source_lifecycle as _source_lifecycle
-    from . import specialists as _specialists
-    from .adapters import (  # noqa: F401 - re-exported for compatibility callers
-        ADAPTER_ARTIFACT_CLASSES,
-        ADAPTER_MANIFEST_NAME,
-        ADAPTER_PROTOCOL,
-        ADAPTER_REGISTRY_SCHEMA,
-        ADAPTER_REMOTE_EFFECTS,
-        ADAPTER_ROUTE_RESOURCE_KINDS,
-        adapter_add,
-        adapter_config_dir,
-        adapter_doctor,
-        adapter_environment,
-        adapter_list,
-        adapter_public_entry,
-        adapter_registry_path,
-        adapter_remove,
-        adapter_route,
-        adapter_route_matches,
-        adapter_run,
-        adapter_show,
-        empty_adapter_registry,
-        normalized_absolute_path,
-        path_within,
-        read_adapter_manifest,
-        read_adapter_registry,
-        redacted_remote_write_report,
-        registered_adapter,
-        resolve_adapter_command,
-        run_adapter,
-        run_adapter_process,
-        shebang_interpreter,
-        validate_adapter_manifest,
-        validate_adapter_request,
-        validate_adapter_response,
-        validate_adapter_routes,
-        write_adapter_registry,
-    )
-    from .checkpoints import (  # noqa: F401 - re-exported for compatibility callers
-        CHECKPOINT_AUDIENCES,
-        CHECKPOINT_MAX_FILE_BYTES,
-        CHECKPOINT_MIN_KNOWLEDGE_RETENTION_RATIO,
-        CHECKPOINT_PRIVACY_SCHEMA,
-        CHECKPOINT_REPORT_NAME,
-        CHECKPOINT_REQUIRED_FILES,
-        CHECKPOINT_SCANNER_VERSION,
-        CHECKPOINT_SCHEMA,
-        CheckpointFinding,
-        apply_checkpoint_coverage_metrics,
-        checkpoint_content_file_hashes,
-        checkpoint_coverage_metrics,
-        checkpoint_file_paths,
-        checkpoint_finding,
-        checkpoint_finding_json,
-        checkpoint_manifest_id,
-        checkpoint_pattern_specs,
-        checkpoint_report_id,
-        checkpoint_seal,
-        checkpoint_source_access_findings,
-        checkpoint_source_key,
-        checkpoint_timestamp,
-        checkpoint_verify,
-        checkpoint_word_count,
-        run_checkpoint,
-        scan_checkpoint_bundle,
-        scan_checkpoint_text,
-        validate_checkpoint_manifest,
-        validate_override_reason,
-        write_checkpoint_json,
-    )
-    from .common import (  # noqa: F401 - re-exported for compatibility callers
-        Document,
-        Issue,
-        LintContext,
-        PRIVATE_SUFFIX,
-        SPECIALIST_NAME_RE,
-        active_topic_path,
-        archived_topic_path,
-        as_string_list,
-        clean_summary,
-        extract_markdown_links,
-        file_sha256,
-        first_body_summary,
-        is_initialized_topic,
-        is_under,
-        load_json_object,
-        markdown_link_destination,
-        parse_date,
-        read_registry,
-        strip_matching_quotes,
-        table_cell,
-        topic_entry,
-        write_private_json,
-        write_registry,
-    )
-    from .hub import (  # noqa: F401 - re-exported for compatibility callers
-        PRIVATE_IGNORE_RULE,
-        append_private_ignore_rule,
-        archive_list,
-        archive_topic,
-        ensure_hub_for_archive,
-        git_ignores_path,
-        gitignore_declares_private_rule,
-        hub_ignores_private_topic,
-        is_git_repository_root,
-        private_ignore_repair_hint,
-        restore_topic,
-        run_archive,
-        write_hub_index,
-    )
-    from .indexing import (  # noqa: F401 - re-exported for compatibility callers
-        INVENTORY_NAVIGATION_DIRS,
-        INVENTORY_RECORD_DIRS,
-        RAW_INDEX_CATEGORIES,
-        WIKI_INDEX_CATEGORIES,
-        existing_category_indexes,
-        index_contract,
-        index_contract_entries,
-        index_contract_label,
-        index_frontmatter,
-        index_links_to,
-        index_title,
-        index_updated,
-        inventory_record_files,
-        is_index_checked_directory,
-        output_loose_files,
-        output_project_why_files,
-        regenerate_directory_index,
-        render_category_pointer_index,
-        render_dataset_index,
-        render_dataset_registry_index,
-        render_direct_file_index,
-        render_inventory_index,
-        render_output_index,
-    )
-    from .lint import (  # noqa: F401 - re-exported for compatibility callers
-        ARTICLE_CATEGORIES,
-        ARTICLE_DIRS,
-        CONFIDENCE_VALUES,
-        DATASET_CHILD_ALLOWED,
-        DATASET_STATUSES,
-        DATASET_STORAGE,
-        FAIL_ON_LEVELS,
-        FOOTNOTE_DEF_RE,
-        FOOTNOTE_REF_RE,
-        GIT_ROOT_META_ALLOWED,
-        HUB_ALLOWED,
-        INLINE_CODE_RE,
-        INVENTORY_ALLOWED,
-        INVENTORY_KINDS,
-        INVENTORY_PRIORITIES,
-        INVENTORY_STATUSES,
-        PRIVATE_IGNORE_PROBE_SLUG,
-        RAW_ALLOWED,
-        RAW_TYPES,
-        ROOT_ALLOWED,
-        SCHEMA_STATUSES,
-        SCHEMELESS_WEB_SOURCE_RE,
-        VOLATILITY_VALUES,
-        WIKILINK_RE,
-        WIKI_ALLOWED,
-        append_frontmatter_lines,
-        append_lint_log,
-        attach_pointer_to_article,
-        canonical_path_for,
-        check_canonical_placement,
-        check_coverage,
-        check_engine_contract,
-        check_enum,
-        check_footnotes,
-        check_freshness,
-        check_frontmatter_schema,
-        check_hub_private_ignore,
-        check_hub_registry,
-        check_index_consistency,
-        check_links,
-        check_projects,
-        check_source_lifecycle_pointers,
-        check_source_provenance,
-        check_specialist_library,
-        check_structure,
-        check_tags,
-        check_unknown_files,
-        check_wikilinks,
-        compiled_article_bodies,
-        compiled_external_references,
-        content_markdown_files,
-        create_or_update_coverage_reference,
-        ensure_dir_index,
-        ensure_topic_schema,
-        fix_legacy_wiki_frontmatter,
-        fix_source_references,
-        frontmatter_field_value,
-        frontmatter_has_value,
-        handle_unknown,
-        insert_frontmatter_after_title,
-        is_local_markdown_link,
-        is_schema_checked_path,
-        lint_exit_code,
-        load_documents,
-        markdown_files,
-        markdown_relative_link,
-        print_json_report,
-        print_text_report,
-        raw_source_path_candidate,
-        read_document,
-        report_lint_result,
-        require_fields,
-        resolve_link_target,
-        resolve_source_ref,
-        run_lint,
-        scan_fixed_allowed,
-        set_frontmatter_list,
-        slugify,
-        source_path_exists,
-        strip_code_blocks,
-        underlying_source_of,
-        unique_destination,
-        wiki_relative_source_path,
-        write_markdown_frontmatter,
-    )
-    from .markdown import (  # noqa: F401 - re-exported for compatibility callers
-        append_log,
-        default_schema_text,
-        parse_frontmatter_block,
-        parse_scalar,
-        split_inline_list,
-        split_markdown_frontmatter,
-        today_date,
-        topic_title,
-        yaml_quote,
-    )
-    from .retract import (  # noqa: F401 - re-exported for compatibility callers
-        RETRACTED_MARKER,
-        RETRACT_LOG_ENTRY_HEADER,
-        RETRACT_SKIP_NAMES,
-        RetractScan,
-        apply_retract,
-        atomic_remove_matching_log_entries,
-        atomic_replace_patterns,
-        minimize_roots,
-        print_retract_report,
-        read_retract_value,
-        registry_retract_roots,
-        replace_name,
-        resolve_retract_roots,
-        retract_patterns,
-        retract_report,
-        run_retract,
-        sanitized_error,
-        sanitized_text,
-        scan_retract_roots,
-        without_matching_log_entries,
-    )
-    from .roots import (  # noqa: F401 - re-exported for compatibility callers
-        PERMISSION_DENIED_ERRNOS,
-        WINDOWS_ABSOLUTE_PATH_RE,
-        expand_leading_tilde,
-        home_directory,
-        initialized_wiki_root,
-        is_archived_registry_entry,
-        is_hub,
-        is_permission_denied,
-        normalize_windows_absolute_path,
-        permission_denied_message,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        resolve_wiki_root_args as resolve_wiki_root,
-        scoped_wiki_slug_args as scoped_wiki_slug,
-        windows_absolute_path,
-    )
-    from .schema import (  # noqa: F401 - re-exported for compatibility callers
-        run_schema,
-        schema_migrate,
-        schema_state_from_text,
-        schema_status_payload,
-    )
-    from .specialists import (  # noqa: F401 - re-exported for compatibility callers
-        SPECIALIST_REGISTRY_SCHEMA,
-        SPECIALIST_REQUIRED_SECTIONS,
-        SPECIALIST_RISK_TIERS,
-        active_topic_entry,
-        collect_specialist_issues,
-        discover_specialists,
-        empty_specialist_registry,
-        enabled_specialist_topics,
-        initialize_specialist_library,
-        read_specialist_record,
-        read_specialist_registry,
-        require_initialized_hub,
-        run_specialist,
-        set_specialist_enabled,
-        specialist_create,
-        specialist_disable,
-        specialist_enable,
-        specialist_frontmatter_value,
-        specialist_init,
-        specialist_library_path,
-        specialist_list,
-        specialist_metadata_value,
-        specialist_refresh,
-        specialist_registry_path,
-        specialist_rows,
-        specialist_scaffold,
-        specialist_show,
-        specialist_validate,
-        validate_specialist_name,
-        validate_specialist_package,
-        write_specialist_index,
-        write_specialist_registry,
-    )
-    from .stdio import configure_utf8_stdio
-except ImportError:  # executed directly as a script, not imported as a package
-    import adapters as _adapters
-    import checkpoints as _checkpoints
-    import hub as _hub
-    import lint as _lint
-    import retract as _retract
-    import rules as _rules
-    import source_lifecycle as _source_lifecycle
-    import specialists as _specialists
-    from adapters import (
-        ADAPTER_ARTIFACT_CLASSES,
-        ADAPTER_MANIFEST_NAME,
-        ADAPTER_PROTOCOL,
-        ADAPTER_REGISTRY_SCHEMA,
-        ADAPTER_REMOTE_EFFECTS,
-        ADAPTER_ROUTE_RESOURCE_KINDS,
-        adapter_add,
-        adapter_config_dir,
-        adapter_doctor,
-        adapter_environment,
-        adapter_list,
-        adapter_public_entry,
-        adapter_registry_path,
-        adapter_remove,
-        adapter_route,
-        adapter_route_matches,
-        adapter_run,
-        adapter_show,
-        empty_adapter_registry,
-        normalized_absolute_path,
-        path_within,
-        read_adapter_manifest,
-        read_adapter_registry,
-        redacted_remote_write_report,
-        registered_adapter,
-        resolve_adapter_command,
-        run_adapter,
-        run_adapter_process,
-        shebang_interpreter,
-        validate_adapter_manifest,
-        validate_adapter_request,
-        validate_adapter_response,
-        validate_adapter_routes,
-        write_adapter_registry,
-    )
-    from checkpoints import (
-        CHECKPOINT_AUDIENCES,
-        CHECKPOINT_MAX_FILE_BYTES,
-        CHECKPOINT_MIN_KNOWLEDGE_RETENTION_RATIO,
-        CHECKPOINT_PRIVACY_SCHEMA,
-        CHECKPOINT_REPORT_NAME,
-        CHECKPOINT_REQUIRED_FILES,
-        CHECKPOINT_SCANNER_VERSION,
-        CHECKPOINT_SCHEMA,
-        CheckpointFinding,
-        apply_checkpoint_coverage_metrics,
-        checkpoint_content_file_hashes,
-        checkpoint_coverage_metrics,
-        checkpoint_file_paths,
-        checkpoint_finding,
-        checkpoint_finding_json,
-        checkpoint_manifest_id,
-        checkpoint_pattern_specs,
-        checkpoint_report_id,
-        checkpoint_seal,
-        checkpoint_source_access_findings,
-        checkpoint_source_key,
-        checkpoint_timestamp,
-        checkpoint_verify,
-        checkpoint_word_count,
-        run_checkpoint,
-        scan_checkpoint_bundle,
-        scan_checkpoint_text,
-        validate_checkpoint_manifest,
-        validate_override_reason,
-        write_checkpoint_json,
-    )
-    from common import (
-        Document,
-        Issue,
-        LintContext,
-        PRIVATE_SUFFIX,
-        SPECIALIST_NAME_RE,
-        active_topic_path,
-        archived_topic_path,
-        as_string_list,
-        clean_summary,
-        extract_markdown_links,
-        file_sha256,
-        first_body_summary,
-        is_initialized_topic,
-        is_under,
-        load_json_object,
-        markdown_link_destination,
-        parse_date,
-        read_registry,
-        strip_matching_quotes,
-        table_cell,
-        topic_entry,
-        write_private_json,
-        write_registry,
-    )
-    from hub import (
-        PRIVATE_IGNORE_RULE,
-        append_private_ignore_rule,
-        archive_list,
-        archive_topic,
-        ensure_hub_for_archive,
-        git_ignores_path,
-        gitignore_declares_private_rule,
-        hub_ignores_private_topic,
-        is_git_repository_root,
-        private_ignore_repair_hint,
-        restore_topic,
-        run_archive,
-        write_hub_index,
-    )
-    from indexing import (
-        INVENTORY_NAVIGATION_DIRS,
-        INVENTORY_RECORD_DIRS,
-        RAW_INDEX_CATEGORIES,
-        WIKI_INDEX_CATEGORIES,
-        existing_category_indexes,
-        index_contract,
-        index_contract_entries,
-        index_contract_label,
-        index_frontmatter,
-        index_links_to,
-        index_title,
-        index_updated,
-        inventory_record_files,
-        is_index_checked_directory,
-        output_loose_files,
-        output_project_why_files,
-        regenerate_directory_index,
-        render_category_pointer_index,
-        render_dataset_index,
-        render_dataset_registry_index,
-        render_direct_file_index,
-        render_inventory_index,
-        render_output_index,
-    )
-    from lint import (
-        ARTICLE_CATEGORIES,
-        ARTICLE_DIRS,
-        CONFIDENCE_VALUES,
-        DATASET_CHILD_ALLOWED,
-        DATASET_STATUSES,
-        DATASET_STORAGE,
-        FAIL_ON_LEVELS,
-        FOOTNOTE_DEF_RE,
-        FOOTNOTE_REF_RE,
-        GIT_ROOT_META_ALLOWED,
-        HUB_ALLOWED,
-        INLINE_CODE_RE,
-        INVENTORY_ALLOWED,
-        INVENTORY_KINDS,
-        INVENTORY_PRIORITIES,
-        INVENTORY_STATUSES,
-        PRIVATE_IGNORE_PROBE_SLUG,
-        RAW_ALLOWED,
-        RAW_TYPES,
-        ROOT_ALLOWED,
-        SCHEMA_STATUSES,
-        SCHEMELESS_WEB_SOURCE_RE,
-        VOLATILITY_VALUES,
-        WIKILINK_RE,
-        WIKI_ALLOWED,
-        append_frontmatter_lines,
-        append_lint_log,
-        attach_pointer_to_article,
-        canonical_path_for,
-        check_canonical_placement,
-        check_coverage,
-        check_engine_contract,
-        check_enum,
-        check_footnotes,
-        check_freshness,
-        check_frontmatter_schema,
-        check_hub_private_ignore,
-        check_hub_registry,
-        check_index_consistency,
-        check_links,
-        check_projects,
-        check_source_lifecycle_pointers,
-        check_source_provenance,
-        check_specialist_library,
-        check_structure,
-        check_tags,
-        check_unknown_files,
-        check_wikilinks,
-        compiled_article_bodies,
-        compiled_external_references,
-        content_markdown_files,
-        create_or_update_coverage_reference,
-        ensure_dir_index,
-        ensure_topic_schema,
-        fix_legacy_wiki_frontmatter,
-        fix_source_references,
-        frontmatter_field_value,
-        frontmatter_has_value,
-        handle_unknown,
-        insert_frontmatter_after_title,
-        is_local_markdown_link,
-        is_schema_checked_path,
-        lint_exit_code,
-        load_documents,
-        markdown_files,
-        markdown_relative_link,
-        print_json_report,
-        print_text_report,
-        raw_source_path_candidate,
-        read_document,
-        report_lint_result,
-        require_fields,
-        resolve_link_target,
-        resolve_source_ref,
-        run_lint,
-        scan_fixed_allowed,
-        set_frontmatter_list,
-        slugify,
-        source_path_exists,
-        strip_code_blocks,
-        underlying_source_of,
-        unique_destination,
-        wiki_relative_source_path,
-        write_markdown_frontmatter,
-    )
-    from markdown import (
-        append_log,
-        default_schema_text,
-        parse_frontmatter_block,
-        parse_scalar,
-        split_inline_list,
-        split_markdown_frontmatter,
-        today_date,
-        topic_title,
-        yaml_quote,
-    )
-    from retract import (
-        RETRACTED_MARKER,
-        RETRACT_LOG_ENTRY_HEADER,
-        RETRACT_SKIP_NAMES,
-        RetractScan,
-        apply_retract,
-        atomic_remove_matching_log_entries,
-        atomic_replace_patterns,
-        minimize_roots,
-        print_retract_report,
-        read_retract_value,
-        registry_retract_roots,
-        replace_name,
-        resolve_retract_roots,
-        retract_patterns,
-        retract_report,
-        run_retract,
-        sanitized_error,
-        sanitized_text,
-        scan_retract_roots,
-        without_matching_log_entries,
-    )
-    from roots import (
-        PERMISSION_DENIED_ERRNOS,
-        WINDOWS_ABSOLUTE_PATH_RE,
-        expand_leading_tilde,
-        home_directory,
-        initialized_wiki_root,
-        is_archived_registry_entry,
-        is_hub,
-        is_permission_denied,
-        normalize_windows_absolute_path,
-        permission_denied_message,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        resolve_wiki_root_args as resolve_wiki_root,
-        scoped_wiki_slug_args as scoped_wiki_slug,
-        windows_absolute_path,
-    )
-    from schema import (
-        run_schema,
-        schema_migrate,
-        schema_state_from_text,
-        schema_status_payload,
-    )
-    from specialists import (
-        SPECIALIST_REGISTRY_SCHEMA,
-        SPECIALIST_REQUIRED_SECTIONS,
-        SPECIALIST_RISK_TIERS,
-        active_topic_entry,
-        collect_specialist_issues,
-        discover_specialists,
-        empty_specialist_registry,
-        enabled_specialist_topics,
-        initialize_specialist_library,
-        read_specialist_record,
-        read_specialist_registry,
-        require_initialized_hub,
-        run_specialist,
-        set_specialist_enabled,
-        specialist_create,
-        specialist_disable,
-        specialist_enable,
-        specialist_frontmatter_value,
-        specialist_init,
-        specialist_library_path,
-        specialist_list,
-        specialist_metadata_value,
-        specialist_refresh,
-        specialist_registry_path,
-        specialist_rows,
-        specialist_scaffold,
-        specialist_show,
-        specialist_validate,
-        validate_specialist_name,
-        validate_specialist_package,
-        write_specialist_index,
-        write_specialist_registry,
-    )
-    from stdio import configure_utf8_stdio
+from .cli import build_parser, main
 
-if __package__:
-    from . import adopt_cli as _adopt_cli
-else:
-    # The adoption front controller imports only as a package member. The
-    # direct-script parity oracle keeps every other namespace without it.
-    _adopt_cli = None
+# Compatibility re-exports, referenced by:
+#   tests/test-control-plane-roots.sh  the roots names below, including the
+#       legacy aliases resolve_hub, resolve_wiki_root and scoped_wiki_slug
+#       (asserted identical to the roots functions)
+#   tests/test-local-cli-lint.sh  through ``runpy.run_path(scripts/llm-wiki)``,
+#       whose ``from knowmade_control.legacy_cli import *`` exposes __all__:
+#       normalize_windows_absolute_path, markdown_relative_link, LintContext,
+#       read_registry, write_registry, index_links_to, resolve_link_target,
+#       is_local_markdown_link
+#   tests/test_cli_subcommands.py  read_registry, write_registry,
+#       archive_topic, restore_topic
+# scripts/llm-wiki-session imports nothing from the package (it vendors its
+# helpers), and the launchers and scripts/generate-cli-reference.py use ``cli``.
+# Remove a name here only together with its last caller.
+from .common import read_registry, write_registry
+from .hub import archive_topic, restore_topic
+from .indexing import index_links_to, is_local_markdown_link
+from .lint_links import markdown_relative_link, resolve_link_target
+from .lint_report import LintContext
+from .roots import (
+    expand_leading_tilde,
+    home_directory,
+    initialized_wiki_root,
+    is_archived_registry_entry,
+    is_hub,
+    is_permission_denied,
+    normalize_windows_absolute_path,
+    permission_denied_message,
+    resolve_hub_args as resolve_hub,
+    resolve_registry_path,
+    resolve_wiki_root_args as resolve_wiki_root,
+    scoped_wiki_slug_args as scoped_wiki_slug,
+    windows_absolute_path,
+)
 
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="llm-wiki",
-        description="Local deterministic helpers for Knowmade.",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # Every namespace is owned by a bounded control-plane module that registers
-    # its own subparser(s), in the order ``llm-wiki --help`` has always listed
-    # them: lint, archive/schema/identity (hub), retract, specialist, adapter,
-    # checkpoint, rules, adopt, source. ``llm-wiki <namespace> --help`` is
-    # reachable through this one parser, and ``args.func`` is the owning
-    # module's entry point.
-    for module in (_lint, _hub, _retract, _specialists, _adapters, _checkpoints, _rules):
-        module.register_parser(subparsers)
-    if _adopt_cli is not None:
-        _adopt_cli.register_parser(subparsers)
-    _source_lifecycle.register_parser(
-        subparsers,
-        # Late-bound: ``resolve_wiki_root`` is the shared roots resolver this
-        # module re-exports, and that is the one source commands must use.
-        resolve_wiki_root=lambda args: resolve_wiki_root(args),
-    )
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        return int(args.func(args))
-    except PermissionError as exc:
-        print(permission_denied_message(None, "access wiki files", exc), file=sys.stderr)
-        return 2
-    except BrokenPipeError:
-        return 1
+__all__ = [
+    "LintContext",
+    "archive_topic",
+    "build_parser",
+    "expand_leading_tilde",
+    "home_directory",
+    "index_links_to",
+    "initialized_wiki_root",
+    "is_archived_registry_entry",
+    "is_hub",
+    "is_local_markdown_link",
+    "is_permission_denied",
+    "main",
+    "markdown_relative_link",
+    "normalize_windows_absolute_path",
+    "permission_denied_message",
+    "read_registry",
+    "resolve_hub",
+    "resolve_link_target",
+    "resolve_registry_path",
+    "resolve_wiki_root",
+    "restore_topic",
+    "scoped_wiki_slug",
+    "windows_absolute_path",
+    "write_registry",
+]
 
 
 if __name__ == "__main__":

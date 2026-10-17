@@ -3,9 +3,8 @@
 These are the leaf primitives shared by the deterministic control plane: the
 minimal YAML-ish frontmatter reader every lint and schema check relies on, the
 quoting used when writing frontmatter back, the dated starter topic guide, and
-the ``log.md`` appender. They depend only on the ``fsio`` leaf, so the bounded
-domains (``schema``) and the compatibility module (``legacy_cli``) can both
-import them without an import cycle.
+the ``log.md`` appender. They depend only on the ``fsio`` leaf, so every
+domain can import them without an import cycle.
 
 This is the one frontmatter parser: :func:`frontmatter_bounds` finds the block
 (tolerating a UTF-8 BOM and CRLF), :func:`parse_frontmatter_block` reads it.
@@ -26,10 +25,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import fsio as _fsio
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
+from . import fsio as _fsio
 
 BOM = "﻿"
 _BOM_BYTES = b"\xef\xbb\xbf"
@@ -186,10 +182,8 @@ def yaml_quote(value: str) -> str:
 def topic_title(path: Path, slug: str) -> str:
     """The ``title`` of ``path/config.md`` read through ``frontmatter``, else a title-cased slug."""
     # frontmatter imports this module, so the import cannot be at module level.
-    try:
-        from . import frontmatter as _fm
-    except ImportError:  # executed directly as a script, not imported as a package
-        import frontmatter as _fm
+    from . import frontmatter as _fm
+
     config = path / "config.md"
     if config.is_file():
         try:

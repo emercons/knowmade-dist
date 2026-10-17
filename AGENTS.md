@@ -919,7 +919,8 @@ Health checks with auto-fix capability. Lint **is** the migration path — there
 - **Dataset-level (C17)** — `datasets/` structure, manifest schema, and output-to-dataset migration candidates. Missing empty structure is a suggestion; partially existing structure is repairable; content migration is human-gated.
 - **Archive-level (C19)** — `HUB/topics/.archive/` lifecycle and `wikis.json`
   path/status drift. Normal lint reports archived topics as skipped;
-  `--include-archived` or `--archived-only` structurally maintains them.
+  `--wiki <slug> --include-archived`, run per archived slug, structurally
+  maintains them (there is no `--archived-only` CLI flag).
 
 **Checks**: structure integrity, frontmatter validity (plus legacy key/value aliases C13), canonical placement of raw/wiki files (C11), unknown-file quarantine for raw/wiki/inventory/datasets/root (C12), index consistency, link integrity, source provenance (dangling refs, unresolved explicit local raw-source paths, unresolved retraction markers), tag hygiene, coverage, project `WHY.md` presence (C8a), project staleness via source chain (C8b), legacy `_project.md` migration to `WHY.md` (C8c), project candidates (C9), inventory migration candidates (C16), dataset migration candidates (C17), archive registry drift and active/archive collisions (C19), deep fact-checking (optional).
 

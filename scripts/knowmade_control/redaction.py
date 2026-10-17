@@ -2,7 +2,7 @@
 
 A leaf module: it imports only ``re``. Two consumers read the same table:
 
-- ``checkpoints.checkpoint_pattern_specs`` scans a checkpoint bundle with
+- ``checkpoint_scan.checkpoint_pattern_specs`` scans a checkpoint bundle with
   every row whose contexts include ``"checkpoint"`` (secrets, identities,
   machine paths, transcript and prompt markers, private topic paths);
 - ``scripts/llm-wiki-session`` redacts hook events and feedback previews with
@@ -17,7 +17,7 @@ prefix (``password=``, ``Bearer ``, ``https://user:``) and replaces only the
 rest. Several rows may share a category.
 
 Changing what the ``checkpoint`` rows catch requires a bump of
-``checkpoints.CHECKPOINT_SCANNER_VERSION``.
+``checkpoint_scan.CHECKPOINT_SCANNER_VERSION``.
 """
 
 from __future__ import annotations

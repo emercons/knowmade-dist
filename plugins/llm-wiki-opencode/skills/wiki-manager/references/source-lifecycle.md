@@ -12,13 +12,15 @@ resolution applies. `<cli>` is the bundled `bin/llm-wiki` (`scripts/llm-wiki` in
 a source checkout). `receive` prints the source id the later steps take.
 
 1. `<cli> source receive <url-or-file> <scope> [--quarantine-reason "<why>"]
-   [--canonical-url <url>] [--retrieved-at <iso>]` stores bytes in the
-   configured durable local store. It refuses ephemeral CI unless the project
-   explicitly declares a persistent backend. A URL argument is its own
-   canonical URL; for a file captured from the web earlier, `--canonical-url`
-   (an http(s) URL) records where it came from and `--retrieved-at` (ISO 8601)
-   when, in the local record. Both apply to a new record only; re-receiving a
-   known source never changes its record.
+   [--canonical-url <url>] [--retrieved-at <iso>] [--note <text>]
+   [--alias <path>]...` stores bytes in the configured durable local store. It
+   refuses ephemeral CI unless the project explicitly declares a persistent
+   backend. A URL argument is its own canonical URL; for a file captured from
+   the web earlier, `--canonical-url` (an http(s) URL) records where it came
+   from and `--retrieved-at` (ISO 8601) when. `--alias` names another path of
+   the same bytes. All four reach the record and the pointer. Re-receiving a
+   known source fills only provenance its record lacks and adds aliases; it
+   refuses to replace a recorded value.
 2. `<cli> source extract <source-id> <scope>` writes a durable generic text or
    metadata representation. An image-only PDF is marked `ocr-needed`; domain
    OCR, languages, page indexes, and corpus validators stay outside the engine.
@@ -35,6 +37,31 @@ a source checkout). `receive` prints the source id the later steps take.
    since that is the only copy. The JSON summary always carries
    `originals_available`, `originals_unavailable` and `missing_originals` (the
    unavailable `retention: local` ones), and each row its `retention`.
+
+Commands for adapters and scripts (all print JSON and accept `--json`; exit
+0, 1 when `ok` is false, 2 on a usage or store error):
+
+- `source attach-derived <source-id> <file> --status <slug> --tool <name>`
+  stores externally produced text (OCR, page-stable extraction) beside the
+  generic one, e.g. `--status ocr-text`; `extract` keeps it.
+- `source resolve <sha256> [--fallback <path>]...` prints the first readable
+  original whose bytes hash to it: the local store, the pointer's paths, then
+  each fallback. Exit 1 when none matches.
+- `source paths` prints the resolved store locations, `persistent`,
+  `ephemeral_ci` and `receive_allowed`.
+- `source import-pointer <file> [--base <dir>] [--vault <dir>] [--dry-run]`
+  validates a v1 pointer, or maps a flat legacy one (`sha256`, `bytes`,
+  `local_original_path`/`vault_relative_path`/`original_repo_path`,
+  `derived_text`, `source_url` or `acquisition_provenance`), into the pointers
+  directory. An existing pointer for the same bytes only gains aliases.
+- `source verify --pointer-file <path>` verifies one pointer anywhere. In the
+  pointers directory, a file with another schema is listed under `foreign`
+  and not validated (lint: `source-pointer-foreign`, info in rules/3).
+- `source map` lists every alias and fails on an alias claimed by two sources.
+
+The optional pointer keys `retrieved_at`, `note`, `aliases` and
+`imported_from` stay within `llm-wiki/source-pointer/v1`: validators check
+only the required keys.
 
 After `extract`, the agent still writes the processed `raw/` markdown from the
 extracted representation as usual. A failed `receive` or `verify` stops the

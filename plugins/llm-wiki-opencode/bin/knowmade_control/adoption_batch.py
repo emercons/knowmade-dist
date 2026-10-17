@@ -197,10 +197,6 @@ def append_events(batch: Path, events: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
-def append_event(batch: Path, event: str, row: dict[str, Any] | None = None, **extra: Any) -> None:
-    append_events(batch, [event_payload(event, row, **extra)])
-
-
 def state_summary(rows: list[dict[str, Any]], scan_truncated: bool) -> dict[str, Any]:
     states = Counter(str(row.get("state", "planned")) for row in rows)
     terminal = sum(states.get(value, 0) for value in TERMINAL_STATES)

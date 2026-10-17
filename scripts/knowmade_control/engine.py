@@ -30,6 +30,16 @@ All of these are read from the frontmatter block of ``config.md``, the same
 block the rule-set declaration comes from (``rules.config_fields``); text in the
 body is never a declaration.
 
+A hub may declare the pin once in ``HUB/config.md`` (knowmade#115). A topic
+under ``HUB/topics/`` that declares none of the pin keys inherits the hub's
+pins; :func:`pin_source` says which ``config.md`` the pins came from. The rule
+set is never inherited: it describes the topic's own corpus.
+
+The supported release identity is the package version plus its ``v<version>``
+tag (``engine info``). The commit is informational: a packaged runtime carries
+the commit the last sync embedded, which in a release commit is the commit
+before it, so a commit pin is for source checkouts.
+
 A current or N-1/N-2 rule-set declaration satisfies the engine contract. Older,
 future, or invalid rule-set declarations drift. A wiki that declares no form at
 all remains ``undeclared`` for backwards compatibility and is judged by the
@@ -53,10 +63,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import rules as _rules
-except ImportError:  # executed directly as a script, not imported as a package
-    import rules as _rules
+from . import fsio as _fsio
+from . import roots as _roots
+from . import rules as _rules
 
 CHECKER_SHA_KEY = "knowmade_checker_sha"
 CHECKER_REPO_KEY = "knowmade_checker_repo"
@@ -64,6 +73,16 @@ CHECKER_VERSION_KEY = "llm_wiki_version"
 KNOWMADE_VERSION_KEY = "knowmade_version"
 UPSTREAM_REPO_KEY = "llm_wiki_checker_repo"
 UPSTREAM_SHA_KEY = "llm_wiki_checker_sha"
+# Every key a config.md can pin the engine with. A topic that declares none of
+# them inherits the hub's (``pin_source``).
+PIN_KEYS = (
+    KNOWMADE_VERSION_KEY,
+    CHECKER_VERSION_KEY,
+    CHECKER_SHA_KEY,
+    CHECKER_REPO_KEY,
+    UPSTREAM_REPO_KEY,
+    UPSTREAM_SHA_KEY,
+)
 _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 _VERSION = re.compile(r"^[0-9][0-9A-Za-z.+-]*$")
 
@@ -106,9 +125,9 @@ def build_identity() -> dict[str, Any] | None:
     """Return the generated build identity shipped next to this module, or None.
 
     ``_build.py`` is loaded from its path rather than imported by name so the
-    copy consulted is always the one beside ``engine.py``, whether the package
-    is imported or run as a script. A missing or malformed module is simply
-    absent: every caller falls back to the manifest search.
+    copy consulted is always the one beside ``engine.py``, whichever packaged
+    copy of the control plane is imported. A missing or malformed module is
+    simply absent: every caller falls back to the manifest search.
     """
     if not _BUILD_MODULE.is_file():
         return None
@@ -144,16 +163,11 @@ def engine_manifest() -> Path | None:
     return located[0] if located else None
 
 
-def engine_root() -> Path | None:
-    """Return the directory the manifest was resolved against, or None."""
-    located = _locate_manifest()
-    return located[1] if located else None
-
-
 def _git_head(root: Path) -> str | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
+            env=_fsio.git_environment(),
             capture_output=True,
             text=True,
             check=False,
@@ -241,6 +255,54 @@ def _scalar(fields: dict[str, Any] | None, key: str) -> str | None:
     return text or None
 
 
+def declares_pin(fields: dict[str, Any] | None) -> bool:
+    """Whether a frontmatter block declares any engine pin key."""
+    return any(_scalar(fields, key) for key in PIN_KEYS)
+
+
+def topic_hub(wiki_root: Path) -> Path | None:
+    """The hub ``wiki_root`` is a topic of (``HUB/topics/...``), else None.
+
+    A hub root is no topic of itself. Settings a topic may inherit from
+    ``HUB/config.md`` (the engine pin, the freshness windows) look here.
+    """
+    hub = _roots.enclosing_hub(wiki_root)
+    if hub is None or _roots.same_path(hub, wiki_root):
+        return None
+    try:
+        relative = Path(wiki_root).absolute().relative_to(hub)
+    except ValueError:
+        return None
+    return hub if relative.parts[:1] == ("topics",) else None
+
+
+def pin_source(wiki_root: Path) -> tuple[dict[str, Any] | None, Path, str]:
+    """``(fields, config, source)``: the frontmatter that pins ``wiki_root``'s engine.
+
+    ``source`` is ``wiki`` when the root's own ``config.md`` declares a pin key,
+    ``hub`` when it declares none and the hub it lives under (``HUB/topics/...``)
+    declares one in ``HUB/config.md``, and ``none`` otherwise (``fields`` and
+    ``config`` are then the root's own). A hub root is always its own source.
+    """
+    own_config = wiki_root / "config.md"
+    own = _rules.config_fields(wiki_root)
+    if declares_pin(own):
+        return own, own_config, "wiki"
+    hub = topic_hub(wiki_root)
+    if hub is not None:
+        inherited = _rules.config_fields(hub)
+        if declares_pin(inherited):
+            return inherited, hub / "config.md", "hub"
+    return own, own_config, "none"
+
+
+def declared_pins(wiki_root: Path) -> dict[str, str]:
+    """The pin keys ``wiki_root`` declares or inherits (see :func:`pin_source`)."""
+    pins, _config, _source = pin_source(wiki_root)
+    declared = {key: _scalar(pins, key) for key in PIN_KEYS}
+    return {key: value for key, value in declared.items() if value is not None}
+
+
 def declared_field(wiki_root: Path, key: str) -> str | None:
     """Return a scalar field declared in the wiki's config.md frontmatter."""
     return _scalar(_rules.config_fields(wiki_root), key)
@@ -305,7 +367,7 @@ def _compare(declared: str | None, running: str | None, *, prefix: bool) -> str:
     return "drift"
 
 
-def _engine_checkout() -> Path | None:
+def engine_checkout() -> Path | None:
     """The git checkout this engine runs from, or None for a vendored copy."""
     located = _locate_manifest()
     if located is None:
@@ -318,6 +380,7 @@ def _git_lines(checkout: Path, *args: str) -> tuple[int, str] | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(checkout), *args],
+            env=_fsio.git_environment(),
             capture_output=True,
             text=True,
             check=False,
@@ -334,7 +397,7 @@ def commits_behind(declared: str, running: str) -> int | None:
     None when the engine has no git checkout, the declared commit is unknown to
     it, or ``declared`` is not an ancestor of ``running`` (diverged or ahead).
     """
-    checkout = _engine_checkout()
+    checkout = engine_checkout()
     if checkout is None:
         return None
     ancestor = _git_lines(checkout, "merge-base", "--is-ancestor", declared, running)
@@ -371,10 +434,10 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     """
     commit = engine_commit()
     version = engine_version()
-    declared_sha = declared_commit(wiki_root)
-    declared_ver, version_key, version_form = _version_form(
-        _rules.config_fields(wiki_root), version
-    )
+    pins, pin_config, source = pin_source(wiki_root)
+    declared_sha = _scalar(pins, CHECKER_SHA_KEY)
+    declared_sha = declared_sha if declared_sha and _SHA.match(declared_sha) else None
+    declared_ver, version_key, version_form = _version_form(pins, version)
     declared_rules, rule_present = _rules.declared_rule_set(wiki_root)
     rule_status = (
         "invalid"
@@ -417,8 +480,10 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
         "declared_rule_set": declared_rules,
         "rule_set_status": rule_status,
         "effective_rule_set": effective_rules,
-        "declared_repo": declared_field(wiki_root, CHECKER_REPO_KEY),
+        "declared_repo": _scalar(pins, CHECKER_REPO_KEY),
         "declared_version_key": version_key,
+        "pin_source": source,
+        "pin_config": str(pin_config),
         "upstream_baseline": upstream_baseline(version),
         "forms": forms,
         "state": state,
@@ -428,8 +493,8 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     }
     # Optional keys, present only when there is something to say.
     upstream = {
-        "repo": declared_field(wiki_root, UPSTREAM_REPO_KEY),
-        "sha": declared_field(wiki_root, UPSTREAM_SHA_KEY),
+        "repo": _scalar(pins, UPSTREAM_REPO_KEY),
+        "sha": _scalar(pins, UPSTREAM_SHA_KEY),
     }
     if upstream["repo"] or upstream["sha"]:
         state_doc["declared_upstream"] = upstream
@@ -438,6 +503,36 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
         if behind is not None:
             state_doc["behind"] = behind
     return state_doc
+
+
+def engine_info() -> dict[str, Any]:
+    """The running engine's identity as ``engine info`` reports it.
+
+    ``tag`` is the release tag a published copy of this version carries; it is
+    derived from the version, not read from git. ``commit_source`` says where
+    the commit came from: ``git`` in a source checkout, ``build`` from the
+    generated ``_build.py``, None when unknown.
+    """
+    version = engine_version()
+    checkout = engine_checkout()
+    live = _git_head(checkout) if checkout is not None else None
+    commit = live or _build_commit()
+    manifest = engine_manifest()
+    return {
+        "schema": "knowmade/engine-info/v1",
+        "version": version,
+        "tag": f"v{version}" if version else None,
+        "commit": commit,
+        "commit_source": "git" if live else ("build" if commit else None),
+        "commit_is_informational": True,
+        "rule_set": engine_rule_set(),
+        "supported_rule_sets": list(_rules.SUPPORTED_RULE_SETS),
+        "minimum_supported_rule_set": _rules.MIN_SUPPORTED_RULE_SET,
+        "upstream_baseline": upstream_baseline(version),
+        "identity_source": "build" if build_identity() is not None else "manifest",
+        "manifest": str(manifest) if manifest else None,
+        "checkout": str(checkout) if checkout else None,
+    }
 
 
 def drift_summary(state: dict[str, Any]) -> str:

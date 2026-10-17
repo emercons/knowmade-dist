@@ -14,10 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import rules
-except ImportError:  # legacy_cli executed directly as a script, not as a package
-    import rules
+from . import rules
 
 
 def effective_rule_set_for_wiki(wiki_root: Path) -> int:
@@ -79,23 +76,30 @@ def check_rule_set_contract(ctx: Any) -> None:
     status = "invalid" if present and declared is None else rules.rule_set_status(declared)
 
     if status == "undeclared":
-        if bool(getattr(ctx, "fix", False)):
-            # Hub roots and other non-corpus containers may be linted without a
-            # config.md. Only mutate an initialized corpus that already owns one.
-            if config_path.is_file():
-                try:
-                    rules.declare_rule_set(ctx.root)
-                except ValueError as exc:
-                    ctx.issue(
-                        "warning",
-                        f"Could not declare rules/{rules.CURRENT_RULE_SET}: {exc}. "
-                        f"Add a YAML frontmatter block to config.md, then re-run lint --fix "
-                        f"or `llm-wiki rules declare --path {ctx.root}`.",
-                        config_path,
-                    )
-                else:
-                    if hasattr(ctx, "fixed"):
-                        ctx.fixed(f"Declared rules/{rules.CURRENT_RULE_SET} in config.md.")
+        # Hub roots and other non-corpus containers may be linted without a
+        # config.md. Only mutate an initialized corpus that already owns one,
+        # and only through the lint fix gate (class ``create``, knowmade#111)
+        # when the context has one.
+        gate = getattr(ctx, "fix_allowed", None)
+        if config_path.is_file() and (
+            gate("create", config_path, f"declare rules/{rules.CURRENT_RULE_SET}", check="C22")
+            if gate is not None
+            else bool(getattr(ctx, "fix", False))
+        ):
+            try:
+                rules.declare_rule_set(ctx.root)
+            except ValueError as exc:
+                ctx.issue(
+                    "warning",
+                    f"Could not declare rules/{rules.CURRENT_RULE_SET}: {exc}. "
+                    f"Add a YAML frontmatter block to config.md, then re-run lint --fix "
+                    f"or `llm-wiki rules declare --path {ctx.root}`.",
+                    config_path,
+                    check="C22",
+                )
+            else:
+                if hasattr(ctx, "fixed"):
+                    ctx.fixed(f"Declared rules/{rules.CURRENT_RULE_SET} in config.md.")
         # Undeclared is deliberately silent without --fix and is judged by the
         # current set for backwards compatibility.
         return
@@ -107,6 +111,7 @@ def check_rule_set_contract(ctx: Any) -> None:
             f"Wiki declares rules/{declared}; this engine supports it but rules/{rules.CURRENT_RULE_SET} is newer. "
             f"Upgrade explicitly with `llm-wiki rules declare --path {ctx.root}` after reviewing newer checks.",
             config_path,
+            check="C22",
         )
     elif status != "match":
         issue_versioned(
@@ -116,6 +121,7 @@ def check_rule_set_contract(ctx: Any) -> None:
             config_path,
             exceptional_critical=True,
             target_rule_set=rules.CURRENT_RULE_SET,
+            check="C22",
         )
     # A current declaration is silent.
 
@@ -126,7 +132,9 @@ def issue_versioned(
     message: str,
     path: Path | None = None,
     *,
+    check: str,
     fixable: bool = False,
+    fix_class: str = "",
     exceptional_critical: bool = False,
     target_rule_set: int | None = None,
 ) -> None:
@@ -137,6 +145,9 @@ def issue_versioned(
     severity. Security/privacy/data-loss rules may pass ``exceptional_critical``
     only when the exception is documented in the change that adds the rule.
 
+    ``check`` is the finding's check id (``references/linting.md``), passed
+    through to ``ctx.issue``, as is ``fix_class`` for a fixable finding (only
+    when set, so a minimal context without the keyword still works).
     ``target_rule_set`` overrides the corpus declaration. It exists for findings
     about the declaration itself (outside the window, so no supported set can
     judge it); ordinary checks must leave it unset.
@@ -153,4 +164,7 @@ def issue_versioned(
     )
     if severity is None:
         return
-    ctx.issue(severity, message, path, fixable=fixable)
+    if fixable and fix_class:
+        ctx.issue(severity, message, path, fixable=True, check=check, fix_class=fix_class)
+    else:
+        ctx.issue(severity, message, path, fixable=fixable, check=check)

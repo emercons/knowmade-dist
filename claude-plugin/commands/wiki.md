@@ -69,7 +69,7 @@ Initialize a new wiki. Parse arguments:
    - Do not create `inventory/` or `datasets/` during init. Those layers are
      created lazily by `/wiki:inventory`, `/wiki:dataset`, or lint when a
      partially existing layer needs repair.
-   - For local wikis (`--local`): append `.wiki/` to the project's `.gitignore`.
+   - For local wikis (`--local`): ignore `.wiki/` in a git project (see "Local Wiki" in `wiki-structure.md`).
 
 3. Create `.obsidian/` directory with minimal vault config:
    - `.obsidian/app.json`:

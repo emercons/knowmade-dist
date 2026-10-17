@@ -41,6 +41,7 @@ def _add_scan_options(parser: argparse.ArgumentParser) -> None:
         help="Bytes; larger files are not hashed during planning.",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable plan/summary.")
+    adoption.add_gitignore_option(parser)
 
 
 def run_scan(args: argparse.Namespace) -> int:

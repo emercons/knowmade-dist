@@ -12,22 +12,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-try:
-    from .markdown import (
-        append_log,
-        default_schema_text,
-        parse_frontmatter_block,
-        split_markdown_frontmatter,
-    )
-    from .roots import is_hub, resolve_wiki_root_args
-except ImportError:  # executed directly as a script, not imported as a package
-    from markdown import (
-        append_log,
-        default_schema_text,
-        parse_frontmatter_block,
-        split_markdown_frontmatter,
-    )
-    from roots import is_hub, resolve_wiki_root_args
+from .markdown import (
+    append_log,
+    default_schema_text,
+    parse_frontmatter_block,
+    split_markdown_frontmatter,
+)
+from .roots import is_hub, resolve_wiki_root_args
 
 
 def schema_state_from_text(text: str) -> str:

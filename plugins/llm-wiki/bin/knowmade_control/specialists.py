@@ -16,60 +16,32 @@ import re
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import fsio as _fsio
-    from .common import (
-        SPECIALIST_NAME_RE,
-        active_topic_path,
-        file_sha256,
-        is_initialized_topic,
-        markdown_link_destination,
-        parse_date,
-        read_registry,
-        strip_matching_quotes,
-        table_cell,
-        topic_entry,
-        write_private_json,
-    )
-    from .hub import ensure_state_ignore_rules, is_inside_git_work_tree
-    from .markdown import (
-        append_log,
-        split_markdown_frontmatter,
-        today_date,
-        yaml_quote,
-    )
-    from .roots import (
-        is_archived_registry_entry,
-        is_hub,
-        resolve_hub_args as resolve_hub,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
-    from common import (
-        SPECIALIST_NAME_RE,
-        active_topic_path,
-        file_sha256,
-        is_initialized_topic,
-        markdown_link_destination,
-        parse_date,
-        read_registry,
-        strip_matching_quotes,
-        table_cell,
-        topic_entry,
-        write_private_json,
-    )
-    from hub import ensure_state_ignore_rules, is_inside_git_work_tree
-    from markdown import (
-        append_log,
-        split_markdown_frontmatter,
-        today_date,
-        yaml_quote,
-    )
-    from roots import (
-        is_archived_registry_entry,
-        is_hub,
-        resolve_hub_args as resolve_hub,
-    )
+from . import fsio as _fsio
+from .common import (
+    SPECIALIST_NAME_RE,
+    active_topic_path,
+    file_sha256,
+    is_initialized_topic,
+    markdown_link_destination,
+    parse_date,
+    read_registry,
+    strip_matching_quotes,
+    table_cell,
+    topic_entry,
+    write_private_json,
+)
+from .hub import ensure_state_ignore_rules, is_inside_git_work_tree
+from .markdown import (
+    append_log,
+    split_markdown_frontmatter,
+    today_date,
+    yaml_quote,
+)
+from .roots import (
+    is_archived_registry_entry,
+    is_hub,
+    resolve_hub_args as resolve_hub,
+)
 
 
 SPECIALIST_REGISTRY_SCHEMA = 1

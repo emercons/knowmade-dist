@@ -3,8 +3,7 @@
 Secret-safe scanning of the selected local scope for a value and its common
 encoded forms, the dry-run/apply rewrite, log-entry removal, and the
 sanitized report that never echoes the value. Moved verbatim from
-``legacy_cli`` (emercons/knowmade#67 R1.4, ``KM-CLI-001``); the compatibility
-module re-exports every public name.
+``legacy_cli`` (emercons/knowmade#67 R1.4, ``KM-CLI-001``).
 """
 
 from __future__ import annotations
@@ -23,32 +22,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import fsio as _fsio
-    from .common import (
-        is_under,
-        read_registry,
-    )
-    from .markdown import append_log
-    from .roots import (
-        expand_leading_tilde,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        resolve_wiki_root_args as resolve_wiki_root,
-    )
-except ImportError:  # executed directly as a script, not imported as a package
-    import fsio as _fsio
-    from common import (
-        is_under,
-        read_registry,
-    )
-    from markdown import append_log
-    from roots import (
-        expand_leading_tilde,
-        resolve_hub_args as resolve_hub,
-        resolve_registry_path,
-        resolve_wiki_root_args as resolve_wiki_root,
-    )
+from . import fsio as _fsio
+from .common import (
+    is_under,
+    read_registry,
+)
+from .markdown import append_log
+from .roots import (
+    expand_leading_tilde,
+    resolve_hub_args as resolve_hub,
+    resolve_registry_path,
+    resolve_wiki_root_args as resolve_wiki_root,
+)
 
 
 RETRACTED_MARKER = "[RETRACTED]"

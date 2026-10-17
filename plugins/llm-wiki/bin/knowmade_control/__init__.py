@@ -1,24 +1,51 @@
-"""Internal deterministic control-plane modules for Knowmade."""
+"""Internal deterministic control-plane modules for Knowmade.
+
+The control plane runs only as this package: entry points import it
+(``scripts/llm-wiki`` puts its own directory on ``sys.path``) or run a module
+with ``python -m knowmade_control.<module>``. No module is a standalone script.
+"""
 
 __all__ = [
+    "_build",
+    "adapter_manifest",
+    "adapter_registry",
     "adapters",
     "adopt_cli",
     "adoption",
     "adoption_batch",
+    "adoption_legacy",
     "app_server",
+    "checkpoint_bundle",
+    "checkpoint_scan",
     "checkpoints",
+    "cli",
     "common",
     "engine",
+    "freshness",
+    "frontmatter",
     "fsio",
     "hub",
+    "hub_index",
     "identity",
     "indexing",
     "legacy_cli",
     "lint",
+    "lint_docs",
+    "lint_hub",
+    "lint_links",
+    "lint_multi",
+    "lint_report",
+    "links",
     "markdown",
+    "pins",
+    "privacy",
+    "redaction",
     "retract",
     "roots",
+    "rule_lint",
+    "rules",
     "schema",
     "source_lifecycle",
     "specialists",
+    "stdio",
 ]
