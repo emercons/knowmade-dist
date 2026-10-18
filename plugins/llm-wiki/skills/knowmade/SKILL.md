@@ -1,5 +1,5 @@
 ---
-name: wiki
+name: knowmade
 description: >
   Manage Knowmade practical knowledge bases in Codex: dispatch hub intake,
   ingest/import, shape/promote Ideas around private goals, review portfolios,
@@ -32,7 +32,7 @@ is both compiler and query engine; Obsidian is an optional viewer.
 
 ## Codex Plugin Notes
 
-Codex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@wiki` invocation.
+Codex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.
 
 Knowmade is this downstream project. `llm-wiki` is upstream. Preserve the
 upstream topic-wiki, provenance, schema, Ideas, Projects, session, query, and
@@ -84,12 +84,12 @@ topic enablement, commit, and publication are separate actions.
 
 ## Ambient Behavior
 
-When this skill activates outside of an explicit `@wiki` invocation or `/wiki`-style shorthand:
+When this skill activates outside of an explicit `@knowmade` invocation or `/wiki`-style shorthand:
 
 1. Resolve the hub path (see Hub Path section above), then check if `HUB/_index.md` or `.wiki/_index.md` exists
 2. Read the master `_index.md` to assess if the wiki might cover the user's question
 3. If relevant content exists → read the relevant articles and answer with citations
-4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@wiki` to ingest it."
+4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@knowmade` to ingest it."
 5. When peeking at sibling wikis, only read their `_index.md` — do not read full articles unless the user asks. Skip archived sibling wikis by default; in deep mode, archived index matches may be reported separately. A `-PRIVATE` sibling may be peeked; label what it contributed as private and apply `references/knowmade-profile.md` § Private Data Boundary before anything is written.
 
 When giving any boot, resume, or "where you left off" briefing, start with the

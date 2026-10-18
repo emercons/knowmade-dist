@@ -13,6 +13,8 @@
 # Shell:
 #   MARKETPLACE_NAME, PLUGIN_NAME, PLUGIN_KEY
 #                                  the one Codex marketplace/plugin identity
+#   LEGACY_PLUGIN_KEYS             earlier keys of this plugin, space separated
+#                                  (wiki@knowmade until v0.7.0.25.1)
 #   codex_home_for <user-home>     CODEX_HOME value for that home, native form
 #   codex_in_home <user-home> ...  run `codex ...` with HOME and CODEX_HOME set
 #   codex_python [args] <<'PY'     run a Python program with the helpers below
@@ -24,10 +26,14 @@
 #   other_enabled_plugins <config.toml>
 #                                  print every enabled plugin key that shares
 #                                  PLUGIN_NAME but is not PLUGIN_KEY, one a line
+#   plugin_state <config.toml> <key>
+#                                  print enabled, disabled or absent for the
+#                                  [plugins."<key>"] table
 #
 # Python (available inside codex_python programs):
 #   marketplace_source(config, name) -> str
 #   other_enabled_plugins(config, plugin_key) -> list[str]
+#   plugin_tables(config) -> dict[str, bool]
 #   normalise_path(text) -> pathlib.Path
 #   same_path(actual, expected) -> bool
 #   strip_extended_prefix(text) -> str
@@ -38,8 +44,14 @@ fi
 KNOWMADE_CODEX_CONFIG_LOADED=1
 
 MARKETPLACE_NAME="knowmade"
-PLUGIN_NAME="wiki"
+# Codex derives the skill id from the plugin name alone. Until v0.7.0.25.1 the
+# plugin was wiki@knowmade, whose wiki:wiki, @wiki and $wiki-query collided
+# with upstream's wiki@llm-wiki (knowmade#124); it is knowmade@knowmade now,
+# so the skill is knowmade:knowmade, @knowmade and $knowmade-query
+# (knowmade#168). The bootstrap removes a legacy key before it installs.
+PLUGIN_NAME="knowmade"
 PLUGIN_KEY="${PLUGIN_NAME}@${MARKETPLACE_NAME}"
+LEGACY_PLUGIN_KEYS="wiki@${MARKETPLACE_NAME}"
 
 # Codex resolves its own home from CODEX_HOME, falling back to the OS home - and
 # on Windows that fallback is USERPROFILE, not HOME. Setting HOME alone therefore
@@ -156,17 +168,14 @@ def marketplace_source(config, name):
     return strip_extended_prefix(source)
 
 
-def other_enabled_plugins(config, plugin_key):
-    """Return the enabled plugin keys named like plugin_key from another marketplace.
+def plugin_tables(config):
+    """Return {plugin key: enabled} for every [plugins."<key>"] table in config.
 
-    Codex derives the skill id from the plugin name alone, so `wiki@llm-wiki`
-    (upstream) and `wiki@knowmade` both expose `wiki:wiki` and `@wiki` becomes
-    ambiguous (knowmade#124). A plugin table without `enabled` counts as enabled.
+    A plugin table without `enabled` counts as enabled.
     """
     config = Path(config)
     if not config.is_file():
-        return []
-    name = plugin_key.split("@", 1)[0]
+        return {}
     text = config.read_text(encoding="utf-8")
     try:
         import tomllib
@@ -184,10 +193,21 @@ def other_enabled_plugins(config, plugin_key):
         ):
             enabled = re.search(r"(?m)^enabled[ \t]*=[ \t]*(true|false)\b", match.group(2))
             tables[match.group(1)] = not enabled or enabled.group(1) == "true"
+    return {key: enabled is not False for key, enabled in tables.items()}
+
+
+def other_enabled_plugins(config, plugin_key):
+    """Return the enabled plugin keys named like plugin_key from another marketplace.
+
+    Codex derives the skill id from the plugin name alone, so two enabled
+    plugins of one name expose the same `<name>:<name>` skill and its mention
+    becomes ambiguous (knowmade#124).
+    """
+    name = plugin_key.split("@", 1)[0]
     return sorted(
         key
-        for key, enabled in tables.items()
-        if enabled is not False and key != plugin_key and key.split("@", 1)[0] == name
+        for key, enabled in plugin_tables(config).items()
+        if enabled and key != plugin_key and key.split("@", 1)[0] == name
     )
 PY
 )"
@@ -214,6 +234,16 @@ import sys
 
 for key in other_enabled_plugins(sys.argv[1], sys.argv[2]):
     print(key)
+PY
+}
+
+plugin_state() {
+  codex_python "$1" "$2" <<'PY'
+import sys
+
+tables = plugin_tables(sys.argv[1])
+key = sys.argv[2]
+print("absent" if key not in tables else "enabled" if tables[key] else "disabled")
 PY
 }
 

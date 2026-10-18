@@ -72,7 +72,7 @@ replaces the braced placeholder `${CLAUDE_PLUGIN_ROOT}` with that root as text
 when it loads a command or skill file (body and `allowed-tools`); it does not
 export it to the shell and does not touch files read later, such as these
 references, so carry the resolved path over from the command. Codex supplies the installed skill path, whose plugin
-root is two directories above `skills/wiki/SKILL.md`; OpenCode uses its loaded
+root is two levels above `skills/knowmade/SKILL.md`; OpenCode uses its loaded
 plugin path. In a source checkout, use `scripts/llm-wiki`.
 
 Do not assume a globally installed `llm-wiki` executable. In examples below,

@@ -32,6 +32,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+from knowmade_control.fsio import write_json_atomic  # noqa: E402
 from knowmade_control.app_server import (  # noqa: E402
     AppServer,
     AppServerError,
@@ -48,6 +49,7 @@ from knowmade_control.app_server import (  # noqa: E402
 
 
 SCHEMA_VERSION = 1
+BUDGET_SCHEMA_VERSION = 2
 DEFAULT_SERVER_COMMAND = (
     "codex app-server --stdio --disable code_mode_host --disable code_mode"
 )
@@ -59,7 +61,7 @@ def repo_root(start: Path | None = None) -> Path:
     if current.is_file():
         current = current.parent
     for candidate in (current, *current.parents):
-        if (candidate / "plugins/llm-wiki/skills/wiki/SKILL.md").is_file():
+        if (candidate / "plugins/llm-wiki/skills/knowmade/SKILL.md").is_file():
             return candidate
     raise SystemExit("could not locate llm-wiki repository root")
 
@@ -173,16 +175,16 @@ def collect_static_metrics(root: Path) -> dict[str, int]:
     claude_manifest = root / "claude-plugin/.claude-plugin/plugin.json"
     claude_manifest_data = json.loads(claude_manifest.read_text(encoding="utf-8"))
     claude_commands = root / "claude-plugin/commands"
-    codex_skill = root / "plugins/llm-wiki/skills/wiki/SKILL.md"
-    agents_metadata = root / "plugins/llm-wiki/skills/wiki/agents/openai.yaml"
-    references = root / "plugins/llm-wiki/skills/wiki/references"
+    codex_skill = root / "plugins/llm-wiki/skills/knowmade/SKILL.md"
+    agents_metadata = root / "plugins/llm-wiki/skills/knowmade/agents/openai.yaml"
+    references = root / "plugins/llm-wiki/skills/knowmade/references"
     query_lite_reference = (
         root / "claude-plugin/skills/wiki-manager/references/query-lite.md"
     )
     query_lite_profile = root / "profiles/query-lite/SKILL.md"
-    codex_query_skill = root / "plugins/llm-wiki/skills/wiki-query/SKILL.md"
+    codex_query_skill = root / "plugins/llm-wiki/skills/knowmade-query/SKILL.md"
     codex_query_metadata = (
-        root / "plugins/llm-wiki/skills/wiki-query/agents/openai.yaml"
+        root / "plugins/llm-wiki/skills/knowmade-query/agents/openai.yaml"
     )
     opencode_skill = root / "plugins/llm-wiki-opencode/skills/wiki-manager/SKILL.md"
     opencode_query_skill = root / "plugins/llm-wiki-opencode/skills/wiki-query/SKILL.md"
@@ -227,14 +229,47 @@ def collect_static_metrics(root: Path) -> dict[str, int]:
     }
 
 
-def static_report(root: Path, budgets_path: Path) -> dict[str, Any]:
+def load_budgets(budgets_path: Path) -> dict[str, dict[str, Any]]:
+    """Read and validate a schema-2 budget file; return its metric table."""
     budgets = json.loads(budgets_path.read_text(encoding="utf-8"))
-    if budgets.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError(f"unsupported budget schema in {budgets_path}")
+    version = budgets.get("schema_version")
+    if version != BUDGET_SCHEMA_VERSION:
+        raise ValueError(
+            f"{budgets_path}: budget schema_version is {version!r}, expected "
+            f"{BUDGET_SCHEMA_VERSION}. Schema 1 (a max of baseline+2% on every "
+            "metric) is gone: gated metrics carry an absolute design ceiling, "
+            "reported aggregates carry max null. See benchmarks/README.md, "
+            "Layer 1."
+        )
+    tiers = budgets.get("tiers", {})
+    configured = budgets.get("metrics", {})
+    for name, budget in configured.items():
+        if not isinstance(budget.get("gate"), bool):
+            raise ValueError(f"{name}: gate must be true or false")
+        baseline = budget.get("baseline")
+        if not isinstance(baseline, int) or isinstance(baseline, bool):
+            raise ValueError(f"{name}: baseline must be an integer")
+        if budget["gate"]:
+            if not isinstance(budget.get("max"), int) or isinstance(budget["max"], bool):
+                raise ValueError(f"{name}: a gated metric needs an integer max")
+        elif budget.get("max") is not None:
+            raise ValueError(f"{name}: a reported metric must have max null")
+        tier = budget.get("tier")
+        if name.startswith("command_") and tier is None:
+            raise ValueError(f"{name}: a command metric needs a tier")
+        if tier is not None and tiers.get(tier) != budget.get("max"):
+            raise ValueError(
+                f"{name}: max {budget.get('max')!r} is not the {tier!r} tier "
+                f"ceiling {tiers.get(tier)!r}"
+            )
+    return configured
+
+
+def static_report(root: Path, budgets_path: Path) -> dict[str, Any]:
+    configured = load_budgets(budgets_path)
     measured = collect_static_metrics(root)
     rows: dict[str, Any] = {}
     passed = True
-    configured = budgets.get("metrics", {})
     missing = sorted(set(configured) - set(measured))
     unknown = sorted(set(measured) - set(configured))
     if missing or unknown:
@@ -244,24 +279,81 @@ def static_report(root: Path, budgets_path: Path) -> dict[str, Any]:
     for name, value in measured.items():
         budget = configured[name]
         baseline = int(budget["baseline"])
-        maximum = int(budget["max"])
-        metric_passed = value <= maximum
+        gated = budget["gate"]
+        maximum = int(budget["max"]) if gated else None
+        metric_passed = value <= maximum if gated else True
         passed = passed and metric_passed
         rows[name] = {
             "value": value,
             "baseline": baseline,
             "delta_from_baseline": value - baseline,
+            "gate": gated,
             "max": maximum,
+            "headroom": maximum - value if gated else None,
             "passed": metric_passed,
         }
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": BUDGET_SCHEMA_VERSION,
         "kind": "static_context_budget",
         "git_commit": git_commit(root),
         "budgets": display_path(budgets_path, root),
         "metrics": rows,
         "passed": passed,
     }
+
+
+def print_headroom(report: dict[str, Any], stream: Any) -> None:
+    """One line per gated metric (value / max / headroom), then the reported ones."""
+    rows = report["metrics"]
+    gated = {name: row for name, row in rows.items() if row["gate"]}
+    width = max((len(name) for name in rows), default=0)
+    print(f"gated metrics ({len(gated)}): value / max / headroom", file=stream)
+    for name, row in gated.items():
+        flag = "" if row["passed"] else "  OVER BUDGET"
+        print(
+            f"  {name:<{width}}  {row['value']:>8} / {row['max']:>8}"
+            f" / {row['headroom']:>8}{flag}",
+            file=stream,
+        )
+    print("reported metrics (never fail): value, delta from baseline", file=stream)
+    for name, row in rows.items():
+        if not row["gate"]:
+            print(
+                f"  {name:<{width}}  {row['value']:>8}"
+                f"  ({row['delta_from_baseline']:+d})",
+                file=stream,
+            )
+    print(f"static budget: {'PASS' if report['passed'] else 'FAIL'}", file=stream)
+
+
+def rebaseline(root: Path, budgets_path: Path) -> int:
+    """Rewrite every baseline to its measured value; never touch a max.
+
+    Refuses (exit 2) while any gated value exceeds its max, so a rebaseline
+    cannot launder a breach into the file.
+    """
+    report = static_report(root, budgets_path)
+    over = [name for name, row in report["metrics"].items() if not row["passed"]]
+    if over:
+        print(
+            "refusing to rebaseline: gated metrics over their max: "
+            + ", ".join(over)
+            + ". Fix the growth, or raise the max in a PR that says why "
+            "(benchmarks/README.md, Layer 1).",
+            file=sys.stderr,
+        )
+        return 2
+    budgets = json.loads(budgets_path.read_text(encoding="utf-8"))
+    changed = 0
+    for name, row in report["metrics"].items():
+        entry = budgets["metrics"][name]
+        if entry["baseline"] != row["value"]:
+            changed += 1
+            print(f"  {name}: baseline {entry['baseline']} -> {row['value']}", file=sys.stderr)
+            entry["baseline"] = row["value"]
+    write_json_atomic(budgets_path, budgets)
+    print(f"rebaselined {changed} metric(s) in {display_path(budgets_path, root)}", file=sys.stderr)
+    return 0
 
 
 def load_cases(path: Path, selected: set[str] | None = None) -> list[dict[str, Any]]:
@@ -562,11 +654,11 @@ def run_live_benchmark(
 ) -> dict[str, Any]:
     cases = load_cases(cases_path, selected)
     profile = args.profile
-    skill_name = "wiki-query" if profile == "query" else "wiki"
+    skill_name = "knowmade-query" if profile == "query" else "knowmade"
     skill_path = (
-        root / "plugins/llm-wiki/skills/wiki-query/SKILL.md"
+        root / "plugins/llm-wiki/skills/knowmade-query/SKILL.md"
         if profile == "query"
-        else root / "plugins/llm-wiki/skills/wiki/SKILL.md"
+        else root / "plugins/llm-wiki/skills/knowmade/SKILL.md"
     )
     if not skill_path.is_file():
         raise ValueError(f"Codex skill is missing: {skill_path}")
@@ -1538,7 +1630,17 @@ def build_parser() -> argparse.ArgumentParser:
     static.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
     static.add_argument("--budgets", help="budget JSON (default: tests/budgets/token-budgets.json)")
     static.add_argument("--output", default="-")
-    static.add_argument("--check", action="store_true", help="exit non-zero on budget failure")
+    static.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 when a gated metric exceeds its max; prints headroom on stderr",
+    )
+    static.add_argument(
+        "--rebaseline",
+        action="store_true",
+        help="rewrite every baseline to its measured value (never raises a max; "
+        "exit 2 if a gated value is over its max)",
+    )
 
     live = sub.add_parser("live", help="run the cost-bearing Codex app-server benchmark")
     live.add_argument("--root", help="llm-wiki checkout (default: auto-detect)")
@@ -1769,8 +1871,20 @@ def main() -> int:
             if args.budgets
             else root / "tests/budgets/token-budgets.json"
         )
-        report = static_report(root, budgets)
+        if args.rebaseline and args.check:
+            build_parser().error("--rebaseline and --check are mutually exclusive")
+        try:
+            if args.rebaseline:
+                return rebaseline(root, budgets)
+            report = static_report(root, budgets)
+        except ValueError as exc:
+            # A malformed or mismatched budget file is a configuration error
+            # (exit 2), distinct from a gated breach (exit 1).
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         write_json(report, args.output)
+        if args.check:
+            print_headroom(report, sys.stderr)
         return 1 if args.check and not report["passed"] else 0
 
     if args.command == "live":

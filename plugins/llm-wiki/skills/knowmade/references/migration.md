@@ -28,6 +28,7 @@ Multi-hub federation is still proposed, not implemented. See root
 | Upstream to Knowmade | Existing `llm-wiki` topic wiki | Current Knowmade structure and privacy rules | Preserve raw/wiki, run lint, repair structure intentionally |
 | Old Knowmade upgrade | Earlier Knowmade layout | Current inbox/public-private conventions | Back up, lint, preserve evidence paths |
 | Brownfield project adoption | Existing directory with downloads, PDFs, repos, data, notes, scraped trees | Local `.wiki/` plus complete import accounting | Run `llm-wiki adopt scan`, then `llm-wiki adopt apply`; claim/process/complete manifest rows until `llm-wiki adopt verify` passes |
+| Adopt one more subtree | A batch exists (or the project is too big to scan whole) | The subtree's rows in the same batch, old rows untouched | `llm-wiki adopt apply --batch-id <id> --subtree <dir>`; repeat per subtree, then claim the new rows |
 | Public/private split | Mixed public/private layout | Public/private sibling topics | Move intentionally and audit privacy boundaries |
 | Public release prep | Private knowledge/output should become public | Redacted public copy | Copy only publishable artifacts and audit links/provenance |
 
@@ -110,6 +111,29 @@ Move mode fails closed without `--yes`. It moves only ordinary single-source
 `ingest` files into batch staging. It never recursively moves a Git repository,
 dataset root, corpus root, or the Knowmade runtime checkout.
 
+### Adopt one subtree
+
+```bash
+llm-wiki adopt apply /path/to/project --batch-id big --subtree papers --subtree notes/2026
+```
+
+`--subtree <dir>` (repeatable, also on `scan`) walks only that directory;
+`source_path` and item ids stay relative to the project, so they equal the ids
+of a whole-project scan, and the skip, nested-git, corpus and wiki-root rules
+still apply inside it. A missing directory, one outside the project, inside
+the wiki root, in a skipped (`node_modules`, `.git`, ...) or `--exclude`d
+directory, or in a nested repository or Knowmade checkout exits 2. When `--batch-id` names an existing batch, the scan is
+merged under the batch lock: rows whose item id exists keep their state and
+fields, new rows are appended as `planned` (and staged in copy/move mode), and
+`state.json` keeps the union in `subtrees`. The mode must match the batch (else
+exit 2), and a batch with unfinished staging needs `adopt repair` first (it also finishes a
+batch whose staging process died: `staging: pending`). The
+`--json` result gains `subtrees`, `added` and `already_present`; re-running the
+same subtree adds nothing. Without `--subtree`, re-applying to an existing
+batch id is still refused. A duplicate-content check only sees files scanned in
+the same run, and a file under an earlier directory row (a corpus or dataset
+root) becomes its own row.
+
 ### Batch contract
 
 `manifest.jsonl` records, per candidate:
@@ -125,8 +149,8 @@ dataset root, corpus root, or the Knowmade runtime checkout.
 - staged path when copy/move mode staged the file.
 
 `state.json` records batch-level schema/version, source root, wiki root, mode,
-classification counts, truncation status, staged-file count, warnings, and
-current coverage counts.
+classification counts, truncation status, staged-file count, warnings,
+current coverage counts, and the `subtrees` covered when adopted that way.
 
 `PLAN.md` is the human-readable summary and next-step contract.
 
@@ -282,9 +306,7 @@ Use this when the source is already a structurally recognizable wiki.
 4. Ensure future intake uses `inbox/` and `inbox/.processed/`.
 5. Add `goals.md` only from actual user-provided goals, and only in private
    context where appropriate.
-6. Run deterministic lint without `--fix` first.
-7. Apply only unambiguous structural fixes.
-8. Re-run lint and append a migration log entry.
+6. Run the [Deterministic Upgrade Recipe](#deterministic-upgrade-recipe).
 
 The current configured `hub_path` is a default administrative root, not a claim
 that all knowledge must live in one physical mega-hub.
@@ -297,9 +319,42 @@ that all knowledge must live in one physical mega-hub.
 3. Treat genuinely unprocessed source dumps as inbox material; do not confuse
    already-processed `raw/` with intake.
 4. Keep private goals separate from factual evidence.
-5. Run deterministic lint and repair only mechanical defects automatically.
+5. Run the [Deterministic Upgrade Recipe](#deterministic-upgrade-recipe);
+   it repairs only mechanical defects.
 6. Use librarian/audit workflows for semantic quality; do not hide semantic
    migration inside structural lint fixes.
+
+## Deterministic Upgrade Recipe
+
+Both stories above end here. Back up the wiki (private topics are usually
+gitignored), set `WIKI` to its root, run in order:
+
+```bash
+llm-wiki rules check --path "$WIKI" --json
+llm-wiki lint "$WIKI" --json
+llm-wiki schema adopt "$WIKI"
+llm-wiki project migrate-why "$WIKI" --apply
+llm-wiki lint "$WIKI" --preflight --json
+llm-wiki rules declare --path "$WIKI" --set 3
+llm-wiki lint "$WIKI" --fix-only create,index,registry,gitignore,log
+llm-wiki rules check --path "$WIKI" --json
+llm-wiki lint "$WIKI" --json
+```
+
+1. Expect `undeclared`; stop on `too-old` or `future`.
+2. Repair by hand every finding whose `fix_class` is empty, `quarantine`,
+   `placement` or `frontmatter` (lint never fixes raw frontmatter).
+3. Writes `schema.md` only when missing.
+4. Writes `WHY.md` from each legacy `_project.md`, then deletes the
+   `_project.md`; a no-op without them.
+5. A `quarantine`, `placement` or `frontmatter` row would move a file or
+   rewrite an article: resolve it by hand and restart at step 2.
+6. Declares the deliberate move to `rules/3` in `config.md`.
+7. May regenerate an `_index.md`; appends one `log.md` entry.
+8. Must say `match`, and lint must pass.
+
+Apart from these writes, every file, `raw/` and `wiki/` included, keeps its bytes.
+`tests/test-migration-fixtures.sh` runs this block on `tests/fixtures/migration/`.
 
 ## Public/Private Split
 
@@ -375,9 +430,7 @@ every push through `.githooks/pre-push`; there is no GitHub Actions job.
 
 Track implementation in root `BACKLOG.md`. Important follow-ups now are:
 
-- wire the agent workflow/evals so natural-language `@wiki` adoption reliably
+- wire the agent workflow/evals so natural-language `@knowmade` adoption reliably
   uses the deterministic batch state machine;
-- add selective subtree adoption without rescanning unrelated content;
-- full old-upstream/old-Knowmade migration fixtures;
 - private-to-public redaction checker;
 - stable hub/wiki identity, federation registry, and cross-hub resolution.

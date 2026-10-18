@@ -17,7 +17,7 @@ install from the public distribution repository `emercons/knowmade-dist`
 without GitHub credentials; only installing from the private source repository
 needs them. To move to a later release, see [Upgrade](README.md#upgrade).
 
-After a Codex install, `@wiki` is the full workflow skill and `$wiki-query` is
+After a Codex install, `@knowmade` is the full workflow skill and `$knowmade-query` is
 the compact read-only query skill. In a Knowmade source checkout,
 `./scripts/bootstrap-codex-plugin.sh --scope user --verify` installs for
 development instead of from a tag.
@@ -35,7 +35,7 @@ llm-wiki-session enable    # creates <hub>/.sessions/config.json, ignores /.sess
 llm-wiki-session disable   # turns capture off again
 ```
 
-You can also leave the hooks untrusted. The `@wiki` skill works either way. See
+You can also leave the hooks untrusted. The `@knowmade` skill works either way. See
 the [Session Memory section of the README](README.md#session-memory) and
 [`sessions.md`](claude-plugin/skills/wiki-manager/references/sessions.md).
 

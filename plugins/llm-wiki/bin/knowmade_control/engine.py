@@ -20,7 +20,13 @@ contract now has three independent forms:
 
 ``knowmade_checker_sha``
     Which exact checker build validated the corpus. Compared by prefix so a
-    short SHA works.
+    short SHA works. At the declared ``knowmade_version`` (that key only, not
+    ``llm_wiki_version``) the release tag
+    commit, the packaged build identity and every commit between them name the
+    same release, so a differing sha there is ``equivalent`` (reported as
+    ``info``), not drift (COMPATIBILITY.md, "Which sha to pin"). A sha that git
+    can place nowhere in the running checkout's history, or any differing sha
+    at another or no declared version, stays drift.
 
 ``llm_wiki_checker_repo`` / ``llm_wiki_checker_sha``
     The upstream checker pin. Informational: reported as ``declared_upstream``
@@ -399,6 +405,42 @@ def commits_behind(declared: str, running: str) -> int | None:
     return int(count[1])
 
 
+def _same_hash(left: str, right: str) -> bool:
+    return left.startswith(right) or right.startswith(left)
+
+
+def same_version_relation(declared: str, running: str | None) -> str | None:
+    """How ``declared`` relates to the running build at the same package version.
+
+    Returns ``build`` (the packaged build identity), ``ancestor`` or
+    ``descendant`` (on the running checkout's history, so the commits between a
+    release's packaged identity and its tag), ``unverifiable`` (a packaged copy:
+    there is no history to ask), ``git-failed`` (a source checkout whose git
+    could not be run: it has history and could not read it, so the pin is not
+    accepted) or None when git can place the commit nowhere in the running
+    checkout's history. Only call this when the declared version equals the
+    running version.
+    """
+    build = _build_commit()
+    if build is not None and _same_hash(declared, build):
+        return "build"
+    checkout = engine_checkout()
+    if checkout is None:
+        return "unverifiable"
+    if running is None:
+        return "git-failed"
+    for relation, args in (
+        ("ancestor", (declared, running)),
+        ("descendant", (running, declared)),
+    ):
+        result = _git_lines(checkout, "merge-base", "--is-ancestor", *args)
+        if result is None:
+            return "git-failed"
+        if result[0] == 0:
+            return relation
+    return None
+
+
 def _rule_form(status: str) -> str:
     if status in {"match", "supported"}:
         return "match"
@@ -440,12 +482,25 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
         "version": version_form,
         "rules": _rule_form(rule_status),
     }
+    relation = None
+    git_failed = False
+    if (
+        forms["commit"] == "drift"
+        and declared_sha
+        and version_key == KNOWMADE_VERSION_KEY
+        and declared_ver == version
+    ):
+        relation = same_version_relation(declared_sha, commit)
+        if relation == "git-failed":
+            relation, git_failed = None, True
+        elif relation is not None:
+            forms["commit"] = "equivalent"
     legacy_forms = {name: value for name, value in forms.items() if name != "rules"}
     if "drift" in legacy_forms.values():
         state = "drift"
     elif "unknown" in legacy_forms.values():
         state = "unknown"
-    elif "match" in forms.values():
+    elif "match" in forms.values() or "equivalent" in forms.values():
         state = "match"
     else:
         state = "undeclared"
@@ -488,7 +543,11 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     }
     if upstream["repo"] or upstream["sha"]:
         state_doc["declared_upstream"] = upstream
-    if forms["commit"] == "drift" and declared_sha and commit:
+    if relation is not None:
+        state_doc["commit_equivalent"] = relation
+    if git_failed:
+        state_doc["git_failed"] = True
+    if forms["commit"] in {"drift", "equivalent"} and declared_sha and commit:
         behind = commits_behind(declared_sha, commit)
         if behind is not None:
             state_doc["behind"] = behind
@@ -515,6 +574,11 @@ def engine_info() -> dict[str, Any]:
         "commit": commit,
         "commit_source": "git" if live else ("build" if commit else None),
         "commit_is_informational": True,
+        # Both identities, because they differ in a release checkout: the build
+        # commit is what a packaged copy of this version reports (the sync ran
+        # before the release commit), the checkout commit is HEAD (the tag).
+        "build_commit": _build_commit(),
+        "checkout_commit": live,
         "rule_set": engine_rule_set(),
         "supported_rule_sets": list(_rules.SUPPORTED_RULE_SETS),
         "minimum_supported_rule_set": _rules.MIN_SUPPORTED_RULE_SET,
@@ -523,6 +587,31 @@ def engine_info() -> dict[str, Any]:
         "manifest": str(manifest) if manifest else None,
         "checkout": str(checkout) if checkout else None,
     }
+
+
+def equivalence_note(state: dict[str, Any]) -> str:
+    """One sentence for an ``equivalent`` checker sha, or "" when there is none."""
+    relation = state.get("commit_equivalent")
+    if not relation:
+        return ""
+    clause = (
+        f"declares checker {state['declared']} while this lint is running "
+        f"{str(state['commit'])[:12]}, both at version {state['version']}"
+    )
+    if relation == "build":
+        reason = "the declared commit is this build's packaged identity"
+    elif relation == "unverifiable":
+        reason = "this engine has no git history to place the declared commit in"
+    elif relation == "ancestor" and state.get("behind") is not None:
+        behind = state["behind"]
+        noun = "commit" if behind == 1 else "commits"
+        reason = f"the declared commit is an ancestor of the running one, {behind} {noun} behind"
+    else:
+        reason = f"the declared commit is a {relation} of the running one on the same history"
+    return (
+        f"Wiki {clause}; {reason}, so the pin is accepted as the same release "
+        '(COMPATIBILITY.md, "Which sha to pin").'
+    )
 
 
 def drift_summary(state: dict[str, Any]) -> str:
@@ -542,5 +631,7 @@ def drift_summary(state: dict[str, Any]) -> str:
         if behind is not None:
             noun = "commit" if behind == 1 else "commits"
             clause += f" (declared engine is an ancestor, {behind} {noun} behind)"
+        if state.get("git_failed"):
+            clause += " (git could not be run to verify the pin)"
         parts.append(clause)
     return "; ".join(parts)

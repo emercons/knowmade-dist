@@ -24,9 +24,10 @@ import json
 import os
 import re
 import shutil
+import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from .fsio import atomic_write_bytes, atomic_write_text
 
@@ -191,6 +192,72 @@ def classify_file(path: Path, size: int, small_data_limit: int) -> tuple[str, st
     return "needs-human", "review", "unclassified-file-type"
 
 
+def usage_error(message: str) -> NoReturn:
+    """Report a rejected argument on stderr and exit 2, like argparse does."""
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def fold_subtrees(found: set[str]) -> list[str]:
+    """Sorted subtrees without any that lies below another one (``.`` swallows everything)."""
+    return [
+        rel for rel in sorted(found)
+        if not any(other != rel and (other == "." or rel.startswith(other + "/")) for other in found)
+    ]
+
+
+def validate_batch_id(batch_id: str) -> None:
+    """A batch id names one directory under ``inbox/.imports/``; refuse separators and ``..`` (exit 2)."""
+    if not batch_id.strip() or "/" in batch_id or "\\" in batch_id or ".." in batch_id:
+        usage_error(f"invalid --batch-id {batch_id!r}: use a plain name without path separators or '..'")
+
+
+def resolve_subtrees(project_root: Path, wiki_root: Path, raw: list[str], patterns: list[str] | None = None) -> list[str]:
+    """Normalise ``--subtree`` values to project-relative POSIX directories (exit 2 when unusable).
+
+    A subtree must exist, be a directory, stay inside the project root (symlinks
+    are followed before the check) and not be, or sit inside, the wiki root.
+    Duplicates and subtrees below another listed subtree are folded away so no
+    file is scanned twice; ``.`` stands for the whole project. A whole-project scan
+    never descends into skipped, excluded, nested-repository or Knowmade-checkout
+    directories, so a subtree that is one of them, or lies below one, is refused too.
+    """
+    project_resolved = project_root.resolve()
+    wiki_resolved = wiki_root.resolve(strict=False)
+    found: set[str] = set()
+    for value in raw:
+        text = value.replace("\\", "/")
+        if not text.strip():
+            usage_error("--subtree needs a directory relative to the project root")
+        target = (project_root / text).resolve(strict=False)
+        try:
+            rel = target.relative_to(project_resolved).as_posix()
+        except ValueError:
+            usage_error(f"--subtree escapes the project root: {value}")
+        if not target.exists():
+            usage_error(f"--subtree does not exist: {value}")
+        if not target.is_dir():
+            usage_error(f"--subtree is not a directory: {value}")
+        if target == wiki_resolved or wiki_resolved in target.parents:
+            usage_error(f"--subtree is inside the Knowmade wiki root: {value}")
+        if rel != ".":
+            walked = project_resolved
+            prefix = ""
+            for part in rel.split("/"):
+                walked = walked / part
+                prefix = f"{prefix}/{part}" if prefix else part
+                if part in SKIP_DIR_NAMES:
+                    usage_error(f"--subtree is in an excluded directory ({part}): {value}")
+                if patterns and excluded(prefix, patterns):
+                    usage_error(f"--subtree matches --exclude ({prefix}): {value}")
+                if is_knowmade_checkout(walked):
+                    usage_error(f"--subtree is in a Knowmade engine checkout ({prefix}): {value}")
+                if (walked / ".git").exists():
+                    usage_error(f"--subtree is in a nested repository ({prefix}); adopt it as a collection: {value}")
+        found.add(rel)
+    return fold_subtrees(found)
+
+
 def scan_project(
     project_root: Path,
     wiki_root: Path,
@@ -198,14 +265,22 @@ def scan_project(
     max_files: int,
     small_data_limit: int,
     hash_limit: int,
+    subtrees: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
+    """Classify the project tree, or only ``subtrees`` (project-relative, see :func:`resolve_subtrees`).
+
+    ``source_path`` and ``item_id`` stay relative to ``project_root`` either way,
+    and every skip/corpus/nested-git rule applies below each subtree.
+    """
+    starts = [project_root / sub for sub in subtrees] if subtrees else [project_root]
     rows: list[dict[str, Any]] = []
     seen_hashes: dict[str, str] = {}
     scanned_files = 0
     truncated = False
     wiki_resolved = wiki_root.resolve(strict=False)
 
-    for current, dirnames, filenames in os.walk(project_root, topdown=True):
+    walked = (entry for start in starts for entry in os.walk(start, topdown=True))
+    for current, dirnames, filenames in walked:
         current_path = Path(current)
         kept: list[str] = []
         for dirname in sorted(dirnames):
@@ -439,12 +514,17 @@ def wiki_label(project_root: Path, wiki_root: Path) -> str:
     return relative_posix(wiki_root, project_root) or wiki_root.name
 
 
-def render_plan(project_root: Path, wiki_root: Path, batch_id: str, mode: str, rows: list[dict[str, Any]], truncated: bool) -> str:
+def render_plan(
+    project_root: Path, wiki_root: Path, batch_id: str, mode: str, rows: list[dict[str, Any]], truncated: bool,
+    subtrees: list[str] | None = None,
+) -> str:
     counts = summary(rows)
     lines = [
         f"# Brownfield Adoption Plan — {project_root.name}", "", f"- Batch: `{batch_id}`",
         f"- Project: `{project_root.name}`", f"- Wiki root: `{wiki_label(project_root, wiki_root)}`", f"- Mode: `{mode}`",
-        f"- Scan truncated: `{'yes' if truncated else 'no'}`", "", "## Classification Summary", "",
+        f"- Scan truncated: `{'yes' if truncated else 'no'}`",
+        *([f"- Subtrees: {', '.join(f'`{sub}`' for sub in subtrees)}"] if subtrees else []),
+        "", "## Classification Summary", "",
         "| Class | Count | Intended handling |", "|---|---:|---|",
         f"| ingest | {counts['ingest']} | normal inbox ingestion; copy/move modes may stage these files |",
         f"| collection | {counts['collection']} | structured collection ingestion from original path |",
@@ -473,7 +553,7 @@ def _manifest_bytes(rows: list[dict[str, Any]]) -> bytes:
 def _state_payload(
     project_root: Path, wiki_root: Path, batch_root: Path, batch_id: str, mode: str,
     rows: list[dict[str, Any]], truncated: bool, staged: int, warnings: list[str], staging: str,
-    stage_error: str | None = None,
+    stage_error: str | None = None, subtrees: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "schema": "knowmade/adoption-batch/v1", "batch_id": batch_id, "created": today(),
@@ -493,18 +573,22 @@ def _state_payload(
     }
     if stage_error:
         payload["stage_error"] = stage_error
+    if subtrees:
+        # Absent on a whole-project batch; ``adopt apply --subtree`` keeps the union here.
+        payload["subtrees"] = list(subtrees)
     return payload
 
 
 def _persist_batch(
     batch_root: Path, project_root: Path, wiki_root: Path, batch_id: str, mode: str,
     rows: list[dict[str, Any]], truncated: bool, staged: int, warnings: list[str], staging: str,
-    stage_error: str | None = None,
+    stage_error: str | None = None, subtrees: list[str] | None = None,
 ) -> dict[str, Any]:
     """Write manifest then state atomically; the manifest never lags a moved file."""
     atomic_write_bytes(batch_root / "manifest.jsonl", _manifest_bytes(rows))
     payload = _state_payload(
-        project_root, wiki_root, batch_root, batch_id, mode, rows, truncated, staged, warnings, staging, stage_error
+        project_root, wiki_root, batch_root, batch_id, mode, rows, truncated, staged, warnings, staging, stage_error,
+        subtrees,
     )
     atomic_write_text(batch_root / "state.json", json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return payload
@@ -533,11 +617,17 @@ def stage_ingest_files(
         if row["kind"] != "file" or row["classification"] != "ingest":
             continue
         source = project_root / row["source_path"]
+        destination = stage_root / row["source_path"]
+        if mode == "move" and not source.exists() and destination.exists():
+            # A previous run moved the original and died before the manifest row caught up
+            # (its stage-move event is in events.jsonl); record the move instead of an error.
+            row["state"], row["staged_path"] = "staged-move", destination.relative_to(batch_root).as_posix()
+            staged += 1
+            continue
         if not source.exists():
             row["state"], row["error"] = "error", "source-missing-before-staging"
             warnings.append(row["source_path"])
             continue
-        destination = stage_root / row["source_path"]
         if destination.exists():
             row["state"], row["error"] = "error", "staging-destination-already-exists"
             warnings.append(row["source_path"])
@@ -560,7 +650,11 @@ def stage_ingest_files(
     return staged, warnings
 
 
-def write_batch(project_root: Path, wiki_root: Path, batch_id: str, mode: str, rows: list[dict[str, Any]], truncated: bool, confirmed_move: bool) -> dict[str, Any]:
+def write_batch(
+    project_root: Path, wiki_root: Path, batch_id: str, mode: str, rows: list[dict[str, Any]], truncated: bool,
+    confirmed_move: bool, subtrees: list[str] | None = None,
+) -> dict[str, Any]:
+    validate_batch_id(batch_id)
     imports_root = wiki_root / "inbox" / ".imports"
     imports_root.mkdir(parents=True, exist_ok=True)
     batch_root = imports_root / batch_id
@@ -573,9 +667,9 @@ def write_batch(project_root: Path, wiki_root: Path, batch_id: str, mode: str, r
     # every row still "planned", before the first original is touched. Each
     # completed move is then checkpointed into the manifest, so an interrupted
     # run leaves a record of what moved and what is still pending.
-    atomic_write_text(batch_root / "PLAN.md", render_plan(project_root, wiki_root, batch_id, mode, rows, truncated))
+    atomic_write_text(batch_root / "PLAN.md", render_plan(project_root, wiki_root, batch_id, mode, rows, truncated, subtrees))
     staging_needed = mode != "reference" and any(r["kind"] == "file" and r["classification"] == "ingest" for r in rows)
-    _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, 0, [], "pending" if staging_needed else "complete")
+    _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, 0, [], "pending" if staging_needed else "complete", None, subtrees)
 
     def checkpoint(row: dict[str, Any], done: int, warned: list[str]) -> None:
         # One journal line per moved original (cheap, append-only) so a hard
@@ -587,7 +681,7 @@ def write_batch(project_root: Path, wiki_root: Path, batch_id: str, mode: str, r
                 "source_path": row.get("source_path"), "staged_path": row.get("staged_path"), "state": row.get("state"),
             }, sort_keys=True) + "\n")
         if done % MOVE_CHECKPOINT_EVERY == 0:
-            _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, done, list(warned), "pending")
+            _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, done, list(warned), "pending", None, subtrees)
 
     try:
         staged, warnings = stage_ingest_files(rows, project_root, batch_root, mode, confirmed_move, checkpoint)
@@ -596,10 +690,10 @@ def write_batch(project_root: Path, wiki_root: Path, batch_id: str, mode: str, r
         _persist_batch(
             batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, done,
             [r["source_path"] for r in rows if r.get("state") == "error"], "interrupted",
-            f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc}", subtrees,
         )
         raise
-    payload = _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, staged, warnings, "complete")
+    payload = _persist_batch(batch_root, project_root, wiki_root, batch_id, mode, rows, truncated, staged, warnings, "complete", None, subtrees)
     with (wiki_root / "log.md").open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(f"\n## [{today()}] adopt | Brownfield batch `{batch_id}` planned from `{project_root.name}` in `{mode}` mode ({len(rows)} rows).\n")
     payload["batch_root"] = str(batch_root)

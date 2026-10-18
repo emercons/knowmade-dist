@@ -33,7 +33,10 @@ from . import redaction as _redaction
 #    (`topics/santé-PRIVATE/`). A secret-url-credentials match now ends
 #    before the `@`, and secret-private-key spans the whole key block, so
 #    their finding IDs differ from scanner 3.
-CHECKPOINT_SCANNER_VERSION = 4
+# 5: `checkpoint seal` also resolves the Markdown links, wiki-links and
+#    source paths of the bundle (privacy_boundary), so a reference into a
+#    -PRIVATE sibling is a blocking `cross-boundary` finding; no pattern changed.
+CHECKPOINT_SCANNER_VERSION = 5
 
 
 @dataclass(frozen=True)

@@ -100,7 +100,9 @@ llm-wiki checkpoint verify <bundle> --json
 Seal enforces the fixed UTF-8 Markdown/JSON bundle, computes file hashes and
 checkpoint ID, scans names/content, and writes `privacy-report.json`. It covers
 likely secrets, credentials, identities, local paths/network data,
-session/transcript metadata, and prompt/conversation markers. Reports contain
+session/transcript metadata, prompt/conversation markers, and links that
+resolve into a `-PRIVATE` sibling (`cross-boundary`; `verify` carries the sealed
+ones over, as they depend on where the bundle sits). Reports contain
 only category, safe/opaque relative path, line, message, and stable finding ID.
 
 There is no `--no-scan` or global bypass. Intentional retention requires every

@@ -346,4 +346,4 @@ remains a separate, explicit wiki compile/update step.
 - Do not auto-promote session material or feedback candidates into topic wikis.
 - Do not let hook failures block normal agent work; fail closed to no capture,
   not to broken tool execution.
-- To opt out, run `llm-wiki-session disable` or ask `@wiki session disable`; this writes `enabled: false`.
+- To opt out, run `llm-wiki-session disable` or ask `@knowmade session disable`; this writes `enabled: false`.

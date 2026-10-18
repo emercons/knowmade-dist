@@ -4,9 +4,12 @@
 (``checkpoint_scan.checkpoint_pattern_specs``, which reads the shared table in
 ``redaction.py``) over the text files of a wiki, hub or project, so the two
 commands cannot drift: the same planted secret produces the same
-``privacy-<sha16>`` finding id in both. ``--check tracked-private`` is the
-structural check the content scan cannot make: a path under a ``*-PRIVATE/``
-directory that git tracks.
+``privacy-<sha16>`` finding id in both. Two structural checks are what the
+content scan cannot make: ``--check tracked-private`` (a path under a
+``*-PRIVATE/`` directory that git tracks) and ``--check cross-boundary`` (a
+public Markdown file whose link, wiki-link, ``source:`` value or inventory path
+resolves into a private directory; see ``privacy_boundary``). With no
+``--check`` the content scan and ``cross-boundary`` both run.
 
 The allow file is shared with ``checkpoint seal --allowlist``: see
 ``Allowlist``. A regex entry is searched in ``path::kind::match``; so that no
@@ -34,6 +37,13 @@ from . import fsio as _fsio
 from . import redaction as _redaction
 from .checkpoint_scan import checkpoint_finding, checkpoint_pattern_specs
 from .hub import is_inside_git_work_tree
+from .privacy_boundary import (
+    CROSS_BOUNDARY_KIND,
+    BoundaryChecker,
+    BoundaryHit,
+    BoundaryRegistryError,
+    private_topic_dirs,
+)
 from .roots import expand_leading_tilde, resolve_hub_args, resolve_wiki_root_args
 
 TEXT_SUFFIXES = frozenset({".md", ".json", ".html", ".txt", ".yaml", ".yml", ".toml"})
@@ -338,11 +348,44 @@ def _private_tracked_finding(rel: str, allowlist: Allowlist) -> PrivacyFinding:
     )
 
 
+def _boundary_finding(rel: str, hit: BoundaryHit, allowlist: Allowlist) -> PrivacyFinding:
+    finding_id = checkpoint_finding(
+        CROSS_BOUNDARY_KIND, "critical", rel, hit.line, hit.message, hit.written
+    ).finding_id
+    return PrivacyFinding(
+        finding_id,
+        CROSS_BOUNDARY_KIND,
+        "critical",
+        rel,
+        hit.line,
+        hit.message,
+        allowlist.allows(finding_id, rel, CROSS_BOUNDARY_KIND, hit.written),
+    )
+
+
+def _boundary_checker(root: Path, files: Sequence[str]) -> BoundaryChecker | None:
+    """The resolver for a public root, or ``None`` for a private root.
+
+    A private root (a ``*-PRIVATE`` path or a private registry topic) may refer
+    to itself; the boundary is a public root's. A broken hub registry is a
+    usage error.
+    """
+    try:
+        checker = BoundaryChecker(root, private_topic_dirs(root))
+    except BoundaryRegistryError as exc:
+        raise PrivacyError(str(exc)) from None
+    if checker.root_is_private():
+        return None
+    checker.index_slugs([rel for rel in files if rel.lower().endswith(".md")])
+    return checker
+
+
 def _scan_files(
     root: Path,
     candidates: Sequence[str],
     specs: Sequence[PatternSpec],
     allowlist: Allowlist,
+    boundary: BoundaryChecker | None = None,
 ) -> tuple[list[PrivacyFinding], int, int]:
     """Scan every candidate; a candidate that cannot be scanned is a finding.
 
@@ -350,14 +393,23 @@ def _scan_files(
     ``MAX_FILE_BYTES`` is reported as an ``unscanned`` warning and counted in
     ``skipped``, never dropped silently: a scan that quietly skips a tracked
     file passes while that file leaks. Symlinks are not content and are
-    skipped without a finding.
+    skipped without a content finding. With a ``boundary`` checker every
+    Markdown file outside a private directory is also resolved for
+    cross-boundary references, and a symlink among them that points into a
+    private directory is a finding itself.
     """
     findings: list[PrivacyFinding] = []
     scanned = skipped = 0
     for rel in candidates:
+        checked = boundary is not None and boundary.applies(rel)
         try:
             file = root / rel
             if file.is_symlink():
+                if checked:
+                    findings.extend(
+                        _boundary_finding(rel, hit, allowlist)
+                        for hit in boundary.check_symlink(file, rel)
+                    )
                 continue
             if not file.is_file():
                 raise OSError("not a regular file")
@@ -370,6 +422,10 @@ def _scan_files(
             continue
         scanned += 1
         findings.extend(scan_text(text, rel, specs, allowlist))
+        if checked:
+            findings.extend(
+                _boundary_finding(rel, hit, allowlist) for hit in boundary.check(file, rel, text)
+            )
     return findings, scanned, skipped
 
 
@@ -394,6 +450,7 @@ def _scan(args: argparse.Namespace) -> int:
     packs = load_pattern_packs(args.patterns or [])
     anchors = [item.strip() for item in (args.anchors or "").split(",") if item.strip()]
     in_git = is_inside_git_work_tree(root)
+    notes: list[str] = []
 
     if args.check == "tracked-private":
         if not in_git:
@@ -416,8 +473,20 @@ def _scan(args: argparse.Namespace) -> int:
             candidates = [rel for rel in listed if _is_text_candidate(rel)]
         else:
             candidates = _worktree_files(root)
+        content = args.check != "cross-boundary"
+        boundary = _boundary_checker(root, candidates)
+        if boundary is None:
+            notes.append("root is a private location; cross-boundary check skipped")
+        if not content:
+            candidates = [
+                rel for rel in candidates if boundary is not None and rel.lower().endswith(".md")
+            ]
         findings, scanned, skipped = _scan_files(
-            root, candidates, checkpoint_pattern_specs() + packs, allowlist
+            root,
+            candidates,
+            checkpoint_pattern_specs() + packs if content else [],
+            allowlist,
+            boundary,
         )
 
     unique = {finding.finding_id: finding for finding in findings}
@@ -435,19 +504,18 @@ def _scan(args: argparse.Namespace) -> int:
     }
     shown = [f for f in findings if args.show_allowed or not f.allowed]
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "root": str(root),
-                    "scope": scope,
-                    "findings": [f.to_json() for f in shown],
-                    "counts": counts,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
+        payload: dict[str, Any] = {
+            "root": str(root),
+            "scope": scope,
+            "findings": [f.to_json() for f in shown],
+            "counts": counts,
+        }
+        if notes:
+            payload["notes"] = notes
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
+        for note in notes:
+            print(f"privacy scan: {note}")
         for finding in shown:
             tag = " (allowed)" if finding.allowed else ""
             print(
@@ -521,8 +589,11 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     )
     scan.add_argument(
         "--check",
-        choices=["tracked-private"],
-        help="Run only this check: tracked paths under *-PRIVATE/ (critical).",
+        choices=["tracked-private", "cross-boundary"],
+        help=(
+            "Run only this check (critical): tracked paths under *-PRIVATE/, or "
+            "references into a -PRIVATE sibling. Default: content scan + cross-boundary."
+        ),
     )
     scan.add_argument(
         "--anchors",

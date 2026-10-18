@@ -15,6 +15,7 @@ import json
 import math
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from .common import (
     load_json_object,
 )
 from .privacy import PrivacyError, load_allowlist
+from .privacy_boundary import CROSS_BOUNDARY_KIND, BoundaryRegistryError, bundle_checker
 
 
 CHECKPOINT_SCHEMA = "llm-wiki/project-knowledge-checkpoint/v1"
@@ -176,13 +178,27 @@ def checkpoint_source_access_findings(
 
 
 def scan_checkpoint_bundle(
-    root: Path, audience: str, manifest: dict[str, Any] | None = None
+    root: Path,
+    audience: str,
+    manifest: dict[str, Any] | None = None,
+    *,
+    boundary: bool = True,
 ) -> tuple[list[CheckpointFinding], list[dict[str, str]]]:
     """Scan the bundle on disk; ``manifest`` substitutes an in-memory manifest
     for the on-disk one in the source-access check, so a seal can validate its
-    overrides before writing anything."""
+    overrides before writing anything.
+
+    ``boundary`` adds the ``cross-boundary`` findings of the resolver
+    ``privacy scan --check cross-boundary`` uses: a link, wiki-link or source
+    path in a bundle document must not resolve into a -PRIVATE sibling. They
+    depend on where the bundle sits (relative paths, the enclosing hub's
+    registry), so only a seal computes them; ``verify`` passes ``False`` and
+    carries the sealed ones over (``checkpoint_verify_manifest``). A registry
+    that cannot be read raises ``BoundaryRegistryError``.
+    """
     findings: list[CheckpointFinding] = []
     files: list[dict[str, str]] = []
+    resolver = bundle_checker(root) if boundary else None
     allowed_names = CHECKPOINT_REQUIRED_FILES | {CHECKPOINT_REPORT_NAME}
     for path in sorted(root.iterdir(), key=lambda item: item.name):
         if path.name in allowed_names:
@@ -279,6 +295,13 @@ def scan_checkpoint_bundle(
             continue
         files.append({"path": rel, "sha256": file_sha256(path)})
         findings.extend(scan_checkpoint_text(text, rel))
+        if resolver is not None and path.suffix.lower() == ".md":
+            findings.extend(
+                checkpoint_finding(
+                    CROSS_BOUNDARY_KIND, "critical", rel, hit.line, hit.message, hit.written
+                )
+                for hit in resolver.check(path, rel, text)
+            )
 
     manifest_path = root / "checkpoint.json"
     if manifest is not None:
@@ -449,12 +472,22 @@ def load_seal_allowlist(path: str | None) -> Any:
 
 
 def checkpoint_seal(args: argparse.Namespace) -> int:
+    """Seal a bundle; a hub registry that cannot be read is exit 2, before any write."""
+    try:
+        return _checkpoint_seal(args)
+    except BoundaryRegistryError as exc:
+        print(f"llm-wiki checkpoint: {exc}", file=sys.stderr)
+        return 2
+
+
+def _checkpoint_seal(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve(strict=False)
     if not root.is_dir():
         raise SystemExit("checkpoint seal path must be an existing directory")
     for name in CHECKPOINT_REQUIRED_FILES | {CHECKPOINT_REPORT_NAME}:
         if (root / name).is_symlink():
             raise SystemExit("checkpoint seal refuses symbolic links in the fixed bundle")
+    bundle_checker(root)  # fail closed on an unreadable registry before anything is written
     manifest_path = root / "checkpoint.json"
     manifest = load_json_object(manifest_path, "checkpoint manifest")
     validate_checkpoint_manifest(manifest, args.audience)
@@ -643,19 +676,31 @@ def checkpoint_verify_manifest(
     actual_content_files = checkpoint_content_file_hashes(root)
     if manifest.get("files") != actual_content_files:
         errors.append("checkpoint.json generated-file hashes do not match the bundle")
-    findings, scanned_files = scan_checkpoint_bundle(root, audience)
+    # Cross-boundary findings depend on where the bundle sits, so a recipient
+    # elsewhere cannot recompute them; the sealed ones are carried over. The
+    # file hashes and the report id bind them to the sealed content.
+    findings, scanned_files = scan_checkpoint_bundle(root, audience, boundary=False)
     if report.get("files") != scanned_files:
         errors.append("privacy report file hashes do not match the bundle")
     report_findings = report.get("findings", [])
     if not isinstance(report_findings, list):
         errors.append("privacy report findings must be an array")
         report_findings = []
+    sealed_boundary = [
+        item
+        for item in report_findings
+        if isinstance(item, dict)
+        and item.get("category") == CROSS_BOUNDARY_KIND
+        and isinstance(item.get("id"), str)
+    ]
     report_finding_ids = {
         item.get("id")
         for item in report_findings
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
-    actual_finding_ids = {finding.finding_id for finding in findings}
+    actual_finding_ids = {finding.finding_id for finding in findings} | {
+        item["id"] for item in sealed_boundary
+    }
     if report_finding_ids != actual_finding_ids:
         errors.append("privacy findings do not match a fresh scan")
     override_rows = report.get("overrides")
@@ -677,10 +722,22 @@ def checkpoint_verify_manifest(
         errors.append("privacy report overrides contain duplicate or invalid finding IDs")
     if not override_ids.issubset(actual_finding_ids):
         errors.append("privacy report contains an unknown or stale override")
-    expected_finding_records = [
-        checkpoint_finding_json(finding, finding.finding_id in override_ids)
-        for finding in findings
-    ]
+    expected_finding_records = sorted(
+        [
+            checkpoint_finding_json(finding, finding.finding_id in override_ids)
+            for finding in findings
+        ]
+        + [
+            {**item, "status": "allowed" if item["id"] in override_ids else "blocking"}
+            for item in sealed_boundary
+        ],
+        key=lambda item: (
+            str(item.get("path")),
+            item["line"] if isinstance(item.get("line"), int) else 0,
+            str(item.get("category")),
+            str(item.get("id")),
+        ),
+    )
     if report.get("findings") != expected_finding_records:
         errors.append("privacy report finding metadata does not match a fresh scan")
     blocking_ids = actual_finding_ids - override_ids
@@ -698,11 +755,11 @@ def checkpoint_verify_manifest(
         "checkpoint_id": manifest.get("checkpoint_id"),
         "audience": audience,
         "file_count": len(scanned_files),
-        "finding_count": len(findings),
+        "finding_count": len(expected_finding_records),
         "override_count": len(override_ids),
         "source_override_count": source_override_count,
         "coverage": coverage_metrics,
-        "finding_categories": sorted({finding.category for finding in findings}),
+        "finding_categories": sorted({str(item.get("category")) for item in expected_finding_records}),
         "errors": errors,
     }
     if args.json:

@@ -156,6 +156,9 @@ def root_status(wiki_root: Path, *, kind: str, slug: str | None = None) -> dict[
     }
     if "behind" in state:
         row["behind"] = state["behind"]
+    note = _engine.equivalence_note(state)
+    if note:
+        row["note"] = note
     return row
 
 
@@ -214,6 +217,10 @@ def run_engine(args: argparse.Namespace) -> int:
         print(json.dumps(info, indent=2, sort_keys=True))
         return 0
     print(_engine_line(info))
+    build, head = info.get("build_commit"), info.get("checkout_commit")
+    if build and head and build != head:
+        print(f"Build identity: commit {build} (_build.py, what a packaged copy reports)")
+        print(f"Checkout HEAD: commit {head} (what this checkout reports)")
     supported = ", ".join(f"rules/{value}" for value in info["supported_rule_sets"])
     print(f"Supported rule sets: {supported}")
     if info["upstream_baseline"]:
@@ -234,6 +241,8 @@ def _run_status(args: argparse.Namespace) -> int:
         print(f"{label}: {row['state']} - {_declared_text(row['declared'])}{inherited}")
         if row["summary"]:
             print(f"  {row['summary']}")
+        if row.get("note"):
+            print(f"  {row['note']}")
     return 0
 
 

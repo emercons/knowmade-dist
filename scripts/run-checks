@@ -52,6 +52,7 @@ Deterministic package sync	./tests/test-control-plane-sync.sh
 Codex adoption behavioral contract	./tests/test-codex-adoption-eval.sh
 Structural fixtures	./tests/test-structure.sh
 Lint rejects every defect fixture	./tests/test-lint-defects.sh
+Migration fixtures upgrade losslessly	./tests/test-migration-fixtures.sh
 CLI subcommand smoke	python3 ./tests/test_cli_subcommands.py
 Main deterministic lint suite	./tests/test-local-cli-lint.sh
 Whole-tree link checks and lint --all	./tests/test-local-cli-links.sh

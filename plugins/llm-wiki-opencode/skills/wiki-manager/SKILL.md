@@ -32,7 +32,7 @@ is both compiler and query engine; Obsidian is an optional viewer.
 
 ## OpenCode Integration Notes
 
-This skill is loaded as an instruction file. OpenCode does not have Claude-style `/wiki:*` slash commands or Codex-style `@wiki` invocations. Treat those examples as shorthand for the equivalent natural-language request. For example, `/wiki:compile` means the user is asking you to compile the wiki.
+This skill is loaded as an instruction file. OpenCode does not have Claude-style `/wiki:*` slash commands or Codex-style `@knowmade` invocations. Treat those examples as shorthand for the equivalent natural-language request. For example, `/wiki:compile` means the user is asking you to compile the wiki.
 
 OpenCode's built-in tools (`read`, `write`, `edit`, `glob`, `grep`, `bash`, `webfetch`, `websearch`) map directly to the tools this skill requires. Web search requires `OPENCODE_ENABLE_EXA=1` in the environment.
 

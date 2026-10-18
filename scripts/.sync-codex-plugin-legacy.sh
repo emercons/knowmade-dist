@@ -15,8 +15,13 @@ fi
 SOURCE_SKILL="$ROOT/claude-plugin/skills/wiki-manager"
 QUERY_SOURCE="$SOURCE_SKILL/references/query-lite.md"
 TARGET_PLUGIN="$OUT/plugins/llm-wiki"
-TARGET_SKILL="$TARGET_PLUGIN/skills/wiki"
-TARGET_QUERY="$TARGET_PLUGIN/skills/wiki-query"
+# The plugin is knowmade@knowmade, so the full skill is knowmade:knowmade
+# (`@knowmade`) and the query preset is `$knowmade-query` (emercons/knowmade#168).
+# Releases up to v0.7.0.25.1 wrote skills/wiki and skills/wiki-query; those
+# directories are removed below so an in-place sync leaves no stale skill.
+TARGET_SKILL="$TARGET_PLUGIN/skills/knowmade"
+TARGET_QUERY="$TARGET_PLUGIN/skills/knowmade-query"
+LEGACY_SKILLS="wiki wiki-query"
 CLAUDE_BIN="$OUT/claude-plugin/bin"
 CLAUDE_MANIFEST="$ROOT/claude-plugin/.claude-plugin/plugin.json"
 # The Codex manifest is read-modify-write: tracked fields such as keywords are
@@ -95,6 +100,9 @@ mkdir -p "$TARGET_PLUGIN/skills"
 # copied into the generated tree rather than left as a symlink. agents/ is
 # Codex-only metadata and is recreated below.
 rm -rf "$TARGET_PLUGIN/skills/wiki-manager"
+for legacy in $LEGACY_SKILLS; do
+  rm -rf "${TARGET_PLUGIN:?}/skills/$legacy"
+done
 rm -rf "$TARGET_QUERY"
 rm -rf "$TARGET_SKILL"
 cp -R "$SOURCE_SKILL" "$TARGET_SKILL"
@@ -212,8 +220,19 @@ path = Path(sys.argv[1])
 # The Codex manifest version is copied from the Claude manifest later in this
 # script, so the Claude manifest is the value the generated plugin will carry.
 version = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))["version"]
-marketplace = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))["name"]
-for label, token in (("plugin version", version), ("marketplace name", marketplace)):
+marketplace_data = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+marketplace = marketplace_data["name"]
+# The cache keeps one directory per plugin name under the marketplace.
+plugin = next(
+    entry["name"]
+    for entry in marketplace_data["plugins"]
+    if entry.get("source", {}).get("path") == "./plugins/llm-wiki"
+)
+for label, token in (
+    ("plugin version", version),
+    ("marketplace name", marketplace),
+    ("plugin name", plugin),
+):
     if not re.fullmatch(r"[A-Za-z0-9._-]+", token):
         raise SystemExit(f"Refusing to embed unsafe {label} in hooks.json: {token!r}")
 
@@ -224,7 +243,7 @@ launcher = (
     "p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); "
     "h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); "
     "c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); "
-    "g=lambda m:glob.glob(os.path.join(c,m,\"wiki\",\"*\",\"hooks\",\"llm_wiki_session.py\")); "
+    f"g=lambda m:glob.glob(os.path.join(c,m,\"{plugin}\",\"*\",\"hooks\",\"llm_wiki_session.py\")); "
     f"xs=[] if os.path.isfile(p) else g(\"{marketplace}\"); "
     "v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); "
     "k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); "
@@ -254,7 +273,7 @@ EOF
 mkdir -p "$TARGET_QUERY/agents"
 cat > "$TARGET_QUERY/SKILL.md" <<'EOF'
 ---
-name: wiki-query
+name: knowmade-query
 description: >
   Fast, explicit, read-only Knowmade queries for Codex. Use for factual
   lookups, evidence checks, lists, and inventory status without wiki writes.
@@ -265,7 +284,7 @@ cat "$QUERY_SOURCE" >> "$TARGET_QUERY/SKILL.md"
 
 cat > "$TARGET_QUERY/agents/openai.yaml" <<'EOF'
 interface:
-  display_name: "Wiki Query"
+  display_name: "Knowmade Query"
   short_description: "Read-only, index-first answers from Knowmade with exact file citations."
   brand_color: "#2F855A"
   default_prompt: "Answer this question from the selected Knowmade wiki without changing any files."
@@ -290,7 +309,7 @@ skill_path = target_skill / "SKILL.md"
 text = skill_path.read_text(encoding="utf-8")
 
 frontmatter = """---
-name: wiki
+name: knowmade
 description: >
   Manage Knowmade practical knowledge bases in Codex: dispatch hub intake,
   ingest/import, shape/promote Ideas around private goals, review portfolios,
@@ -323,17 +342,17 @@ text = frontmatter + text[end + 5 :]
 replacements = [
     (
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. The\nactive agent is both compiler and query engine; Obsidian is an optional viewer.\n",
-        "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. Codex\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## Codex Plugin Notes\n\nCodex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@wiki` invocation.\n",
+        "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. Codex\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## Codex Plugin Notes\n\nCodex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.\n",
     ),
     # The Dual-linking principle moved to references/principles.md
     # (emercons/knowmade#81); references are shared verbatim and say "agent".
     (
         "When this skill activates outside an explicit wiki invocation:",
-        "When this skill activates outside of an explicit `@wiki` invocation or `/wiki`-style shorthand:",
+        "When this skill activates outside of an explicit `@knowmade` invocation or `/wiki`-style shorthand:",
     ),
     (
         '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki with `/wiki:ingest`"',
-        '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@wiki` to ingest it."',
+        '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@knowmade` to ingest it."',
     ),
     # Anchors for the Compilation Nudge, Structural Guardian, Concurrency and
     # stale-research-session wording were dropped when those sections moved to
@@ -470,7 +489,7 @@ skill_path.write_text(text, encoding="utf-8", newline="\n")
 claude = json.loads(claude_manifest.read_text(encoding="utf-8"))
 codex = json.loads(codex_manifest.read_text(encoding="utf-8"))
 codex["version"] = claude["version"]
-codex["name"] = "wiki"
+codex["name"] = "knowmade"
 codex["license"] = claude.get("license", codex.get("license"))
 codex["homepage"] = "https://github.com/emercons/knowmade"
 codex["repository"] = "https://github.com/emercons/knowmade"

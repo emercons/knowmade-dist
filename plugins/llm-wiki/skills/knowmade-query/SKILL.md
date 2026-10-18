@@ -1,5 +1,5 @@
 ---
-name: wiki-query
+name: knowmade-query
 description: >
   Fast, explicit, read-only Knowmade queries for Codex. Use for factual
   lookups, evidence checks, lists, and inventory status without wiki writes.

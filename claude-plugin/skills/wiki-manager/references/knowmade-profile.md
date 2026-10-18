@@ -16,7 +16,7 @@ They are planning context, not factual evidence.
 ## Command Notation
 
 References name workflows as `wiki x` (for example `wiki ingest`, `wiki init`).
-`wiki x` is `/wiki:x` in Claude Code and `$wiki x` in Codex (or an `@wiki`
+`wiki x` is `/wiki:x` in Claude Code and `$knowmade x` in Codex (or an `@knowmade`
 request); in any other runtime it is the equivalent natural-language request.
 
 ## Upstream Relationship
@@ -97,8 +97,11 @@ privacy scanner (`llm-wiki checkpoint seal`) is the deterministic backstop for
 `-PRIVATE` path strings; everything else relies on this rule.
 
 **Privacy scan.** `llm-wiki privacy scan` runs the checkpoint pattern pack over
-tracked text files; `--check tracked-private` reports tracked `*-PRIVATE/`
-paths. Options: `references/cli.md`.
+tracked text files plus `--check cross-boundary`: a public file whose link,
+reference, wiki-link, `source:` value, inventory path or symlink resolves (`realpath`) into
+a `*-PRIVATE/` directory or private registry topic, or a `goals.md` named from
+`output/`, is critical; `checkpoint seal` runs it too. `--check tracked-private`
+reports tracked `*-PRIVATE/` paths. Options: `references/cli.md`.
 
 ## Inbox-First Source Lifecycle
 

@@ -33,9 +33,11 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/bootstrap-codex-plugin.sh [options]
 
-Register this repo as a local Codex marketplace source, install @wiki and the
-bundled $wiki-query preset into the Codex plugin cache, and enable the plugin
-in the user config. Running it again refreshes the installed cache entry.
+Register this repo as a local Codex marketplace source, install @knowmade and
+the bundled $knowmade-query preset into the Codex plugin cache, and enable the
+plugin in the user config. Running it again refreshes the installed cache entry.
+An install of the plugin's earlier name, wiki@knowmade (up to v0.7.0.25.1), is
+removed first.
 
 Options:
   --scope user           Plugin enablement scope (default: user). The current
@@ -45,8 +47,9 @@ Options:
                          user-scope config writes (default: current HOME)
   --print                Print the managed TOML block without writing it
   --verify               Run scripts/verify-codex-plugin.sh after writing
-  --allow-coexisting     Install even when another enabled plugin named wiki
-                         (upstream wiki@llm-wiki) would make @wiki ambiguous
+  --allow-coexisting     Install even when another enabled plugin named
+                         knowmade (from another marketplace) would make
+                         @knowmade ambiguous
   -h, --help             Show this help
 
 Environment:
@@ -155,18 +158,20 @@ fi
 
 mkdir -p "$USER_HOME/.codex"
 
-# Codex derives the skill id from the plugin name only, so an enabled upstream
-# wiki@llm-wiki and wiki@knowmade both answer to wiki:wiki, @wiki and
-# $wiki-query, and both plugins' hooks record every event (knowmade#124).
-OTHER_WIKI_PLUGINS="$(other_enabled_plugins "$USER_CONFIG")"
-if [[ -n "$OTHER_WIKI_PLUGINS" ]]; then
+# Codex derives the skill id from the plugin name only, so another enabled
+# plugin named knowmade (a second marketplace serving this plugin) would also
+# answer to knowmade:knowmade, @knowmade and $knowmade-query, and both
+# plugins' hooks would record every event (knowmade#124). Upstream's
+# wiki@llm-wiki no longer shares the name.
+OTHER_SAME_NAME_PLUGINS="$(other_enabled_plugins "$USER_CONFIG")"
+if [[ -n "$OTHER_SAME_NAME_PLUGINS" ]]; then
   if [[ "$ALLOW_COEXISTING" -eq 1 ]]; then
-    echo "WARNING: also enabled, so @wiki stays ambiguous:" >&2
-    sed 's/^/  /' <<<"$OTHER_WIKI_PLUGINS" >&2
+    echo "WARNING: also enabled, so @knowmade stays ambiguous:" >&2
+    sed 's/^/  /' <<<"$OTHER_SAME_NAME_PLUGINS" >&2
   else
     echo "Another enabled Codex plugin is also named '$PLUGIN_NAME':" >&2
-    sed 's/^/  /' <<<"$OTHER_WIKI_PLUGINS" >&2
-    echo "With both enabled, @wiki and \$wiki-query resolve ambiguously and session hooks fire twice." >&2
+    sed 's/^/  /' <<<"$OTHER_SAME_NAME_PLUGINS" >&2
+    echo "With both enabled, @knowmade and \$knowmade-query resolve ambiguously and session hooks fire twice." >&2
     echo "Remove it (codex plugin remove <key>) or set enabled = false under its" >&2
     echo "[plugins.\"<key>\"] table in $USER_CONFIG, then rerun this helper." >&2
     echo "To install anyway, pass --allow-coexisting." >&2
@@ -304,6 +309,32 @@ codex_plugin_add() {
     attempt=$((attempt + 1))
   done
 }
+
+# The plugin was wiki@knowmade until v0.7.0.25.1 and is knowmade@knowmade now
+# (knowmade#168). Left installed, the old entry keeps answering to @wiki and
+# its hooks record every event a second time, so it is removed before the new
+# name is added. `codex plugin remove` deletes its config table and cache entry
+# even though the marketplace no longer lists it, and is a no-op when neither
+# exists. It runs only once the marketplace is known to be this checkout's.
+# If `codex plugin add` then fails, the old entry is already gone; rerunning
+# this helper recovers, because the removal is skipped and the add retried.
+for legacy_key in $LEGACY_PLUGIN_KEYS; do
+  legacy_state="$(plugin_state "$USER_CONFIG" "$legacy_key")"
+  legacy_cache="$PLUGIN_CACHE_ROOT/${legacy_key%@*}"
+  if [[ "$legacy_state" == absent && ! -d "$legacy_cache" ]]; then
+    continue
+  fi
+  echo "Migrating: removing $legacy_key, this plugin's name up to v0.7.0.25.1 (now $PLUGIN_KEY)"
+  if ! legacy_output="$(codex_in_home "$USER_HOME" plugin remove "$legacy_key" 2>&1)"; then
+    echo "warning: codex plugin remove $legacy_key failed:" >&2
+    sed 's/^/  /' <<<"$legacy_output" >&2
+  fi
+  if [[ "$(plugin_state "$USER_CONFIG" "$legacy_key")" == enabled ]]; then
+    echo "WARNING: $legacy_key is still enabled, so @wiki keeps answering and session hooks fire twice." >&2
+    echo "Run codex plugin remove $legacy_key, or set enabled = false under its" >&2
+    echo "[plugins.\"$legacy_key\"] table in $USER_CONFIG." >&2
+  fi
+done
 
 # `codex plugin add` is the supported materialization path. It copies the
 # plugin into ~/.codex/plugins/cache and writes the supported user-scope enable

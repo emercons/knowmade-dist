@@ -40,6 +40,7 @@ __all__ = [
     "markdown",
     "pins",
     "privacy",
+    "privacy_boundary",
     "projects",
     "redaction",
     "retract",

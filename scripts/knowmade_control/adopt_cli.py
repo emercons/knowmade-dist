@@ -26,8 +26,11 @@ from .adoption_plan import (
     ensure_local_wiki,
     is_knowmade_checkout,
     make_batch_id,
+    resolve_subtrees,
     scan_project,
     summary,
+    today,
+    validate_batch_id,
     write_batch,
 )
 from .roots import resolve_project_wiki_roots
@@ -110,6 +113,15 @@ def _add_scan_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--yes", action="store_true", help="Required confirmation for move apply.")
     parser.add_argument("--batch-id", help="Explicit batch id; default is date + project slug + path hash.")
     parser.add_argument("--exclude", action="append", default=[], help="Glob relative to project root; repeatable.")
+    parser.add_argument(
+        "--subtree",
+        action="append",
+        default=[],
+        help=(
+            "Directory relative to the project root; repeatable. Scan only these subtrees (paths and item ids stay "
+            "project-relative). With --apply and an existing --batch-id, add the new rows to that batch."
+        ),
+    )
     parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     parser.add_argument(
         "--small-data-limit",
@@ -138,6 +150,17 @@ def build_scan_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _log_extension(wiki_root: Path, project_root: Path, batch_id: str, subtrees: list[str], extended: dict[str, Any]) -> None:
+    """Journal an extension in the wiki log, as ``write_batch`` does for a new batch."""
+    covered = ", ".join(f"`{sub}`" for sub in subtrees)
+    line = (
+        f"\n## [{today()}] adopt | Brownfield batch `{batch_id}` extended from `{project_root.name}` with "
+        f"{covered} ({extended['added']} added, {extended['already_present']} already present).\n"
+    )
+    with (wiki_root / "log.md").open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(line)
+
+
 def scan_and_apply(args: argparse.Namespace) -> int:
     """Scan (and with ``args.apply`` initialize) one brownfield project.
 
@@ -156,6 +179,13 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         raise SystemExit("--max-files must be >= 1")
     if args.mode == "move" and args.apply and not args.yes:
         raise SystemExit("--mode move --apply requires --yes")
+    if args.batch_id:
+        validate_batch_id(args.batch_id)
+    subtrees = resolve_subtrees(project_root, wiki_root, args.subtree, args.exclude) if args.subtree else []
+    batch_root = wiki_root / "inbox" / ".imports" / args.batch_id if args.batch_id else None
+    extending = bool(args.apply and subtrees and batch_root is not None and batch_root.is_dir())
+    if extending:
+        adoption_batch.check_extendable(batch_root, project_root, args.mode, str(wiki_root))
     if args.apply:
         _preflight_existing_config(wiki_root)
 
@@ -166,6 +196,7 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         args.max_files,
         args.small_data_limit,
         args.hash_limit,
+        subtrees,
     )
     batch_id = args.batch_id or make_batch_id(project_root)
     title = args.title or project_root.name
@@ -181,6 +212,8 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         "counts": summary(rows),
         "rule_set": _rules.CURRENT_RULE_SET,
     }
+    if subtrees:
+        result["subtrees"] = subtrees
     if args.apply:
         result["created_paths"] = ensure_local_wiki(
             wiki_root, project_root, title
@@ -192,15 +225,27 @@ def scan_and_apply(args: argparse.Namespace) -> int:
             result["rule_set_changed"] = _rules.declare_rule_set(wiki_root)
         except ValueError as exc:
             raise SystemExit(f"adopted tree is in place but the rule set was not declared: {exc}") from exc
-        result["batch"] = write_batch(
-            project_root,
-            wiki_root,
-            batch_id,
-            args.mode,
-            rows,
-            truncated,
-            args.yes,
-        )
+        if extending:
+            extended = adoption_batch.extend_batch(
+                batch_root, project_root, wiki_root, args.mode, rows, truncated, subtrees,
+                bool(args.yes), str(wiki_root),
+            )
+            result["batch"] = {**extended["state"], "batch_root": str(batch_root)}
+            result["extended"] = True
+            result["added"] = extended["added"]
+            result["already_present"] = extended["already_present"]
+            _log_extension(wiki_root, project_root, batch_id, subtrees, extended)
+        else:
+            result["batch"] = write_batch(
+                project_root,
+                wiki_root,
+                batch_id,
+                args.mode,
+                rows,
+                truncated,
+                args.yes,
+                subtrees,
+            )
     if args.json:
         result["items"] = rows if not args.apply else None
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -212,6 +257,8 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         print(f"Wiki:    {wiki_root}")
         print(f"Batch:   {batch_id}")
         print(f"Mode:    {args.mode}")
+        if subtrees:
+            print(f"Subtrees: {', '.join(subtrees)}")
         print(f"Rules:   rules/{_rules.CURRENT_RULE_SET}")
         print(
             f"Plan:    {counts['ingest']} ingest, {counts['collection']} collection, "
@@ -220,7 +267,13 @@ def scan_and_apply(args: argparse.Namespace) -> int:
         if truncated:
             print(f"WARNING: scan truncated at --max-files={args.max_files}")
         if args.apply:
-            print(f"Batch written: {result['batch']['batch_root']}")
+            if extending:
+                print(
+                    f"Batch extended: {result['batch']['batch_root']} "
+                    f"({result['added']} added, {result['already_present']} already present)"
+                )
+            else:
+                print(f"Batch written: {result['batch']['batch_root']}")
             ignore = result["gitignore"]
             if ignore["action"] == "appended":
                 print(f"Ignore:  appended `{ignore['rule']}` to .gitignore (the wiki holds staged copies and batch state)")

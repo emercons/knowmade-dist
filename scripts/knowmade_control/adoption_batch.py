@@ -26,7 +26,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterator
 
-from .adoption_plan import MOVE_CHECKPOINT_EVERY, stage_ingest_files
+from .adoption_plan import (
+    MOVE_CHECKPOINT_EVERY,
+    fold_subtrees,
+    relative_posix,
+    render_plan,
+    stage_ingest_files,
+    summary,
+    usage_error,
+)
 from .fsio import atomic_write_text
 from .stdio import configure_utf8_stdio
 
@@ -49,6 +57,9 @@ OUTCOMES_BY_CLASS = {
     "needs-human": {"needs-human", "skipped"},
     "skip": {"skipped"},
 }
+# A batch left in either state has originals whose move was not finished (a "pending" one
+# that nobody is working on means the process died); ``adopt repair`` finishes both.
+STAGING_OPEN = {"pending", "interrupted"}
 OUTCOMES_REQUIRING_DESTINATION = {"ingested", "registered-dataset", "tracked-collection"}
 
 _WINDOWS_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -449,7 +460,11 @@ def claim_report(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def cmd_status(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     _wiki_root, _manifest, state, rows = validate_batch(batch, args.wiki_root)
-    payload = {"batch": str(batch), **state_summary(rows, bool(state.get("scan_truncated")))}
+    payload = {
+        "batch": str(batch),
+        "subtrees": list(state.get("subtrees") or []),
+        **state_summary(rows, bool(state.get("scan_truncated"))),
+    }
     claims = claim_report(rows)
     if args.json:
         payload["claims"] = claims
@@ -458,6 +473,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         print(f"Batch: {batch}")
         print(f"Status: {payload['status']}")
+        if payload["subtrees"]:
+            print(f"Subtrees: {', '.join(payload['subtrees'])}")
         print(
             f"Rows: {payload['rows']} | terminal {payload['terminal_rows']} | "
             f"pending {payload['pending_rows']} | claimed {payload['claimed_rows']} | errors {payload['error_rows']}"
@@ -486,7 +503,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     with batch_lock(batch, args.force_unlock):
         _wiki_root, manifest, state, rows = validate_batch(batch, args.wiki_root)
-        if state.get("staging") == "interrupted" and not args.allow_interrupted:
+        if state.get("staging") in STAGING_OPEN and not args.allow_interrupted:
             # knowmade#84: the unmoved originals still sit at their source paths,
             # so a "planned" row would be handed out without its staged copy.
             moved, pending = staging_counts(rows)
@@ -666,7 +683,7 @@ def cmd_repair(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     with batch_lock(batch, args.force_unlock):
         _wiki_root, manifest, state, rows = validate_batch(batch, args.wiki_root)
-        if state.get("staging") != "interrupted":
+        if state.get("staging") not in STAGING_OPEN:
             print(f"Nothing to repair: staging is {state.get('staging') or 'complete'}.")
             return 0
         mode = str(state.get("mode"))
@@ -698,13 +715,94 @@ def cmd_repair(args: argparse.Namespace) -> int:
     return 0
 
 
+def check_extendable(
+    batch: Path, project_root: Path, mode: str, wiki_root_arg: str | None = None,
+) -> dict[str, Any]:
+    """Refuse (exit 2) an ``adopt apply --subtree`` that cannot extend ``batch``; return its state."""
+    _wiki_root, _manifest, state, _rows = validate_batch(batch, wiki_root_arg)
+    if state.get("mode") != mode:
+        usage_error(
+            f"batch {batch.name} was planned in --mode {state.get('mode')}; --subtree extends it only in the same "
+            f"mode, not --mode {mode}"
+        )
+    pinned = state.get("project_root_relative")
+    if isinstance(pinned, str) and pinned and relative_posix(project_root, batch) != pinned:
+        usage_error(f"batch {batch.name} belongs to another project ({pinned} from the batch); refusing to extend it")
+    if state.get("staging") in STAGING_OPEN:
+        usage_error(
+            f"batch {batch.name} has unfinished staging ({state.get('staging')}); run `adopt repair` first"
+        )
+    return state
+
+
+def extend_batch(
+    batch: Path, project_root: Path, wiki_root: Path, mode: str, scanned: list[dict[str, Any]],
+    truncated: bool, subtrees: list[str], confirmed_move: bool, wiki_root_arg: str | None = None,
+) -> dict[str, Any]:
+    """Merge a subtree scan into an existing batch (KM-MIG-012); return the new state plus the counts.
+
+    Under the batch lock: rows whose ``item_id`` is already in the manifest keep
+    their state and fields untouched, new rows are appended as ``planned`` (and
+    staged in copy/move mode), the manifest and ``state.json`` are replaced
+    atomically, and an ``adopt-extend`` event is journalled last. Re-running the
+    same extension therefore adds nothing.
+    """
+    with batch_lock(batch):
+        state = check_extendable(batch, project_root, mode, wiki_root_arg)
+        manifest = batch / "manifest.jsonl"
+        rows = load_rows(manifest)
+        present = {str(row["item_id"]) for row in rows}
+        new_rows = [row for row in scanned if str(row["item_id"]) not in present]
+        already = len(scanned) - len(new_rows)
+        covered = state.get("subtrees")
+        union = set(covered if isinstance(covered, list) and covered else ["."]) | set(subtrees)
+        merged_subtrees = fold_subtrees(union)
+
+        def checkpoint(row: dict[str, Any], done: int, _warned: list[str]) -> None:
+            # One journal line per moved original, as write_batch and repair do.
+            append_events(batch, [event_payload("stage-move", row, staged_path=row.get("staged_path"))])
+            if done % MOVE_CHECKPOINT_EVERY == 0:
+                write_rows(manifest, rows)
+
+        rows.extend(new_rows)
+        state.update({"subtrees": merged_subtrees, "scan_truncated": bool(state.get("scan_truncated")) or truncated})
+        state["counts"] = summary(rows)
+        if mode != "reference" and any(r["kind"] == "file" and r["classification"] == "ingest" for r in new_rows):
+            # Knowmade#36 order: the new rows are on disk as planned, with staging pending,
+            # before the first original is touched.
+            state["staging"] = "pending"
+        commit_transition(batch, manifest, state, rows, [])
+        try:
+            stage_ingest_files(new_rows, project_root, batch, mode, confirmed_move, checkpoint)
+        except BaseException as exc:
+            state["staging"] = "interrupted"
+            state["stage_error"] = f"{type(exc).__name__}: {exc}"
+            state["counts"] = summary(rows)
+            commit_transition(batch, manifest, state, rows, [])
+            raise
+        state["counts"] = summary(rows)
+        state["staged_files"] = sum(1 for row in rows if row.get("state") in {"staged-copy", "staged-move"})
+        state["staging_warnings"] = [str(row.get("source_path")) for row in rows if row.get("state") == "error"]
+        state["staging"] = "complete"
+        state.pop("stage_error", None)
+        atomic_write_text(
+            batch / "PLAN.md",
+            render_plan(project_root, wiki_root, str(state.get("batch_id") or batch.name), mode, rows,
+                        bool(state["scan_truncated"]), merged_subtrees),
+        )
+        commit_transition(batch, manifest, state, rows, [event_payload(
+            "adopt-extend", subtrees=subtrees, added=len(new_rows), already_present=already,
+        )])
+    return {"state": state, "added": len(new_rows), "already_present": already}
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     wiki_root, _manifest, state, rows = validate_batch(batch, args.wiki_root)
     problems: list[str] = []
     seen: set[str] = set()
     staging = state.get("staging")
-    staging_open = staging in {"pending", "interrupted"}
+    staging_open = staging in STAGING_OPEN
     if staging_open:
         moved, pending = staging_counts(rows)
         detail = f": {state['stage_error']}" if state.get("stage_error") else ""

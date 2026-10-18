@@ -454,6 +454,11 @@ def check_engine_contract(ctx: LintContext, strict: bool = False) -> None:
     problem, not a protocol violation, and must not block a corpus that is
     otherwise clean. ``--strict-engine`` raises it to critical for a CI lane that
     should refuse to run an engine other than the declared one.
+
+    A ``knowmade_checker_sha`` that differs from the running commit while
+    ``knowmade_version`` equals the running version is the same release (the tag
+    commit and the packaged build identity cannot be one commit): ``info``, and
+    ``--strict-engine`` leaves it alone.
     """
     state = _engine.contract_state(ctx.root)
     ctx.engine = state
@@ -479,6 +484,15 @@ def check_engine_contract(ctx: LintContext, strict: bool = False) -> None:
             "deliberately, or run the declared engine.",
             # An inherited pin lives in the hub's config.md: point the finding
             # at the file to edit, not at the topic that declares nothing.
+            Path(state["pin_config"]) if state.get("pin_config") else ctx.root / "config.md",
+            check="C22",
+        )
+    note = _engine.equivalence_note(state)
+    if note:
+        # Same package version, different commit of the same release: not drift.
+        ctx.issue(
+            "info",
+            note,
             Path(state["pin_config"]) if state.get("pin_config") else ctx.root / "config.md",
             check="C22",
         )

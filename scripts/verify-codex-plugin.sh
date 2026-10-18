@@ -12,8 +12,8 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/verify-codex-plugin.sh [options]
 
-Verify that Codex resolves the @wiki plugin and installs the explicit-only
-$wiki-query skill from this repo.
+Verify that Codex resolves the @knowmade plugin and installs the explicit-only
+$knowmade-query skill from this repo.
 
 Options:
   --scope user           Verify the supported user install (default: user)
@@ -68,8 +68,11 @@ esac
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 USER_HOME="$(cd "$USER_HOME" && pwd)"
 SOURCE_PLUGIN_ROOT="$ROOT/plugins/llm-wiki"
-SOURCE_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/wiki/SKILL.md"
-SOURCE_QUERY_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/wiki-query/SKILL.md"
+# The skill directories carry the plugin's skill names (knowmade#168).
+SKILL_NAME="$PLUGIN_NAME"
+QUERY_SKILL_NAME="${PLUGIN_NAME}-query"
+SOURCE_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/$SKILL_NAME/SKILL.md"
+SOURCE_QUERY_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/$QUERY_SKILL_NAME/SKILL.md"
 EXPECTED_VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$SOURCE_PLUGIN_ROOT/.codex-plugin/plugin.json")"
 TMP_OUTPUT="$(mktemp)"
 TMP_LIST="$(mktemp)"
@@ -110,7 +113,7 @@ else
   codex_in_home "$USER_HOME" -C "$PROJECT_ROOT" plugin list --marketplace "$MARKETPLACE_NAME" >"$TMP_LIST"
   LIST_FORMAT="text"
 fi
-codex_in_home "$USER_HOME" -C "$PROJECT_ROOT" debug prompt-input '@wiki test' >"$TMP_OUTPUT"
+codex_in_home "$USER_HOME" -C "$PROJECT_ROOT" debug prompt-input "@$PLUGIN_NAME test" >"$TMP_OUTPUT"
 
 if [[ "$LIST_FORMAT" == "json" ]]; then
   # Codex records Windows paths in extended-length form; same_path (from the
@@ -163,30 +166,31 @@ if [[ -z "$MARKETPLACE_SOURCE" ]] || ! same_codex_path "$MARKETPLACE_SOURCE" "$R
   exit 1
 fi
 
-EXPECTED_CACHE_SKILL="$PLUGIN_CACHE_ENTRY/$INSTALLED_VERSION/skills/wiki/SKILL.md"
-EXPECTED_CACHE_QUERY_SKILL="$PLUGIN_CACHE_ENTRY/$INSTALLED_VERSION/skills/wiki-query/SKILL.md"
+EXPECTED_CACHE_SKILL="$PLUGIN_CACHE_ENTRY/$INSTALLED_VERSION/skills/$SKILL_NAME/SKILL.md"
+EXPECTED_CACHE_QUERY_SKILL="$PLUGIN_CACHE_ENTRY/$INSTALLED_VERSION/skills/$QUERY_SKILL_NAME/SKILL.md"
 if [[ ! -f "$EXPECTED_CACHE_SKILL" ]]; then
-  echo "FAIL: installed Codex cache is missing the wiki skill:" >&2
+  echo "FAIL: installed Codex cache is missing the $SKILL_NAME skill:" >&2
   echo "  $EXPECTED_CACHE_SKILL" >&2
   exit 1
 fi
 if [[ ! -f "$EXPECTED_CACHE_QUERY_SKILL" ]]; then
-  echo "FAIL: installed Codex cache is missing the wiki-query skill:" >&2
+  echo "FAIL: installed Codex cache is missing the $QUERY_SKILL_NAME skill:" >&2
   echo "  $EXPECTED_CACHE_QUERY_SKILL" >&2
   exit 1
 fi
 
-# Every wiki:wiki skill Codex lists, one physical path a line. Another enabled
-# plugin named wiki (upstream wiki@llm-wiki) adds its own line; the check below
-# looks for this checkout's install among them instead of trusting whichever
-# Codex happens to list last (knowmade#124).
-ACTUAL_SKILL_PATHS="$(python3 - "$TMP_OUTPUT" <<'PY'
+# Every knowmade:knowmade skill Codex lists, one physical path a line. Another
+# enabled plugin of the same name adds its own line; the check below looks for
+# this checkout's install among them instead of trusting whichever Codex
+# happens to list last (knowmade#124).
+ACTUAL_SKILL_PATHS="$(python3 - "$TMP_OUTPUT" "$PLUGIN_NAME" "$SKILL_NAME" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+plugin, skill = sys.argv[2], sys.argv[3]
 
 def strings(value):
     if isinstance(value, str):
@@ -205,8 +209,8 @@ for text in strings(data):
         root_match = re.match(r"^- `(r\d+)` = `(.+)`$", line.strip())
         if root_match:
             skill_roots[root_match.group(1)] = root_match.group(2)
-        if "- wiki:wiki:" in line:
-            match = re.search(r"\(file: ([^)]+/skills/wiki/SKILL\.md)\)", line)
+        if f"- {plugin}:{skill}:" in line:
+            match = re.search(rf"\(file: ([^)]+/skills/{re.escape(skill)}/SKILL\.md)\)", line)
             if match and match.group(1) not in skill_paths:
                 skill_paths.append(match.group(1))
 
@@ -219,19 +223,20 @@ PY
 )"
 
 if [[ -z "$ACTUAL_SKILL_PATHS" ]]; then
-  echo "FAIL: Codex did not expose wiki:wiki in the headless prompt." >&2
+  echo "FAIL: Codex did not expose $PLUGIN_NAME:$SKILL_NAME in the headless prompt." >&2
   echo "Run ./scripts/bootstrap-codex-plugin.sh --scope $SCOPE again." >&2
   exit 1
 fi
 
 # Prints the paths that are not this install; exits 1 when none of them is.
-if ! OTHER_SKILL_PATHS="$(codex_python "$EXPECTED_CACHE_SKILL" "$SOURCE_SKILL_PATH" "$INSTALLED_VERSION" "$MARKETPLACE_NAME" "$ACTUAL_SKILL_PATHS" <<'PY'
+if ! OTHER_SKILL_PATHS="$(codex_python "$EXPECTED_CACHE_SKILL" "$SOURCE_SKILL_PATH" "$INSTALLED_VERSION" "$MARKETPLACE_NAME" "$ACTUAL_SKILL_PATHS" "$PLUGIN_NAME" "$SKILL_NAME" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 expected = {normalise_path(path) for path in sys.argv[1:3]}
 version, marketplace = sys.argv[3], sys.argv[4]
+plugin, skill = sys.argv[6], sys.argv[7]
 
 
 def ours(path):
@@ -240,10 +245,11 @@ def ours(path):
     # Codex desktop may expose enabled plugin skills through an rN logical
     # mount instead of their physical cache path. The cache/config/content
     # checks above still prove the clean install; accept only the exact
-    # marketplace/plugin/version suffix, so upstream's wiki 0.25.1 under
-    # cache/llm-wiki never counts as this install.
+    # marketplace/plugin/version suffix, so a same-named plugin under another
+    # marketplace's cache never counts as this install.
     return bool(re.search(
-        rf"(?:^r\d+|/{re.escape(marketplace)})/wiki/{re.escape(version)}/skills/wiki/SKILL\.md$",
+        rf"(?:^r\d+|/{re.escape(marketplace)})/{re.escape(plugin)}/{re.escape(version)}"
+        rf"/skills/{re.escape(skill)}/SKILL\.md$",
         Path(path).as_posix(),
     ))
 
@@ -255,7 +261,7 @@ for path in paths:
 raise SystemExit(0 if any(ours(path) for path in paths) else 1)
 PY
 )"; then
-  echo "FAIL: Codex did not resolve wiki:wiki from this install." >&2
+  echo "FAIL: Codex did not resolve $PLUGIN_NAME:$SKILL_NAME from this install." >&2
   echo "Resolved skill path(s):" >&2
   sed 's/^/  /' <<<"$ACTUAL_SKILL_PATHS" >&2
   echo "Expected installed cache path:" >&2
@@ -263,10 +269,20 @@ PY
   exit 1
 fi
 if [[ -n "$OTHER_SKILL_PATHS" ]]; then
-  echo "WARNING: another enabled plugin also answers to wiki:wiki, so @wiki is ambiguous:" >&2
+  echo "WARNING: another enabled plugin also answers to $PLUGIN_NAME:$SKILL_NAME, so @$PLUGIN_NAME is ambiguous:" >&2
   sed 's/^/  /' <<<"$OTHER_SKILL_PATHS" >&2
   echo "Remove or disable it (README.md, Install: OpenAI Codex)." >&2
 fi
+
+# The plugin's name up to v0.7.0.25.1 (knowmade#168). The bootstrap removes it;
+# one that is still enabled keeps answering to @wiki and records every session
+# event a second time.
+for legacy_key in $LEGACY_PLUGIN_KEYS; do
+  if [[ "$(plugin_state "$USER_CONFIG" "$legacy_key")" == enabled ]]; then
+    echo "WARNING: $legacy_key, this plugin's name up to v0.7.0.25.1, is still enabled." >&2
+    echo "Run codex plugin remove $legacy_key (or rerun ./scripts/bootstrap-codex-plugin.sh)." >&2
+  fi
+done
 
 if ! python3 - "$EXPECTED_CACHE_QUERY_SKILL" "$SOURCE_QUERY_SKILL_PATH" <<'PY'
 import sys
@@ -276,17 +292,17 @@ cached, source = (Path(path).read_text(encoding="utf-8") for path in sys.argv[1:
 raise SystemExit(0 if cached == source else 1)
 PY
 then
-  echo "FAIL: cached wiki-query skill differs from the generated source:" >&2
+  echo "FAIL: cached $QUERY_SKILL_NAME skill differs from the generated source:" >&2
   echo "  $EXPECTED_CACHE_QUERY_SKILL" >&2
   exit 1
 fi
 
-if grep -Fq '/skills/wiki-query/SKILL.md' "$TMP_OUTPUT"; then
-  echo "FAIL: explicit-only wiki-query leaked into the implicit skill list." >&2
+if grep -Fq "/skills/$QUERY_SKILL_NAME/SKILL.md" "$TMP_OUTPUT"; then
+  echo "FAIL: explicit-only $QUERY_SKILL_NAME leaked into the implicit skill list." >&2
   exit 1
 fi
 
-echo "OK: Codex resolves @wiki and installs explicit-only \$wiki-query from $PLUGIN_KEY version $INSTALLED_VERSION."
+echo "OK: Codex resolves @$PLUGIN_NAME and installs explicit-only \$$QUERY_SKILL_NAME from $PLUGIN_KEY version $INSTALLED_VERSION."
 echo "Skill paths:"
 echo "  $EXPECTED_CACHE_SKILL"
 echo "  $EXPECTED_CACHE_QUERY_SKILL"

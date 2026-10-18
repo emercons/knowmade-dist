@@ -491,7 +491,7 @@ Scan .md, .json, .html, .txt, .yaml, .yml and .toml files; excerpts never show t
 | `--fail-on {warning,critical}` | Lowest severity that exits 1. (default: critical) |
 | `--json` | Print JSON. |
 | `--show-allowed` | List allowed findings too. |
-| `--check {tracked-private}` | Run only this check: tracked paths under *-PRIVATE/ (critical). |
+| `--check {tracked-private,cross-boundary}` | Run only this check (critical): tracked paths under *-PRIVATE/, or references into a -PRIVATE sibling. Default: content scan + cross-boundary. |
 | `--anchors ANCHORS` | Comma-separated basenames the check tolerates. (default: ) |
 
 ## `llm-wiki links`
@@ -732,6 +732,7 @@ Inventory a brownfield project without writing.
 | `--yes` | Required confirmation for move apply. |
 | `--batch-id BATCH_ID` | Explicit batch id; default is date + project slug + path hash. |
 | `--exclude EXCLUDE` | Glob relative to project root; repeatable. |
+| `--subtree SUBTREE` | Directory relative to the project root; repeatable. Scan only these subtrees (paths and item ids stay project-relative). With --apply and an existing --batch-id, add the new rows to that batch. |
 | `--max-files MAX_FILES` | (default: 10000) |
 | `--small-data-limit SMALL_DATA_LIMIT` | Bytes; larger CSV/JSON/XML/YAML becomes dataset-class. (default: 20971520) |
 | `--hash-limit HASH_LIMIT` | Bytes; larger files are not hashed during planning. (default: 67108864) |
@@ -751,6 +752,7 @@ Initialize .wiki and write an adoption batch.
 | `--yes` | Required confirmation for move apply. |
 | `--batch-id BATCH_ID` | Explicit batch id; default is date + project slug + path hash. |
 | `--exclude EXCLUDE` | Glob relative to project root; repeatable. |
+| `--subtree SUBTREE` | Directory relative to the project root; repeatable. Scan only these subtrees (paths and item ids stay project-relative). With --apply and an existing --batch-id, add the new rows to that batch. |
 | `--max-files MAX_FILES` | (default: 10000) |
 | `--small-data-limit SMALL_DATA_LIMIT` | Bytes; larger CSV/JSON/XML/YAML becomes dataset-class. (default: 20971520) |
 | `--hash-limit HASH_LIMIT` | Bytes; larger files are not hashed during planning. (default: 67108864) |

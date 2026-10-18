@@ -28,6 +28,14 @@ Newly initialized/adopted corpora declare `knowmade_rule_set` in `config.md`.
 Older undeclared corpora retain backward-compatible behavior and are judged by
 the running engine's current rule set until deliberately declared/migrated.
 
+Migration is recipe-driven: an upstream or older Knowmade corpus reaches the
+current layout through the ordered existing commands of the "Deterministic
+Upgrade Recipe" in
+[`references/migration.md`](claude-plugin/skills/wiki-manager/references/migration.md),
+never through a silent rewrite. The recipe leaves every evidence file under
+`raw/` and `wiki/` byte-identical; `tests/test-migration-fixtures.sh` proves it
+on frozen upstream and Knowmade wikis.
+
 #### Corpus divergence from upstream
 
 Knowmade's corpus rules equal those of the absorbed upstream baseline except
@@ -100,6 +108,29 @@ the `v<version>` tag. The mirror-sync tests compare `_build.py` with the
 `llm-wiki engine info --json` reports that identity (version, tag, commit and
 whether it came from git or `_build.py`, rule sets, upstream baseline), and
 `llm-wiki pin set --knowmade v<version>` pins a wiki or hub by it.
+
+#### Which sha to pin
+
+A consumer that pins a commit (`knowmade_checker_sha`) pins **the release tag
+commit** of the version it declares in `knowmade_version`
+(`llm-wiki pin resolve v<version>`). A packaged build cannot report that
+commit: its `COMMIT` is taken before the release commit exists, so the packaged
+build identity (`engine info`, `build_commit`) names an earlier commit of the
+same release. The two are therefore **equivalent pins for the same version**:
+when `knowmade_version` equals the running version, a `knowmade_checker_sha`
+that differs from the running commit is reported as `info`
+(`engine.forms.commit` is `equivalent`, `engine.commit_equivalent` says why),
+never as a warning, and `--strict-engine` does not escalate it. It is
+equivalent when it is the packaged build identity, or, in a source checkout,
+an ancestor or descendant of the running commit; a packaged copy has no
+history to check and accepts any sha at the declared version. The rule applies
+when `knowmade_version` (not `llm_wiki_version` alone) equals the running
+version. A source checkout whose git cannot be run fails closed: the warning
+stays and says git could not be run. A sha that git can place nowhere in the
+running checkout's history, a sha declared without a
+matching `knowmade_version`, and a sha declared with another version keep the
+`warning` (`critical` under `--strict-engine`). A hub pins one set for every
+topic: `knowmade_version` plus either sha.
 
 ## Supported Rule-Set Window
 
@@ -224,6 +255,195 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.8.0.25.1 — Sprint I: Phase 3 brownfield gaps and the Codex plugin rename
+
+**Deterministic CLI and protocol surface — additive: `privacy scan --check
+cross-boundary` (`#172 (privacy scan --check cross-boundary: a public root must
+not link, cite or source into a -PRIVATE sibling)`, closes `KM-MIG-003`).** New
+module `privacy_boundary` (the resolver), `privacy scan --check` gains the
+choice `cross-boundary`, and `privacy scan` with no `--check` now runs the
+content scan and `cross-boundary` together (`--check tracked-private` is
+unchanged and still runs alone). No flag, option or JSON field is removed; a
+`notes` array is added to the `--json` payload only when a check was skipped.
+A Markdown file of a public root (outside every private location) whose
+inline link, reference definition (`[id]: target`), autolink, `href=`/`src=`
+attribute, wiki-link (by path, or by a slug only a private file answers to),
+`source:`/`sources:`/`origin:` value, inventory path cell or own symlink
+resolves (after `os.path.realpath`, existing or not) into a private location
+that the file does not live in is a critical `cross-boundary` finding with a
+`privacy-<sha16>` id (path, line and the reference as written) and the shared
+allow-file semantics; so is a reference to `goals.md` from a file under
+`output/`. A private location is a `*-PRIVATE` directory or the directory of a
+private registry topic (a `<name>-PRIVATE` slug, wherever its path points, so
+the registry-only case is covered for slug links too); files inside one are
+never judged, and a private root (a private location in its real path) is not
+checked and says so. **Behaviour change to expect: because the default check
+set includes the new kind, a public root with such a reference now exits 1
+under the default `--fail-on critical`, where it exited 0 before.** An
+unreadable hub registry exits 2.
+
+`checkpoint seal` resolves the Markdown links, wiki-links (a slug counts when
+only a private topic of the enclosing hub answers to it and no file of the
+bundle does) and source paths of a bundle with the same resolver, so a bundle
+that refers into a private sibling is `blocked` (exit 2) until the finding is
+allowlisted. The bundle's own location in a private directory is not a
+crossing. An unreadable enclosing hub registry makes `seal` exit 2 before it
+writes anything. `checkpoint verify` does not recompute `cross-boundary`
+findings: they depend on where the bundle sits (relative paths, the enclosing
+hub's registry and machine overlay), which a recipient cannot reproduce. It
+carries the sealed ones over from `privacy-report.json`, still bound to the
+sealed content by the file hashes and the report id, so a sealed bundle with an
+override verifies after it is copied elsewhere. Checkpoint
+privacy scanner version 4 becomes 5: `verify` reports a bundle sealed by
+scanner 4 `invalid` with a re-seal message, the rule every earlier scanner bump
+followed. Corpus rule set unchanged.
+
+**`#170 (adopt scan/apply --subtree, KM-MIG-012)`, deterministic CLI and
+protocol surface, additive.** `adopt scan|apply` and `llm-wiki-adopt` gain a
+repeatable `--subtree <dir>`: the walk is limited to those project-relative
+directories, `source_path` and `item_id` are unchanged, and every existing
+skip/nested-git/corpus/wiki-root rule still applies below them. `adopt apply
+--batch-id <existing> --subtree` merges into that batch under the batch lock
+instead of refusing: rows already in the manifest keep their state and fields,
+new rows are appended as `planned` (staged in copy/move mode), the manifest
+and `state.json` are replaced atomically, `state.json` gains an optional
+`subtrees` list (union; absent on a whole-project batch) and `events.jsonl` an
+`adopt-extend` event. `adopt status` prints the covered subtrees and its
+`--json` gains `subtrees`; the apply `--json` gains `subtrees`, `extended`,
+`added` and `already_present` when `--subtree` is used. A missing,
+project-escaping or wiki-root `--subtree`, a mode that differs from the batch,
+and unfinished staging exit 2 with a message, as does a `--subtree` that is, or
+lies below, a skip-listed, `--exclude`d, nested-repository or Knowmade-checkout
+directory (a whole-project scan never walks into those). `--batch-id` containing
+a path separator or `..` is refused (exit 2) for new and extended batches. An
+extension journals every move to `events.jsonl` and commits its new rows with
+`staging: pending` before the first original moves; `adopt repair` and the
+`adopt claim` guard now treat `staging: pending` like `interrupted` (a pending
+batch nobody holds the lock for is a crashed one), and staging records a move-mode
+original that already sits in `staged/` as moved instead of an error. Batch schema
+`knowmade/adoption-batch/v1` is unchanged (readers ignore the new key); without
+`--subtree` every command behaves as before, including the refusal to re-apply
+an existing batch id. No severity change; corpus rule set unchanged.
+
+**Token budget gate: absolute tier ceilings and a ratchet-down rebaseline
+(`#169`).** Test and tooling only; corpus rule set, deterministic `llm-wiki`
+CLI/protocol surface, packaging and agent spec unchanged, no severity change.
+`tests/budgets/token-budgets.json` moves to `schema_version` 2 (a schema 1 file
+is rejected with a message): gated metrics carry an absolute design ceiling,
+the lazily loaded aggregates and launcher sizes are reported and never fail,
+and `scripts/benchmark-token-efficiency static` gains `--rebaseline` (rewrites
+baselines, never raises a `max`, exit 2 on a breach) and prints per-metric
+headroom with `--check`. Policy: `benchmarks/README.md`, Layer 1.
+
+| Change | Classification | Ladder |
+|---|---|---|
+| Budget file schema 1 to 2; `static --rebaseline`; headroom lines on stderr of `static --check` | Test only (`scripts/benchmark-token-efficiency` is a development tool, not a shipped entry point) | None |
+
+**#168, Codex plugin renamed `wiki@knowmade` → `knowmade@knowmade` — breaking
+packaging change, no deprecation window.** Owner decision of 2026-10-18,
+completing `#124 (Codex: wiki@knowmade and wiki@llm-wiki both resolve as
+wiki:wiki)`. Codex derives the skill id from the plugin name alone, so the old
+name shared `wiki:wiki`, `@wiki` and `$wiki-query` with upstream's
+`wiki@llm-wiki`. Corpus rule set unchanged; deterministic CLI/protocol surface
+unchanged (no `llm-wiki` namespace, flag, exit code or payload moves;
+`references/cli.md` is untouched). Classified "Packaging/install change", and
+breaking on that surface:
+
+| Before (up to v0.7.0.25.1) | After |
+|---|---|
+| plugin `wiki@knowmade` (`.codex-plugin/plugin.json` and marketplace entry `name: wiki`) | `knowmade@knowmade` |
+| skill `plugins/llm-wiki/skills/wiki/`, id `wiki:wiki`, mention `@wiki` | `skills/knowmade/`, `knowmade:knowmade`, `@knowmade` |
+| explicit-only `plugins/llm-wiki/skills/wiki-query/`, `$wiki-query` | `skills/knowmade-query/`, `$knowmade-query` |
+| cache entry `~/.codex/plugins/cache/knowmade/wiki/<version>/` | `.../cache/knowmade/knowmade/<version>/` |
+
+Unchanged: the mirror directory `plugins/llm-wiki/`, the marketplace name
+`knowmade`, the Claude plugin `wiki@knowmade` and its `/wiki:*` commands, the
+OpenCode `wiki-manager` and `wiki-query` skills, the portable
+`profiles/query-lite/` profile, and the token-budget metric names.
+
+A rename has no compatible intermediate state in Codex (one plugin cannot
+answer to two names), so there is no deprecation window; the migration is
+automatic where Knowmade controls the install and two commands elsewhere:
+
+- **Development checkout:** `scripts/bootstrap-codex-plugin.sh` removes an
+  installed `wiki@knowmade` (`codex plugin remove wiki@knowmade`, which deletes
+  its config table and cache entry although the marketplace no longer lists
+  it) before it adds `knowmade@knowmade`, and warns if the old key is still
+  enabled afterwards. `scripts/verify-codex-plugin.sh` resolves
+  `knowmade:knowmade`, proves `$knowmade-query` explicit-only, and warns about
+  a leftover enabled `wiki@knowmade`.
+- **Pinned release install:** before the usual repin from `README.md`
+  ("Upgrade"), run `codex plugin remove wiki@knowmade`, then
+  `codex plugin add knowmade@knowmade` after re-adding the marketplace at the
+  new tag. Prompts, scripts and notes that say `@wiki` or `$wiki-query` change
+  to `@knowmade` and `$knowmade-query`.
+
+The #124 coexistence guard keeps its rule with the new name: the bootstrap
+refuses, without `--allow-coexisting`, only when another enabled plugin named
+`knowmade` (from another marketplace) would share the skill id; upstream's
+`wiki@llm-wiki` no longer triggers it and can stay enabled beside Knowmade. The
+generated hook wrapper's cache fallback globs `cache/knowmade/knowmade/`. Tests:
+`tests/test-codex-runtime.sh` installs beside an upstream stand-in without a
+refusal or ambiguity warning, refuses and then verifies beside a same-named
+`knowmade@knowmade-fork`, migrates a staged pre-rename `wiki@knowmade` install
+of an updated checkout, and checks verify's leftover warning;
+`tests/test-plugin-validate.sh` pins one identity across manifest, marketplace,
+`scripts/lib/codex-config.sh` and the skill directories;
+`tests/test-codex-sync.sh` checks the hook wrapper's plugin directory.
+
+**Migration fixtures, `#171 (migration fixtures: an upstream llm-wiki v0.25.1
+wiki and an old Knowmade wiki upgrade to the current layout without evidence
+loss)`, KM-MIG-001/002. Corpus rule set, deterministic CLI/protocol and
+packaging surfaces unchanged; agent spec additive.** `references/migration.md`
+gains the "Deterministic Upgrade Recipe": nine existing `llm-wiki` commands
+(`rules check`, read-only `lint`, `schema adopt`, `project migrate-why`,
+`lint --preflight`, `rules declare --set 3`, `lint --fix-only
+create,index,registry,gitignore,log`, then `rules check` and `lint` again). No
+new verb or fix class was needed: on both fixtures the one gap is the
+undeclared rule set, which `rules declare` (or the C22 `create` repair) closes.
+New lane step `tests/test-migration-fixtures.sh` runs that block verbatim on
+`tests/fixtures/migration/upstream-0.25.1/` (upstream `95a042c`) and
+`tests/fixtures/migration/knowmade-0.1.0.22/` (tag `v0.1.0.22`, the earliest
+release whose golden wiki differs from today's). No severity changes.
+
+#### Same-version checker sha (`claude/sprint-i-checker-sha`)
+
+`#167 (No knowmade_checker_sha value lints clean under both the checkout script
+and the packaged build)`. Corpus rule set unchanged (`rules/3`); packaging
+unchanged (`_build.py` keeps its fields; the release process is untouched).
+
+**Deterministic CLI and protocol: a severity change for one finding.** The C22
+engine-contract finding "Wiki declares checker X but this lint is running Y" is
+lowered from `warning` to `info` when, and only when, `knowmade_version` equals
+the running version and the declared sha is equivalent to the running build (see
+"Which sha to pin" above). Every other case keeps its severity, including
+`--strict-engine`. This is a relaxation of an existing `warning`, not a new
+check, so it enters no ladder step.
+
+- `lint --json` `engine.forms.commit` gains the value `equivalent` (besides
+  `undeclared`, `unknown`, `match`, `drift`); `engine.state` is `match` then,
+  and `engine.drifted` omits `commit`. `engine` gains the optional key
+  `commit_equivalent` (`build`, `ancestor`, `descendant` or `unverifiable`),
+  present only for an equivalent sha. `engine.behind` is also reported for an
+  equivalent ancestor. `pin status` rows gain an optional `note` and print it.
+- `engine info --json` gains `build_commit` (the `_build.py` commit) and
+  `checkout_commit` (git `HEAD`, null outside a checkout) beside the unchanged
+  `commit`; the text output prints both lines when they differ. No flag changed.
+- `pin verify --engine` (the `scripts/ci-lint` gate) follows `engine.state`,
+  so it now exits 0, not 2, for an equivalent sha. In a packaged copy that is
+  any 7-40 hex sha once `knowmade_version` equals the running version. Exit
+  codes are otherwise unchanged. A CI that needs the exact commit
+  should declare the sha without `knowmade_version`.
+- `engine` gains the optional key `git_failed` (true when a checkout's git
+  could not be run and a same-version sha was therefore not accepted).
+- Known limit: in a checkout, "an ancestor" is not bounded by the version's
+  first commit, so an ancestor from an earlier release is also `info` while the
+  declared version matches the running one.
+
+| Change | Classification | Ladder |
+|---|---|---|
+| C22 checker-sha finding is `info` at the running `knowmade_version` for the packaged build identity, the checkout HEAD or a commit on the same history (#167) | Severity lowered for one finding (CLI-protocol); fewer warnings, no new strictness | None |
 
 ### v0.7.0.25.1 — Sprint H of the 2026-10 audit
 

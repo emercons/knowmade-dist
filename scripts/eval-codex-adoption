@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Controlled behavioral eval for explicit Codex @wiki brownfield adoption.
+"""Controlled behavioral eval for explicit Codex @knowmade brownfield adoption.
 
 `contract` is deterministic and free. It validates the checked-in explicit
-@wiki surface, brownfield protocol references, case corpus, and the synthetic
+@knowmade surface, brownfield protocol references, case corpus, and the synthetic
 transaction grader.
 
 `live` makes real Codex model calls through app-server. It explicitly loads the
-checked-in `@wiki` skill and exposes one controlled dynamic tool representing
+checked-in `@knowmade` skill and exposes one controlled dynamic tool representing
 `llm-wiki-adopt`, `llm-wiki-adopt-batch`, and bounded semantic ingest actions.
 The grade is based on actual state transitions, not assistant prose.
 
@@ -54,7 +54,7 @@ TERMINAL = {"ingested", "registered-dataset", "tracked-collection", "needs-human
 def repo_root() -> Path:
     current = Path(__file__).resolve().parent
     for candidate in (current, *current.parents):
-        if (candidate / "plugins/llm-wiki/skills/wiki/SKILL.md").is_file():
+        if (candidate / "plugins/llm-wiki/skills/knowmade/SKILL.md").is_file():
             return candidate
     raise SystemExit("could not locate Knowmade repository root")
 
@@ -396,7 +396,7 @@ def run_live_case(server: AppServer, project: Path, skill: Path, case: dict[str,
     turn = run_turn(
         server,
         thread_id,
-        [{"type": "skill", "name": "wiki", "path": str(skill)}, {"type": "text", "text": case["prompt"] + note}],
+        [{"type": "skill", "name": "knowmade", "path": str(skill)}, {"type": "text", "text": case["prompt"] + note}],
         lambda params: handle_tool(params, simulator),
     )
     quality = grade_case(case, simulator, turn.tool_activity)
@@ -440,7 +440,7 @@ def run_live(args: argparse.Namespace, root: Path, cases: list[dict[str, Any]]) 
     if not available:
         print(json.dumps({"kind": "codex_adoption_live", "skipped": True, "reason": reason}, indent=2, sort_keys=True))
         return 2 if args.require_live else 0
-    skill = root / "plugins/llm-wiki/skills/wiki/SKILL.md"
+    skill = root / "plugins/llm-wiki/skills/knowmade/SKILL.md"
     runs: list[dict[str, Any]] = []
     # ignore_cleanup_errors: a Windows cleanup failure must not raise after the
     # paid model calls; the report below is written inside the context anyway.
@@ -457,7 +457,7 @@ def run_live(args: argparse.Namespace, root: Path, cases: list[dict[str, Any]]) 
         finally:
             server.close()
         passed = all(row["quality"]["passed"] for row in runs)
-        report = {"kind": "codex_adoption_live", "skipped": False, "invocation": "explicit-@wiki", "ambient_activation_tested": False, "codex": reason, "model_requested": args.model, "runs": runs, "summary": {"passed": passed, "cases": len(runs), "passes": sum(bool(row["quality"]["passed"]) for row in runs)}}
+        report = {"kind": "codex_adoption_live", "skipped": False, "invocation": "explicit-@knowmade", "ambient_activation_tested": False, "codex": reason, "model_requested": args.model, "runs": runs, "summary": {"passed": passed, "cases": len(runs), "passes": sum(bool(row["quality"]["passed"]) for row in runs)}}
         rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
         if args.output == "-":
             print(rendered, end="")
@@ -490,12 +490,12 @@ def scripted_contract(case: dict[str, Any]) -> list[dict[str, Any]]:
 def run_contract(root: Path, cases: list[dict[str, Any]]) -> int:
     checks: list[dict[str, Any]] = []
     canonical = (root / "claude-plugin/skills/wiki-manager/SKILL.md").read_text(encoding="utf-8")
-    codex = (root / "plugins/llm-wiki/skills/wiki/SKILL.md").read_text(encoding="utf-8")
+    codex = (root / "plugins/llm-wiki/skills/knowmade/SKILL.md").read_text(encoding="utf-8")
     profile = (root / "claude-plugin/skills/wiki-manager/references/knowmade-profile.md").read_text(encoding="utf-8")
     migration = (root / "claude-plugin/skills/wiki-manager/references/migration.md").read_text(encoding="utf-8")
     surface_requirements = {
         "canonical-explicit-skill-surface": (canonical, ["name: wiki-manager", "references/knowmade-profile.md", "ingest/import"]),
-        "codex-explicit-skill-surface": (codex, ["name: wiki", "references/knowmade-profile.md", "ingest/import"]),
+        "codex-explicit-skill-surface": (codex, ["name: knowmade", "references/knowmade-profile.md", "ingest/import"]),
         "brownfield-profile-protocol": (profile, ["## Brownfield Projects", "llm-wiki adopt scan", "llm-wiki adopt claim", "llm-wiki adopt verify"]),
         "migration-state-machine-protocol": (migration, ["llm-wiki adopt scan", "llm-wiki adopt apply", "llm-wiki adopt claim", "llm-wiki adopt complete", "llm-wiki adopt verify"]),
         "eval-tool-state-machine-guidance": (tool_spec()["description"], ["without probing invalid transitions", "never scan or apply again", "Use sweep to terminalize skip", "verified=false can be the correct safe result"]),
@@ -511,7 +511,7 @@ def run_contract(root: Path, cases: list[dict[str, Any]]) -> int:
             activity.append({"operation": call["operation"], "arguments": call, "success": bool(result.get("ok"))})
         checks.append({"name": f"simulator-{case['id']}", **grade_case(case, sim, activity)})
     passed = all(check["passed"] for check in checks)
-    print(json.dumps({"kind": "codex_adoption_contract", "invocation": "explicit-@wiki", "ambient_activation_tested": False, "passed": passed, "checks": checks}, indent=2, sort_keys=True))
+    print(json.dumps({"kind": "codex_adoption_contract", "invocation": "explicit-@knowmade", "ambient_activation_tested": False, "passed": passed, "checks": checks}, indent=2, sort_keys=True))
     return 0 if passed else 1
 
 
