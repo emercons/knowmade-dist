@@ -30,28 +30,21 @@ Be opinionated about the boundary:
   `raw/data/` instead of creating a dataset manifest.
 - If the data is large, mutable, remote, sensitive, binary, compressed, or
   better queried in its native format, use a dataset manifest.
-- If the user mostly needs next actions or acceptance state for a corpus, create
-  or link an inventory record. The dataset manifest answers "where/how is the
-  data accessed"; inventory answers "why do we care and what happens next."
-- If a proposed dataset would become hundreds of inventory records, create one
-  dataset manifest plus one corpus inventory record and show that sample shape
-  before asking to apply a larger pivot.
+- If the user mostly needs next actions or acceptance state, create or link an
+  inventory record: the manifest answers "where/how is the data accessed",
+  inventory "why do we care and what happens next."
+- If a dataset would become hundreds of inventory records, create one manifest
+  plus one corpus inventory record and show that shape before a larger pivot.
 
 ## Chat Views
 
-Dataset commands should make large data feel easy to inspect without loading the
-data. A normal `dataset list` should be fast and index-driven.
+Inspect large data without loading it; `dataset list` is fast and index-driven:
 
-Rules:
-
-- Read `datasets/_index.md` first.
-- For filters or columns not present in the index, read only
+- Read `datasets/_index.md` first; for filters or columns it lacks, read only
   `datasets/*/MANIFEST.md` frontmatter.
-- Never open samples, profiles, query notes, or the underlying dataset for a
-  plain list operation.
-- Default chat output is a compact Markdown table. Use bullets when long paths
-  or URLs would dominate the table.
-- Cap long lists in chat with `--limit` or a sensible default, then report the
+- Never open samples, profiles, query notes, or the dataset for a plain list.
+- Default output is a compact Markdown table (bullets when long paths or URLs
+  would dominate). Cap long lists with `--limit` or a default, then report the
   omitted count and the registry path.
 
 Recommended chat views:
@@ -63,14 +56,13 @@ Recommended chat views:
 | `schema` | dataset, schema status, formats, record count, latest profile | deciding what to profile next |
 | `locations` | dataset, storage, access, compact location pointer | finding where the data lives |
 
-If a dataset is linked from an inventory record, include the inventory next
-action only when it can be read cheaply from the linked record frontmatter.
+For a dataset linked from an inventory record, show its next action only if the
+record frontmatter gives it cheaply.
 
 ## Directory Layout
 
-The dataset registry is created lazily. A wiki with no `datasets/` directory has
-no dataset manifests yet; read-only commands should report that state without
-creating files.
+The registry is created lazily. A wiki with no `datasets/` directory has no
+manifests; read-only commands report that without creating files.
 
 ```text
 datasets/
@@ -91,8 +83,7 @@ datasets/
 
 Per-dataset manifest folders are created only when a manifest is added. The
 `samples/`, `profiles/`, and `queries/` subfolders are created only when their
-first note is written. Older wikis may have no `datasets/` directory until
-`wiki dataset add` or an explicit lint repair creates it.
+first note is written.
 
 ## Manifest Format
 
@@ -167,38 +158,46 @@ Required frontmatter fields:
 
 Recommended fields:
 
-- `size_bytes`
+- `size_bytes` (integer)
 - `record_count`
 - `origin`
 - `inventory`
 - `raw_sources`
 - `license`
 - `access`
-- `checksum`
+- `checksum` (`sha256:<64 hex digits>`)
 - `owner`
 - `refresh_cadence`
 
 Statuses:
 
-- `proposed`: identified but not accepted as a maintained dataset interface
+- `proposed`: identified, not yet an accepted interface
 - `active`: accepted and currently useful
-- `external`: intentionally external with no local copy
-- `archived`: retained for history, not actively maintained
-- `unavailable`: location is inaccessible or permissions are unresolved
+- `external`: deliberately external, no local copy
+- `archived`: kept for history, not maintained
+- `unavailable`: location inaccessible or permissions unresolved
 
 Storage modes:
 
 - `local`: local path outside the wiki
 - `remote`: remote URL or object-store location
-- `external`: third-party dataset page, API, or repository
-- `hybrid`: multiple storage modes
+- `external`: third-party page, API, or repository
+- `hybrid`: several modes
+
+Locations: a `scheme://` entry is remote, never checked. Any other is a local
+path: relative to the wiki root (not `raw/`), absolute as written, `~` not
+expanded. `size_bytes` and `checksum` (`sha256:<64 hex>`) apply to each local
+file; a directory is checked for existence only. `dataset verify` and
+`lint --profile datasets` (C27) report `dataset-missing` (warning),
+`dataset-size`, `dataset-checksum` (critical); `unavailable` and `archived`
+manifests are skipped.
 
 Schema statuses:
 
 - `unknown`: no schema is known yet
-- `inferred`: schema inferred from sample/profile
-- `declared`: upstream provides schema
-- `validated`: schema checked against current data
+- `inferred`: inferred from sample/profile
+- `declared`: upstream provides it
+- `validated`: checked against current data
 
 ## Index Format
 
@@ -207,7 +206,7 @@ Schema statuses:
 ```markdown
 # Dataset Registry Index
 
-> Dataset manifests for large or external data indexed by this wiki.
+> Dataset manifests for large or external data.
 
 Last updated: YYYY-MM-DD
 
@@ -226,38 +225,29 @@ Last updated: YYYY-MM-DD
 ```
 
 Each `datasets/<slug>/_index.md` links to `MANIFEST.md` and any existing
-sample/profile/query indexes. Dataset subdirectory indexes list
-sample/profile/query notes with the standard `_index.md` table shape.
+sample/profile/query indexes, which list their notes in the standard table shape.
 
 ## Profiles
 
 Profiles are small markdown notes under `datasets/<slug>/profiles/` that capture
 observations such as size, format, row counts, headers, table names, partition
-layout, or schema certainty. They should include:
-
-- date profiled
-- exact location checked
-- commands or query snippets used
-- bounded observations only
-- privacy/security caveats
-
-Never run an expensive full scan unless the user explicitly asks and the path is
-safe to access.
+layout, or schema certainty. Include the date profiled, the exact location
+checked, the commands or query snippets used, bounded observations only, and
+privacy/security caveats. Never run an expensive full scan unless the user
+explicitly asks and the path is safe to access.
 
 ## Samples
 
-Samples are tiny excerpts or sampling recipes under `datasets/<slug>/samples/`.
-Default to at most 20 rows. For compressed, remote, private, or very large data,
-write a recipe instead of fetching the data.
-
-Do not store secrets, personal data, credentials, or large excerpts in samples.
+Samples are tiny excerpts or sampling recipes under `datasets/<slug>/samples/`,
+at most 20 rows by default. For compressed, remote, private, or very large data,
+write a recipe instead of fetching. Never store secrets, personal data,
+credentials, or large excerpts.
 
 ## Query Recipes
 
-Query recipes under `datasets/<slug>/queries/` document reproducible access
-patterns such as DuckDB SQL, sqlite commands, parquet scans, API calls, or
-Python snippets. Recipes should prefer read-only queries and include expected
-runtime/cost when known.
+Recipes under `datasets/<slug>/queries/` document reproducible access (DuckDB
+SQL, sqlite commands, parquet scans, API calls, Python snippets). Prefer
+read-only queries; give expected runtime/cost when known.
 
 ## Migration Paths
 
@@ -266,31 +256,23 @@ Dataset migration is explicit and additive.
 ### Discovery
 
 `dataset scan-outputs` looks for output files that are really dataset
-descriptions:
-
-- filenames or titles containing `dataset`, `data`, `corpus`, `archive`,
-  `dump`, `warehouse`, `lake`, `parquet`, `sqlite`, `duckdb`, `csv`, `jsonl`,
-  or `snapshot`
-- body sections with size, rows, schema, license, storage path, sample, or query
-  recipes
-
-It reports suggested `dataset migrate-output ... --dry-run` commands. It must
-not write manifests.
+descriptions: filenames or titles containing `dataset`, `data`, `corpus`,
+`archive`, `dump`, `warehouse`, `lake`, `parquet`, `sqlite`, `duckdb`, `csv`,
+`jsonl` or `snapshot`, or body sections with size, rows, schema, license,
+storage path, sample or query recipes. It reports suggested `dataset
+migrate-output ... --dry-run` commands and must not write manifests.
 
 ### Output Migration
 
-`dataset migrate-output <path>` defaults to dry-run. With `--apply`, it creates
-one or more `datasets/<slug>/MANIFEST.md` files and leaves the source output in
-place. It never copies the actual dataset into the wiki.
+`dataset migrate-output <path>` defaults to dry-run. `--apply` creates
+`datasets/<slug>/MANIFEST.md` files, leaves the source output in place, and
+never copies the dataset into the wiki.
 
 ### Inventory Linkage
 
-If an inventory record already tracks the same corpus/dataset, link both ways:
-
-- manifest frontmatter `inventory: [inventory/corpora/<slug>.md]`
-- inventory record `sources:` or body link to `datasets/<slug>/MANIFEST.md`
-
-This linkage is optional during migration and should not block manifest creation.
+If an inventory record tracks the same corpus, link both ways: manifest
+`inventory: [inventory/corpora/<slug>.md]`; inventory `sources:` or body link to
+`datasets/<slug>/MANIFEST.md`.
 
 ## Lint Behavior
 

@@ -9,6 +9,8 @@ domain can import them without an import cycle.
 This is the one frontmatter parser: :func:`frontmatter_bounds` finds the block
 (tolerating a UTF-8 BOM and CRLF), :func:`parse_frontmatter_block` reads it.
 ``frontmatter.py`` builds the read/edit/write API on top of both.
+``scripts/sync-session-vendor.py`` stamps :func:`frontmatter_bounds` into the
+single-file session script, so its digests use the same exact-fence rule.
 
 Newline policy (emercons/knowmade#28): an existing file keeps its newline
 style (CRLF when its first line ends in CRLF, else LF) and its BOM when it is
@@ -135,6 +137,9 @@ def parse_frontmatter_block(text: str) -> dict[str, Any]:
     return data
 
 
+_CLOSING_FENCE_RE = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
+
+
 def frontmatter_bounds(text: str) -> tuple[int, int, int] | None:
     """Locate the frontmatter block in ``text``.
 
@@ -142,8 +147,10 @@ def frontmatter_bounds(text: str) -> tuple[int, int, int] | None:
     ``text[start:end]`` (without the fence lines; with CRLF it still carries
     the final ``\\r``) and ``text[body_start:]`` is everything after the
     closing ``---``. ``None`` when the text has no complete block. A leading
-    UTF-8 BOM and CRLF line endings are accepted; the closing fence is the
-    first ``\\n---`` after the opening line, exactly as before.
+    UTF-8 BOM and CRLF line endings are accepted. The closing fence is the first
+    line that is exactly ``---`` (trailing spaces and tabs allowed): ``----`` and
+    ``---x`` do not close the block, and ``---`` straight after the opening
+    fence is a valid empty block (emercons/knowmade#103).
     """
     offset = 1 if text.startswith(BOM) else 0
     if text.startswith("---\n", offset):
@@ -152,10 +159,11 @@ def frontmatter_bounds(text: str) -> tuple[int, int, int] | None:
         start = offset + 5
     else:
         return None
-    end = text.find("\n---", start)
-    if end == -1:
+    fence = _CLOSING_FENCE_RE.search(text, start)
+    if fence is None:
         return None
-    return start, end, end + 4
+    # ``end`` is the newline that ends the block's last line; an empty block has none.
+    return start, max(fence.start() - 1, start), fence.start() + 3
 
 
 def lf(text: str) -> str:

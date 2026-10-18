@@ -182,37 +182,22 @@ def today() -> str:
     return dt.date.today().isoformat()
 
 
-# --- vendored from scripts/knowmade_control/roots.py ---------------------------
-# This file ships verbatim as a plugin hook and cannot import the control plane,
-# so the hub resolver is vendored here byte-for-byte. A drifted fork is what made
-# the hook silently create ~/wiki (emercons/knowmade#43); tests/test-session-capture.sh
-# compares every function in this block against roots.py. Do not edit it by hand:
-# change roots.py and re-copy. The sync scripts may automate this later.
+# This file ships verbatim as a plugin hook and cannot import the control plane:
+# it vendors, never imports. scripts/sync-session-vendor.py is the only writer of
+# the blocks between `vendored from knowmade_control.<module>` markers; change the
+# module and re-run it (both plugin sync scripts do). A drifted hand copy is what
+# made the hook silently create ~/wiki (emercons/knowmade#43).
+
+# --- vendored from knowmade_control.roots: start ---
+# Generated from scripts/knowmade_control/roots.py by scripts/sync-session-vendor.py; do not edit.
 
 DEFAULT_PRIVATE_SUFFIX = "-PRIVATE"
+HUB_ENV = "LLM_WIKI_HUB"
 # A drive path as written on Windows: ``C:\x``, ``C:/x``, ``/C:/x``, or the Git
 # Bash spelling ``/c/x`` (also ``/c`` alone). Whether it applies is decided by
 # the platform, never by the text: see ``normalize_windows_absolute_path``.
 WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^(?:/?[A-Za-z]:[\\/]|/[A-Za-z](?:[\\/]|$))")
 GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(?:[\\/]|$)")
-PERMISSION_DENIED_ERRNOS = {1, 13}
-
-
-def is_permission_denied(exc: BaseException) -> bool:
-    return isinstance(exc, PermissionError) or getattr(exc, "errno", None) in PERMISSION_DENIED_ERRNOS
-
-
-def permission_denied_message(path: Path | None, operation: str, exc: BaseException) -> str:
-    target = str(path or getattr(exc, "filename", None) or "wiki path")
-    return (
-        f"permission denied while trying to {operation}: {target}\n"
-        f"{type(exc).__name__}: {exc}\n\n"
-        "The path exists, but this process cannot read or list its contents. "
-        "On macOS this usually means the app launching Codex/the terminal lacks "
-        "Full Disk Access or iCloud Drive access. Grant access to the exact launcher, "
-        "restart Codex, and try again. The configured hub_path is probably correct; "
-        "do not switch to a ~/wiki fallback or machine-local resolved_path for this error."
-    )
 
 
 def normalize_windows_absolute_path(value: str, platform: str | None = None) -> str | None:
@@ -288,6 +273,12 @@ def _read_hub_config(config: Path) -> dict[str, Any]:
     return read_json_object(config, "hub config")
 
 
+def hub_env_value(environ: dict[str, str] | None = None) -> str | None:
+    """The ``LLM_WIKI_HUB`` value, stripped; ``None`` when unset or blank."""
+    environ = os.environ if environ is None else environ
+    return (environ.get(HUB_ENV) or "").strip() or None
+
+
 def resolve_hub_path(
     explicit_hub: str | Path | None = None,
     *,
@@ -322,20 +313,20 @@ def resolve_hub_path(
         if resolved_candidate:
             return resolved_candidate
     return home / "wiki"
-
-
-# --- end vendored ------------------------------------------------------------
+# --- vendored from knowmade_control.roots: end ---
 
 
 def resolve_hub(args: argparse.Namespace) -> Path:
-    """Where the hub is, by the same rules as every other Knowmade command.
+    """Where the hub is: ``--local``, ``--hub``, ``LLM_WIKI_HUB``, then the configured hub.
 
-    Pure resolution: it never creates anything. The caller decides whether a
-    missing directory is an error (explicit commands) or a silent no-op (hook).
+    The control plane's order (``roots.resolve_hub_selection``) without cwd
+    discovery. Pure resolution: it never creates anything. The caller decides
+    whether a missing directory is an error (explicit commands) or a silent
+    no-op (hook).
     """
     if getattr(args, "local", False):
         return Path.cwd() / ".wiki"
-    return resolve_hub_path(getattr(args, "hub", None))
+    return resolve_hub_path(getattr(args, "hub", None) or hub_env_value())
 
 
 def hub_is_explicit(args: argparse.Namespace) -> bool:
@@ -411,14 +402,15 @@ def parse_timestamp(value: str) -> dt.datetime:
     return parsed.astimezone(UTC)
 
 
-# --- vendored from scripts/knowmade_control/fsio.py --------------------------
-# This file ships verbatim as a plugin hook and cannot import the control
-# plane, so the atomic-write helpers are vendored here. Keep them identical in
-# shape to fsio.atomic_write_bytes / atomic_write_text; the plugin sync script
-# may vendor them automatically later. One temp file per writer (mkstemp), so
-# concurrent hook processes writing the same session state file never pull a
-# shared temp out from under each other.
+# One temp file per writer (mkstemp), so concurrent hook processes writing the
+# same session state file never pull a shared temp out from under each other.
+# --- vendored from knowmade_control.fsio: start ---
+# Generated from scripts/knowmade_control/fsio.py by scripts/sync-session-vendor.py; do not edit.
 
+PERMISSION_DENIED_ERRNOS = {1, 13}
+# Windows refuses to replace a file that another process currently has open,
+# which concurrent hooks and readers of the same state file do constantly. The
+# window is short, so the rename is retried briefly before the error is raised.
 _REPLACE_RETRY_SECONDS = 2.0
 _REPLACE_RETRY_INTERVAL = 0.01
 
@@ -435,10 +427,6 @@ def _default_mode(path: Path) -> int:
 
 
 def _replace(tmp: Path, path: Path) -> None:
-    # POSIX rename always succeeds; Windows refuses to replace a file that any
-    # other process currently has open, which concurrent hooks reading the
-    # same state file do constantly. The window is short, so retry briefly
-    # rather than losing the write - and still raise if it never clears.
     deadline = time.monotonic() + _REPLACE_RETRY_SECONDS
     while True:
         try:
@@ -467,7 +455,7 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def atomic_write_bytes(path: Path, data: bytes, mode: int | None = None) -> None:
-    """Replace ``path`` with ``data`` atomically; see knowmade_control/fsio.py."""
+    """Replace ``path`` with ``data`` atomically; see the module docstring."""
     path = Path(path)
     if mode is None:
         mode = _default_mode(path)
@@ -496,7 +484,11 @@ def atomic_write_text(
     newline: str | None = "\n",
     mode: int | None = None,
 ) -> None:
-    """Atomically write ``text``; ``\\n`` in ``text`` becomes ``newline``."""
+    """Atomically write ``text``; ``\\n`` in ``text`` becomes ``newline``.
+
+    ``newline=None`` means the platform convention, exactly as text-mode
+    ``open`` would translate it. The default keeps corpus files LF-only.
+    """
     if newline is None:
         newline = os.linesep
     if newline != "\n":
@@ -505,9 +497,30 @@ def atomic_write_text(
 
 
 def read_text(path: Path) -> str:
-    """Read ``path`` as UTF-8 text, dropping a leading BOM if one is present."""
+    """Read ``path`` as UTF-8 text, dropping a leading BOM if one is present.
+
+    Line endings are translated like ``Path.read_text`` does; only the BOM
+    handling differs, and nothing here ever writes a BOM back.
+    """
     with open(path, "r", encoding="utf-8-sig") as handle:
         return handle.read()
+
+
+def is_permission_denied(exc: BaseException) -> bool:
+    return isinstance(exc, PermissionError) or getattr(exc, "errno", None) in PERMISSION_DENIED_ERRNOS
+
+
+def permission_denied_message(path: Path | None, operation: str, exc: BaseException) -> str:
+    target = str(path or getattr(exc, "filename", None) or "wiki path")
+    return (
+        f"permission denied while trying to {operation}: {target}\n"
+        f"{type(exc).__name__}: {exc}\n\n"
+        "The path exists, but this process cannot read or list its contents. "
+        "On macOS this usually means the app launching Codex/the terminal lacks "
+        "Full Disk Access or iCloud Drive access. Grant access to the exact launcher, "
+        "restart Codex, and try again. The configured hub_path is probably correct; "
+        "do not switch to a ~/wiki fallback or machine-local resolved_path for this error."
+    )
 
 
 class JSONReadError(SystemExit):
@@ -544,9 +557,7 @@ def read_json_object(path: Path, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise JSONReadError(f"invalid {label} {path}: root must be an object")
     return value
-
-
-# --- end vendored ------------------------------------------------------------
+# --- vendored from knowmade_control.fsio: end ---
 
 
 def atomic_write(path: Path, text: str) -> None:
@@ -1035,7 +1046,9 @@ def compact_json(value: Any, max_chars: int = MAX_EVENT_PREVIEW_CHARS) -> str:
 # script ships as one file and cannot import knowmade_control, so the plugin
 # sync scripts stamp the table in from scripts/knowmade_control/redaction.py
 # (scripts/sync-session-vendor.py); tests/test-session-capture.sh checks it.
-# --- generated from scripts/knowmade_control/redaction.py by scripts/sync-session-vendor.py; do not edit ---
+# --- vendored from knowmade_control.redaction: start ---
+# Generated from scripts/knowmade_control/redaction.py by scripts/sync-session-vendor.py; do not edit.
+
 _I = re.IGNORECASE | re.MULTILINE
 
 PATTERN_TABLE: tuple[tuple[str, str, str, str, int, frozenset[str]], ...] = (
@@ -1273,7 +1286,7 @@ def redact_secrets(text: str, marker: str = "[REDACTED]") -> str:
     for _category, _severity, _message, pattern in pattern_specs("redact"):
         text = pattern.sub(replace, text)
     return text
-# --- end generated redaction table ---
+# --- vendored from knowmade_control.redaction: end ---
 
 
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
@@ -2197,7 +2210,7 @@ def command_root(args: argparse.Namespace) -> Path:
         if not hub_is_explicit(args):
             raise SystemExit(
                 f"hub not found: {hub}\n"
-                "Initialize a hub first, set hub_path in ~/.config/llm-wiki/config.json, or pass --hub."
+                "Initialize a hub first, set hub_path in ~/.config/llm-wiki/config.json or LLM_WIKI_HUB, or pass --hub."
             )
         hub.mkdir(parents=True, exist_ok=True)
     root = sessions_dir(hub)
@@ -2374,17 +2387,53 @@ def find_session(root: Path, session_id: str) -> dict[str, Any] | None:
     return None
 
 
+# --- vendored from knowmade_control.markdown: start ---
+# Generated from scripts/knowmade_control/markdown.py by scripts/sync-session-vendor.py; do not edit.
+
+BOM = "﻿"
+_CLOSING_FENCE_RE = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
+
+
+def frontmatter_bounds(text: str) -> tuple[int, int, int] | None:
+    """Locate the frontmatter block in ``text``.
+
+    Returns ``(start, end, body_start)`` offsets into ``text``: the block is
+    ``text[start:end]`` (without the fence lines; with CRLF it still carries
+    the final ``\\r``) and ``text[body_start:]`` is everything after the
+    closing ``---``. ``None`` when the text has no complete block. A leading
+    UTF-8 BOM and CRLF line endings are accepted. The closing fence is the first
+    line that is exactly ``---`` (trailing spaces and tabs allowed): ``----`` and
+    ``---x`` do not close the block, and ``---`` straight after the opening
+    fence is a valid empty block (emercons/knowmade#103).
+    """
+    offset = 1 if text.startswith(BOM) else 0
+    if text.startswith("---\n", offset):
+        start = offset + 4
+    elif text.startswith("---\r\n", offset):
+        start = offset + 5
+    else:
+        return None
+    fence = _CLOSING_FENCE_RE.search(text, start)
+    if fence is None:
+        return None
+    # ``end`` is the newline that ends the block's last line; an empty block has none.
+    return start, max(fence.start() - 1, start), fence.start() + 3
+# --- vendored from knowmade_control.markdown: end ---
+
+
 def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     # Digests are written by this script (LF, no BOM) but may be edited by hand;
-    # accept a BOM and CRLF like knowmade_control.markdown.frontmatter_bounds.
-    text = text.lstrip("﻿").replace("\r\n", "\n")
-    if not text.startswith("---\n"):
-        return {}, text
-    end = text.find("\n---\n", 4)
-    if end == -1:
-        return {}, text
-    raw = text[4:end]
-    body = text[end + 5 :]
+    # the fence is found by the control plane's exact-fence rule (BOM and CRLF
+    # accepted, the closing line exactly ``---``), vendored above.
+    bounds = frontmatter_bounds(text)
+    if bounds is None:
+        return {}, text.lstrip(BOM).replace("\r\n", "\n")
+    start, end, body_start = bounds
+    raw = text[start:end].replace("\r\n", "\n").rstrip("\r")
+    # The body starts on the line after the closing fence.
+    rest = text[body_start:].replace("\r\n", "\n")
+    newline = rest.find("\n")
+    body = rest[newline + 1 :] if newline != -1 else ""
     data: dict[str, Any] = {}
     for line in raw.splitlines():
         if not line.strip() or ":" not in line or line.startswith(" "):
@@ -2817,7 +2866,7 @@ def run_status(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="llm-wiki-session", description="Capture and rehydrate llm-wiki session context.")
-    parser.add_argument("--hub", help="Override wiki hub path.")
+    parser.add_argument("--hub", help="Override wiki hub path (default: LLM_WIKI_HUB, then the configured hub).")
     parser.add_argument("--local", action="store_true", help="Use .wiki/.sessions in the current directory.")
     sub = parser.add_subparsers(dest="command", required=True)
 

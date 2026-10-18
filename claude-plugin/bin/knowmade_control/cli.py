@@ -22,6 +22,7 @@ from typing import Any, NamedTuple
 from . import adapters as _adapters
 from . import adopt_cli as _adopt_cli
 from . import checkpoints as _checkpoints
+from . import datasets as _datasets
 from . import freshness as _freshness
 from . import hub as _hub
 from . import hub_index as _hub_index
@@ -29,6 +30,7 @@ from . import lint as _lint
 from . import links as _links
 from . import pins as _pins
 from . import privacy as _privacy
+from . import projects as _projects
 from . import retract as _retract
 from . import roots as _roots
 from . import rules as _rules
@@ -65,10 +67,12 @@ NAMESPACES: tuple[Namespace, ...] = (
     Namespace("checkpoint", _checkpoints.register_parser),
     Namespace("privacy", _privacy.register_parser),
     Namespace("links", _links.register_parser),
+    Namespace("dataset", _datasets.register_parser),
     Namespace("rules", _rules.register_parser),
     Namespace("engine", _pins.register_engine_parser),
     Namespace("pin", _pins.register_pin_parser),
     Namespace("freshness", _freshness.register_parser),
+    Namespace("project", _projects.register_parser),
     Namespace("adopt", _adopt_cli.register_parser),
     Namespace("source", _register_source),
 )

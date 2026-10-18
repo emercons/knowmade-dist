@@ -19,5 +19,7 @@ From a local checkout, point OpenCode's `instructions` at
 Do not edit the skill files here by hand; run
 `scripts/sync-opencode-plugin.sh` to regenerate them from the canonical
 upstream-compatible source. This README is hand-maintained and preserved by the
-sync. `skills/wiki-manager/references` is a symlink into
-`claude-plugin/skills/wiki-manager/references/`.
+sync. `skills/wiki-manager/references` is a real copy of
+`claude-plugin/skills/wiki-manager/references/` (as in the Codex mirror), so the
+whole directory works from a clone, an archive or a Windows checkout without
+symlink support. OpenCode and Pi need that whole directory, not only `SKILL.md`.

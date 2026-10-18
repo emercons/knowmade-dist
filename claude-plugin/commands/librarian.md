@@ -8,8 +8,8 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 
 <!-- hub-prelude:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
-1. HUB: read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
-2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
+1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. `--wiki all` (this command only) → HUB with an `ALL_TOPICS` flag for step 6, instead of one wiki.
@@ -77,10 +77,8 @@ For each pending article:
 
 1. Read the article's YAML frontmatter (do NOT read the full body yet — Tier 1 is metadata-only).
 2. Read `volatility` (default: `warm`), `verified`, `updated`, `created`, `sources`, `confidence`.
-3. For each entry in `sources:`, resolve it with the Source Reference Resolution protocol in `references/wiki-articles.md`. Treat each entry as a complete YAML scalar/path — never split on whitespace. Record resolved count, ambiguous count, and unresolved count.
-4. For resolved sources, read their `ingested:` date from frontmatter.
-5. Compute staleness score using the formula in `references/librarian.md` § Staleness Scoring.
-6. Write result to `checkpoint.json` (atomic: write `.checkpoint.tmp`, rename).
+3. Take its staleness score from one `<cli> freshness score --all --json` run (`${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki`, or `scripts/llm-wiki` in a checkout): `score`, `factors` and `unresolved_sources` per article, formula in `references/librarian.md` § Staleness Scoring. Do not recompute it by hand.
+4. Write result to `checkpoint.json` (atomic: write `.checkpoint.tmp`, rename).
 
 #### 2. Quality Pass (per article)
 

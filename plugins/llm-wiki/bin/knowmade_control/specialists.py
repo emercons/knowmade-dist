@@ -30,11 +30,13 @@ from .common import (
     topic_entry,
     write_private_json,
 )
+from .frontmatter import field_value
 from .hub import ensure_state_ignore_rules, is_inside_git_work_tree
 from .markdown import (
     append_log,
     split_markdown_frontmatter,
     today_date,
+    write_text_preserving,
     yaml_quote,
 )
 from .roots import (
@@ -101,28 +103,6 @@ def write_specialist_registry(hub: Path, data: dict[str, Any]) -> None:
     write_private_json(path, data)
 
 
-def specialist_frontmatter_value(frontmatter: str, field: str) -> str | None:
-    match = re.search(rf"(?m)^{re.escape(field)}\s*:\s*(.*)$", frontmatter)
-    if not match:
-        return None
-    value = match.group(1).strip()
-    if value in {">", "|", ">-", "|-"}:
-        continuation: list[str] = []
-        remainder = frontmatter[match.end() :]
-        for line in remainder.splitlines():
-            if not line.strip():
-                if continuation:
-                    continuation.append("")
-                continue
-            if not line.startswith((" ", "\t")):
-                break
-            continuation.append(line.strip())
-        value = " ".join(part for part in continuation if part)
-    if not value:
-        return None
-    return strip_matching_quotes(value)
-
-
 def specialist_metadata_value(frontmatter: str, field: str) -> str | None:
     metadata = re.search(r"(?m)^metadata\s*:\s*$", frontmatter)
     if not metadata:
@@ -141,8 +121,8 @@ def read_specialist_record(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8", errors="replace")
     split = split_markdown_frontmatter(text)
     frontmatter, body = split if split is not None else ("", text)
-    name = specialist_frontmatter_value(frontmatter, "name") or path.parent.name
-    description = specialist_frontmatter_value(frontmatter, "description") or ""
+    name = strip_matching_quotes(field_value(frontmatter, "name", folded=True) or "") or path.parent.name
+    description = strip_matching_quotes(field_value(frontmatter, "description", folded=True) or "")
     version = specialist_metadata_value(frontmatter, "version") or ""
     risk_tier = specialist_metadata_value(frontmatter, "risk-tier") or ""
     reviewed = specialist_metadata_value(frontmatter, "reviewed") or ""
@@ -245,7 +225,7 @@ def write_specialist_index(hub: Path, registry: dict[str, Any] | None = None) ->
     index = library / "_index.md"
     if index.is_symlink():
         raise SystemExit(f"specialist index must not be a symlink: {index}")
-    index.write_bytes(text.encode("utf-8"))
+    write_text_preserving(index, text)
 
 
 def initialize_specialist_library(hub: Path) -> bool:
@@ -398,8 +378,8 @@ def validate_specialist_package(
         add("SKILL.md requires YAML frontmatter.", skill)
         return issues
     frontmatter, body = split
-    declared_name = specialist_frontmatter_value(frontmatter, "name")
-    description = specialist_frontmatter_value(frontmatter, "description")
+    declared_name = strip_matching_quotes(field_value(frontmatter, "name", folded=True) or "")
+    description = strip_matching_quotes(field_value(frontmatter, "description", folded=True) or "")
     if declared_name != name:
         add(f"SKILL.md name must match its directory: expected {name!r}.", skill)
     if not description or len(description) > 1024:

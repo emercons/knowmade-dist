@@ -63,53 +63,11 @@ All references to `~/wiki/` below mean HUB.
 
 ## Core Principles
 
-1. **Indexes are a derived cache.** The `.md` files and their YAML frontmatter are the source of truth. `_index.md` files are a cached view rebuilt on read when stale. Always read indexes first for navigation — but before trusting one, stale-check it (file count vs row count). See [references/indexing.md](references/indexing.md) for the Derived Index Protocol.
-
-2. **Raw is immutable.** Normal workflows never modify ingested sources. Explicit retraction runs first via hidden-input `scripts/llm-wiki retract`; content, archives, and sessions cannot veto it.
-
-3. **Inbox first.** New source material enters a topic `inbox/`; unclassified
-mixed-topic material may enter `HUB/inbox/` and must be dispatched before
-ingestion. `raw/` is the processed evidence layer, not the human drop zone.
-Session distillates (`wiki ll`, session and feedback promotion) are the one
-exception and write `raw/notes/` directly (`knowmade-profile.md`).
-
-4. **Articles are synthesized, not copied.** A wiki article draws from multiple sources, contextualizes, and connects to other concepts. Think textbook, not clipboard.
-
-5. **Dual-linking for Obsidian + Codex.** Cross-references use both `[[wikilink]]` (for Obsidian graph view) and standard markdown `[text](path)` (for Codex navigation) on the same line: `[[slug|Name]] ([Name](../category/slug.md))`. Bidirectional when it makes sense.
-
-6. **Frontmatter is structured data.** Every `.md` file has YAML frontmatter with title, summary, tags, dates. This makes the wiki searchable without full-text scans.
-
-7. **Incremental over wholesale.** Compilation processes only new sources by default. Full recompilation is expensive and explicit (`--full`).
-
-8. **Honest gaps.** When answering questions, if the wiki doesn't have the answer, say so. Never hallucinate. Suggest what to ingest to fill the gap.
-
-9. **Multi-wiki awareness.** When querying, answer from the primary wiki first. Then peek at sibling wiki indexes (via `HUB/wikis.json`) for relevant overlap, `-PRIVATE` siblings included (write-guard: `references/knowmade-profile.md` § Private Data Boundary). Flag connections but never merge content across wikis.
-
-10. **Chunk large writes.** Never create files longer than ~200 lines in a single Write call — the API stream idles during large generations, causing timeout errors. Write the skeleton (frontmatter + headers + first section) first, then use sequential Edit calls to append remaining sections. For plans, articles, and raw notes: write one section per tool call.
-
-11. **Archive is quiet preservation.** (full text: references/skill-workflows.md § Core Principles)
-
-12. **Session capture is operational memory.** (full text: references/skill-workflows.md § Core Principles)
-
-13. **Feedback is candidate memory.** (full text: references/skill-workflows.md § Core Principles)
-
-14. **Private goals guide private work.** In private topic wikis, goals,
-desires, needs, constraints, and current decisions are the North Star for
-research, Ideas, portfolio choices, planning, output, audit, assessment, and
-implementation support. Keep a short goal brief in context. Goals guide
-relevance but are not factual evidence and must not leak into public topics.
-Reading a `-PRIVATE` sibling is always allowed; the write-guard in
-`references/knowmade-profile.md` § Private Data Boundary: Read Freely,
-Write-Guard governs what reaches public files.
-
-15. **One human inbox, many topic workers.** (full text: references/skill-workflows.md § Core Principles)
-
-16. **Private adapters are a content-free external execution plane.** (full text: references/skill-workflows.md § Core Principles)
-
-17. **Specialists are bounded methods, not credentials.** (full text: references/skill-workflows.md § Core Principles)
-
-18. **Project checkpoints need comprehensive coverage and a privacy seal.** See
-[references/checkpoints.md](references/checkpoints.md).
+Eighteen numbered principles govern every workflow: read
+[references/principles.md](references/principles.md) before the first write of a
+session. In short: indexes are a derived cache, raw is immutable, intake is
+inbox-first, articles synthesize and dual-link, gaps are stated honestly, large
+writes are chunked, and private goals guide private work under the write-guard.
 
 ## Adapter Routing
 
@@ -155,7 +113,7 @@ need for it:
 - `ingest-collection` → `references/ingestion-collections.md`
 - hub inbox dispatch → `references/hub-dispatch.md` and `references/knowmade-profile.md`
 - `adapter` and private-adapter execution → `references/adapters.md`
-- `collect` → `references/inventory.md` and `references/research-infrastructure.md`
+- `collect` → `references/inventory.md`
 - `inventory` → `references/inventory.md`
 - `idea` → `references/ideas.md`
 - `dataset` → `references/datasets.md`
@@ -165,7 +123,7 @@ need for it:
   needed to answer
 - `lint` → `references/linting.md`
 - `audit` → `references/audit.md`
-- `research` → `references/research-protocol.md`, `references/research-modes.md` and `references/research-infrastructure.md`
+- `research` → `references/research-protocol.md` and `references/research-modes.md`; they name the per-phase file (`research-agents`, `-credibility`, `-staging`, `-rounds`, `-sessions`, `-plan`) each step reads
 - `plan` → `references/plan-protocol.md`
 - `assess` → `references/assess-protocol.md`
 - `output` → `references/output-protocol.md`

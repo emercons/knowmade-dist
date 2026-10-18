@@ -45,9 +45,12 @@ from .markdown import (
 from .roots import (
     initialized_wiki_root,
     is_archived_registry_entry,
+    read_local_registry,
+    registry_entry_path,
     resolve_hub_args as resolve_hub,
-    resolve_registry_path,
     scoped_wiki_slug_args as scoped_wiki_slug,
+    topic_directory_of,
+    wiki_root_of,
 )
 from .schema import run_schema
 
@@ -75,6 +78,8 @@ STATE_IGNORE_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("**/.session-checkpoint.json", ":(glob)**/.session-checkpoint.json", (".session-checkpoint.json", "topics/knowmade-ignore-probe/.session-checkpoint.json")),
     ("**/.obsidian/", ":(glob)**/.obsidian/**", (".obsidian/workspace.json", "topics/knowmade-ignore-probe/.obsidian/workspace.json")),
     ("**/.wiki-local/", ":(glob)**/.wiki-local/**", (".wiki-local/originals/probe.bin", "topics/knowmade-ignore-probe/.wiki-local/originals/probe.bin")),
+    # The per-machine registry overlay (knowmade#114) holds this machine's paths.
+    ("/wikis.local.json", ":(glob)wikis.local.json", ("wikis.local.json",)),
 )
 
 
@@ -549,6 +554,7 @@ def hub_index_entries(
     """
     active: dict[str, tuple[str, str, str]] = {}
     archived: set[str] = set()
+    overlay = read_local_registry(hub)
     for slug, entry in sorted(data.get("wikis", {}).items()):
         if slug == "hub" or not isinstance(entry, dict):
             continue
@@ -561,7 +567,7 @@ def hub_index_entries(
             # slug only, and its own config.md is never read (knowmade#90).
             active[slug] = (raw_path, "", "")
             continue
-        title = topic_title(resolve_registry_path(raw_path, hub), slug)
+        title = topic_title(registry_entry_path(hub, slug, entry, overlay), slug)
         active[slug] = (raw_path, title, str(entry.get("description") or ""))
     return active, archived
 
@@ -658,14 +664,43 @@ def run_archive(args: argparse.Namespace) -> int:
     raise SystemExit("unknown archive subcommand")
 
 
+def hub_relative(hub: Path, path: Path) -> str:
+    """``path`` as a ``/``-separated path relative to ``hub``, or absolute when outside it."""
+    try:
+        return path.relative_to(hub).as_posix() or "."
+    except ValueError:
+        return str(path)
+
+
+def _unregistered_row(hub: Path, topic: Path, relative: str) -> dict[str, str]:
+    return {
+        "slug": topic.name,
+        "path": relative,
+        "root": hub_relative(hub, wiki_root_of(topic)),
+        "description": "(missing from registry)",
+        "archived": "",
+        "reason": "registry repair needed",
+    }
+
+
 def archive_list(
     hub: Path,
     data: dict[str, Any],
     include_archived: bool,
     json_output: bool = False,
 ) -> int:
+    """List registry topics; ``root`` is each one's wiki root on this machine.
+
+    ``root`` follows ``HUB/wikis.local.json`` and a nested ``.wiki``; ``path``
+    is the tracked registry path.
+
+    An initialized ``topics/<slug>`` or ``topics/.archive/<slug>`` (its own
+    ``_index.md`` or a nested ``.wiki/_index.md``) that the registry does not
+    know is listed as ``(missing from registry)``.
+    """
     active: list[dict[str, str]] = []
     archived: list[dict[str, str]] = []
+    overlay = read_local_registry(hub)
     for slug, entry in sorted(data.get("wikis", {}).items()):
         if slug == "hub" or not isinstance(entry, dict):
             continue
@@ -673,6 +708,7 @@ def archive_list(
         row = {
             "slug": slug,
             "path": path_text,
+            "root": hub_relative(hub, registry_entry_path(hub, slug, entry, overlay)),
             "description": str(entry.get("description") or ""),
             "archived": str(entry.get("archived") or ""),
             "reason": str(entry.get("archive_reason") or ""),
@@ -682,20 +718,22 @@ def archive_list(
         else:
             active.append(row)
 
-    archive_dir = hub / "topics" / ".archive"
+    registered = set(data.get("wikis", {}))
+    topics_dir = hub / "topics"
+    if topics_dir.is_dir():
+        for topic in sorted(child for child in topics_dir.iterdir() if child.is_dir()):
+            if (
+                not topic.name.startswith(".")
+                and topic.name not in registered
+                and initialized_wiki_root(wiki_root_of(topic))
+            ):
+                active.append(_unregistered_row(hub, topic, f"topics/{topic.name}"))
+    archive_dir = topics_dir / ".archive"
     if archive_dir.exists():
-        registered = {row["slug"] for row in archived}
+        listed = {row["slug"] for row in archived}
         for topic in sorted(child for child in archive_dir.iterdir() if child.is_dir()):
-            if topic.name not in registered and initialized_wiki_root(topic):
-                archived.append(
-                    {
-                        "slug": topic.name,
-                        "path": f"topics/.archive/{topic.name}",
-                        "description": "(missing from registry)",
-                        "archived": "",
-                        "reason": "registry repair needed",
-                    }
-                )
+            if topic.name not in listed and initialized_wiki_root(wiki_root_of(topic)):
+                archived.append(_unregistered_row(hub, topic, f"topics/.archive/{topic.name}"))
 
     if json_output:
         print(json.dumps({"hub": str(hub), "active": active, "archived": archived}, indent=2))
@@ -706,7 +744,8 @@ def archive_list(
     print("| Slug | Path | Description |")
     print("|------|------|-------------|")
     for row in active:
-        print(f"| {row['slug']} | {row['path']} | {table_cell(row['description'])} |")
+        path = row["path"] if row["root"] == row["path"] else f"{row['path']} (wiki: {row['root']})"
+        print(f"| {row['slug']} | {path} | {table_cell(row['description'])} |")
     print(f"\nArchived topics: {len(archived)}")
     if include_archived:
         print("\nArchived topics")
@@ -725,16 +764,18 @@ def archive_topic(hub: Path, data: dict[str, Any], slug: str, reason: str | None
     if slug == "hub":
         raise SystemExit("cannot archive the synthetic hub entry")
     entry = topic_entry(data, slug)
-    source = active_topic_path(hub, slug, entry)
-    fallback_source = hub / "topics" / slug
-    if not initialized_wiki_root(source) and initialized_wiki_root(fallback_source):
-        source = fallback_source
+    root = active_topic_path(hub, slug, entry)
+    fallback_root = wiki_root_of(hub / "topics" / slug)
+    if not initialized_wiki_root(root) and initialized_wiki_root(fallback_root):
+        root = fallback_root
     if entry and is_archived_registry_entry(entry):
         raise SystemExit(f"topic already archived: {slug}")
-    if not initialized_wiki_root(source):
-        raise SystemExit(f"active topic not found: {source}")
+    if not initialized_wiki_root(root):
+        raise SystemExit(f"active topic not found: {root}")
+    # A nested topics/<slug>/.wiki moves with the directory that holds it.
+    source = topic_directory_of(root)
     topics_dir = hub / "topics"
-    if not is_under(source, topics_dir):
+    if not is_under(source, topics_dir) or source.resolve() == topics_dir.resolve():
         raise SystemExit(
             f"cannot archive {slug}: its path {source} is not under {topics_dir}. "
             "Archiving only moves hub-local topics; an externally stored topic stays "
@@ -763,8 +804,9 @@ def archive_topic(hub: Path, data: dict[str, Any], slug: str, reason: str | None
     if not isinstance(entry, dict):
         entry = {}
         wikis[slug] = entry
+    dest_root = wiki_root_of(dest)
     if not slug.endswith(PRIVATE_SUFFIX):
-        entry.setdefault("description", topic_title(dest, slug))
+        entry.setdefault("description", topic_title(dest_root, slug))
     entry["path"] = f"topics/.archive/{slug}"
     entry["status"] = "archived"
     entry["archived"] = today_date().isoformat()
@@ -782,7 +824,7 @@ def archive_topic(hub: Path, data: dict[str, Any], slug: str, reason: str | None
         raise
     write_hub_index(hub, data)
     append_log(hub, "archive", f"archived topic {slug}")
-    append_log(dest, "archive", f"archived topic {slug}")
+    append_log(dest_root, "archive", f"archived topic {slug}")
     print(f"Archived topic `{slug}`")
     print(f"Old path: {source}")
     print(f"New path: {dest}")
@@ -794,15 +836,16 @@ def restore_topic(hub: Path, data: dict[str, Any], slug: str) -> int:
     if slug == "hub":
         raise SystemExit("cannot restore the synthetic hub entry")
     entry = topic_entry(data, slug)
-    source = archived_topic_path(hub, slug, entry)
-    fallback_source = hub / "topics" / ".archive" / slug
-    if not initialized_wiki_root(source) and initialized_wiki_root(fallback_source):
-        source = fallback_source
+    root = archived_topic_path(hub, slug, entry)
+    fallback_root = wiki_root_of(hub / "topics" / ".archive" / slug)
+    if not initialized_wiki_root(root) and initialized_wiki_root(fallback_root):
+        root = fallback_root
     dest = hub / "topics" / slug
     if dest.exists():
         raise SystemExit(f"active topic destination already exists: {dest}")
-    if not initialized_wiki_root(source):
-        raise SystemExit(f"archived topic not found: {source}")
+    if not initialized_wiki_root(root):
+        raise SystemExit(f"archived topic not found: {root}")
+    source = topic_directory_of(root)
     if slug.endswith(PRIVATE_SUFFIX) and is_inside_git_work_tree(hub):
         if not hub_ignores_private_topic(hub, f"topics/{slug}"):
             raise SystemExit(
@@ -821,8 +864,9 @@ def restore_topic(hub: Path, data: dict[str, Any], slug: str) -> int:
     if not isinstance(entry, dict):
         entry = {}
         wikis[slug] = entry
+    dest_root = wiki_root_of(dest)
     if not slug.endswith(PRIVATE_SUFFIX):
-        entry.setdefault("description", topic_title(dest, slug))
+        entry.setdefault("description", topic_title(dest_root, slug))
     entry["path"] = f"topics/{slug}"
     entry["status"] = "active"
     entry.pop("archived", None)
@@ -837,7 +881,7 @@ def restore_topic(hub: Path, data: dict[str, Any], slug: str) -> int:
         raise
     write_hub_index(hub, data)
     append_log(hub, "archive", f"restored topic {slug}")
-    append_log(dest, "archive", f"restored topic {slug}")
+    append_log(dest_root, "archive", f"restored topic {slug}")
     print(f"Restored topic `{slug}`")
     print(f"Path: {dest}")
     return 0

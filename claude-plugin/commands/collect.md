@@ -36,8 +36,8 @@ stated search strategy, quality threshold, and limit", not the entire internet.
 
 <!-- hub-prelude:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
-1. HUB: read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
-2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
+1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` to verify. If missing, stop with "No wiki found. Run
@@ -48,8 +48,7 @@ target is archived, stop and ask the user to restore it or rerun with
 `--include-archived`. When explicitly included, write only inside that archived
 topic and label the result as archived.
 
-Read `skills/wiki-manager/references/inventory.md` and
-`skills/wiki-manager/references/research-infrastructure.md` before writing. Use
+Read `skills/wiki-manager/references/inventory.md` before writing. Use
 inventory as tracking state, not evidence. If `--ingest-sources` is set, also read
 `skills/wiki-manager/references/ingestion.md` (single-source ingestion only; bulk
 imports go through `/wiki:ingest-collection`).

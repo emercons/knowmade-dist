@@ -33,6 +33,7 @@ from .markdown import (
     parse_frontmatter_block,
     split_markdown_frontmatter,
     today_date,
+    write_text_preserving,
 )
 
 
@@ -221,10 +222,7 @@ def index_frontmatter(ctx: LintContext, path: Path) -> dict[str, Any]:
     return parse_frontmatter_block(split[0]) if split else {}
 
 
-def regenerate_directory_index(
-    ctx: LintContext, directory: Path, contract: str | None = None
-) -> None:
-    contract = contract or index_contract(ctx.root, directory)
+def render_directory_index(ctx: LintContext, directory: Path, contract: str) -> str:
     renderers = {
         "raw-root": render_category_pointer_index,
         "wiki-root": render_category_pointer_index,
@@ -234,9 +232,17 @@ def regenerate_directory_index(
         "dataset-root": render_dataset_index,
         "direct-files": render_direct_file_index,
     }
-    text = renderers[contract](ctx, directory, contract)
+    return renderers[contract](ctx, directory, contract)
+
+
+def regenerate_directory_index(
+    ctx: LintContext, directory: Path, contract: str | None = None
+) -> None:
+    contract = contract or index_contract(ctx.root, directory)
+    text = render_directory_index(ctx, directory, contract)
     index = directory / "_index.md"
-    index.write_bytes(text.encode("utf-8"))
+    # Atomic, and an existing index keeps its BOM and line endings (#99).
+    write_text_preserving(index, text)
     ctx.fixed(f"Regenerated {index_contract_label(contract)} index {ctx.rel(index)}.")
 
 
@@ -270,6 +276,52 @@ def is_curated_index(text: str) -> bool:
     )
 
 
+def _row_key(line: str) -> str | None:
+    """The first local Markdown link of a table row: which file a row is about."""
+    if not line.startswith("|"):
+        return None
+    for destination in extract_link_destinations(line):
+        if is_local_markdown_link(destination):
+            return (link_path_variants(destination) or [destination])[0]
+    return None
+
+
+def stale_index_rows(ctx: LintContext, directory: Path, contract: str, text: str) -> dict[int, str]:
+    """Rows of a generated index that differ from what a regeneration renders.
+
+    Returns ``{line number: rendered row}``. Only table rows that name the same
+    file are compared, so an entry missing from the index, a dead link and any
+    line a person added are left to the other checks; a curated index (no
+    generated marker) is never compared (emercons/knowmade#99).
+    """
+    if GENERATED_MARKER not in text:
+        return {}
+    rendered: dict[str, str] = {}
+    for line in render_directory_index(ctx, directory, contract).split("\n"):
+        key = _row_key(line)
+        if key is not None:
+            rendered.setdefault(key, line)
+    stale: dict[int, str] = {}
+    for number, line in enumerate(text.removeprefix("\ufeff").split("\n")):
+        line = line.rstrip("\r")
+        key = _row_key(line)
+        if key in rendered and line != rendered[key]:
+            stale[number] = rendered[key]
+    return stale
+
+
+def refresh_index_rows(ctx: LintContext, directory: Path, rows: dict[int, str]) -> None:
+    """Replace the stale rows of a generated index in place, keeping its style."""
+    index = directory / "_index.md"
+    raw = index.read_bytes().decode("utf-8").removeprefix("\ufeff")
+    lines = [line.rstrip("\r") for line in raw.split("\n")]
+    for number, row in rows.items():
+        lines[number] = row
+    write_text_preserving(index, "\n".join(lines))
+    noun = "row" if len(rows) == 1 else "rows"
+    ctx.fixed(f"Refreshed {len(rows)} stale {noun} in index {ctx.rel(index)}.")
+
+
 def repair_directory_index(
     ctx: LintContext,
     directory: Path,
@@ -287,12 +339,11 @@ def repair_directory_index(
     keeps reporting it.
     """
     index = directory / "_index.md"
-    raw = index.read_bytes().decode("utf-8")
+    raw = index.read_bytes().decode("utf-8").removeprefix("\ufeff")
     if not is_curated_index(raw):
         regenerate_directory_index(ctx, directory, contract)
         return []
 
-    crlf = "\r\n" in raw
     lines = [line.rstrip("\r") for line in raw.split("\n")]
     remaining = list(dead_links)
     kept: list[str] = []
@@ -314,8 +365,8 @@ def repair_directory_index(
     for path in missing_entries:
         lines = _append_index_entry(ctx, directory, contract, lines, path)
 
-    updated = ("\r\n" if crlf else "\n").join(lines)
-    index.write_bytes(updated.encode("utf-8"))
+    updated = "\n".join(lines)
+    write_text_preserving(index, updated)
     unplaced = [
         path for path in missing_entries
         if not index_links_to(updated, path.relative_to(directory).as_posix())

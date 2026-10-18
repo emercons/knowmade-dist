@@ -92,7 +92,7 @@ But these updates are optional. If skipped (e.g., due to a crash or concurrent w
 The root `_index.md` statistics are derived from actual file counts, not manual tracking:
 - Sources: count .md files in `raw/` subdirectories (excluding `_index.md`)
 - Articles: count .md files in `wiki/` subdirectories (excluding `_index.md`)
-- Inventory records: count .md files in `inventory/` subdirectories (excluding `_index.md`), or 0 if `inventory/` is absent
+- Inventory records: count .md files in `inventory/` subdirectories (excluding `_index.md` and the derived `views/`), or 0 if `inventory/` is absent
 - Dataset manifests: count `datasets/*/MANIFEST.md`, or 0 if `datasets/` is absent
 - Outputs: count .md files in `output/` (excluding `_index.md`)
 - Hub archived topics: count `HUB/topics/.archive/*/_index.md` or registry

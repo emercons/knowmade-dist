@@ -27,6 +27,7 @@ method library. It does not contain topic `raw/`, `wiki/`, `inventory/`,
 ```
 HUB/                               # resolved from ~/.config/llm-wiki/config.json
 ├── wikis.json                     # Registry of all topic wikis
+├── wikis.local.json               # Per-machine paths (gitignored)
 ├── _index.md                      # Lists topic wikis with stats
 ├── log.md                         # Global activity log
 ├── .sessions/                     # Optional redacted harness session state
@@ -186,7 +187,7 @@ When a command runs, first resolve the hub path (HUB) from
 selection happens at the topic slug, not by choosing another hub. Then resolve:
 
 1. `--local` flag present → `<cwd>/.wiki/`
-2. `--wiki <name>` flag present → look up name in `HUB/wikis.json`; resolve `<HUB>`, leading `~`, absolute, and HUB-relative paths, and fall back to `HUB/topics/<name>` when a registry path is stale. Explicit private selection normalizes to `<name>-PRIVATE`; explicit public selection removes that suffix.
+2. `--wiki <name>` flag present → the `HUB/wikis.json` entry, resolved per [hub-resolution.md](hub-resolution.md#registry-path-resolution). Explicit private selection normalizes to `<name>-PRIVATE`; explicit public selection removes that suffix.
 3. Current directory has `.wiki/` → use it
 4. Otherwise → HUB
 
@@ -227,7 +228,8 @@ External `local_wikis` entries follow the same rule: a path relative to HUB
 plus the wiki's `id` (`wiki_id` from its `config.md`, created by
 `identity assign`), so a moved or replaced wiki is detected instead of trusted.
 Never commit a drive-letter, `/home/...` or `/Users/...` path to a tracked
-`wikis.json`; the checkpoint privacy scan flags it. Until logical references
+`wikis.json`; the checkpoint privacy scan flags it. Put it in
+`HUB/wikis.local.json` ([hub-resolution.md](hub-resolution.md#registry-path-resolution)). Until logical references
 exist (`KM-HUB-006`), refer to another wiki in content by its `wiki_id`, not
 by a machine path.
 

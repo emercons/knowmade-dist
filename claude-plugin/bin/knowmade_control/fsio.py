@@ -4,8 +4,9 @@ Every writer that must never leave a half-written file on disk (registries,
 state machines, checkpoint manifests, retract rewrites) used to carry its own
 ``mkstemp`` / ``fsync`` / ``os.replace`` sequence. This module is the single
 copy (emercons/knowmade#67 R1.2). The single-file ``scripts/llm-wiki-session``
-hook ships verbatim as a plugin hook and cannot import this module, so it
-vendors the same functions; keep the two in step.
+hook ships verbatim as a plugin hook and cannot import this module, so
+``scripts/sync-session-vendor.py`` stamps the writers, ``read_text`` and the
+JSON object reader into it; a change here reaches the hook through the stamper.
 
 Guarantees of :func:`atomic_write_bytes`:
 

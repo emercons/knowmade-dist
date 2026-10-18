@@ -19,11 +19,11 @@ resolution. `--json` prints a machine-readable report where offered. Flags
 listed under a namespace go before its subcommand (`archive --hub H list`);
 `archive`, `schema`, `identity` and `specialist` accept them after it too.
 
-Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `rules`, `engine`, `pin`, `freshness`, `adopt`, `source`.
+Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `dataset`, `rules`, `engine`, `pin`, `freshness`, `project`, `adopt`, `source`.
 
 ## `llm-wiki lint`
 
-Run deterministic checks that do not require an LLM. Pass a wiki root path, or use --local/--wiki to resolve one through the normal hub rules.
+Deterministic checks (no LLM) on a wiki root given by path, --local or --wiki.
 
 | Argument | Meaning |
 |---|---|
@@ -41,8 +41,11 @@ Run deterministic checks that do not require an LLM. Pass a wiki root path, or u
 | `--public` | Resolve --wiki <slug>-PRIVATE to the public sibling <slug>. (not with --private) |
 | `--include-archived` | Allow linting an explicitly targeted archived wiki. |
 | `--json` | Print a machine-readable JSON report. |
-| `--strict-engine` | Treat a mismatch between the declared and running engine as a protocol violation rather than a warning. |
-| `--fail-on {critical,warning,suggestion}` | Lowest severity that makes the command exit non-zero (default: suggestion, i.e. any finding; none for --preflight). |
+| `--strict-engine` | Make a declared/running engine mismatch critical, not a warning. |
+| `--fail-on {critical,warning,suggestion}` | Lowest severity that exits non-zero (default: suggestion; none for --preflight). |
+| `--github-annotations` | Print GitHub annotations after the report. |
+| `--max-warnings N` | Exit 1 above N warnings. |
+| `--profile NAME[,NAME]` | Opt-in checks: citations, datasets. |
 | `--all` | Lint every root of the hub. |
 | `--include-nested-wiki` | With --all, add topics/*/.wiki. |
 | `--skip-private` | With --all, skip -PRIVATE roots. |
@@ -201,20 +204,37 @@ Declare a wiki id in config.md if the wiki has none.
 
 ## `llm-wiki hub`
 
-Check or refresh the hub index, and show which hub is selected.
+Check or refresh the hub index, check registry paths, and show which hub is selected.
 
-Subcommands: `index`, `where`.
+Subcommands: `index`, `registry`, `where`.
 
 ### `llm-wiki hub index`
 
-Compare the topic table and statistics of HUB/_index.md with wikis.json. --check (the default) exits 1 when they differ; --write refreshes only the generated table and counts, keeping curated sections, extra columns, the BOM and the newline style.
+Compare the topic table and statistics of HUB/_index.md with wikis.json. --check (the default) exits 1 when they differ; --write refreshes only the generated table and counts, keeping curated sections, extra columns, the BOM and the newline style; --stats prints the registry counts and its mismatch with topics/ and writes nothing.
 
 | Argument | Meaning |
 |---|---|
-| `--check` | Report drift; exit 1 when out of date (default). (not with --write) |
-| `--write` | Refresh the generated table and counts. (not with --check) |
+| `--check` | Report drift; exit 1 when out of date (default). (not with --write or --stats) |
+| `--write` | Refresh the generated table and counts. (not with --check or --stats) |
+| `--stats` | Count active, archived and private topics, topic directories without a registry entry and entries without a directory, and show the index date; exit 0. (not with --check or --write) |
 | `--hub HUB` | Override hub path. |
 | `--require-cwd-hub` | Refuse unless the selected hub is the hub enclosing the current directory. |
+| `--json` | Print JSON. |
+
+### `llm-wiki hub registry`
+
+Read-only checks of the hub registry and its per-machine overlay wikis.local.json.
+
+Subcommands: `check`.
+
+#### `llm-wiki hub registry check`
+
+Report each tracked wikis.json path, whether it is portable (<HUB>-relative, no drive, absolute, ~ or escaping .. path), and the wikis.local.json path this machine uses instead. --portable exits 1 on a path that is not portable or an overlay git does not ignore.
+
+| Argument | Meaning |
+|---|---|
+| `--portable` | Exit 1 unless every tracked path is portable and wikis.local.json is ignored. |
+| `--hub HUB` | Override hub path. |
 | `--json` | Print JSON. |
 
 ### `llm-wiki hub where`
@@ -498,6 +518,25 @@ Exit 0 clean, 1 findings, 2 error.
 | `--json` | Print JSON. |
 | `--fail-on {warning,critical}` | Lowest severity that exits 1. (default: warning) |
 
+## `llm-wiki dataset`
+
+Verify dataset payloads against manifests.
+
+Subcommands: `verify`.
+
+### `llm-wiki dataset verify`
+
+Exit 0 clean, 1 findings at or above --fail-on, 2 error.
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Wiki root. |
+| `--local` | Verify ./.wiki. |
+| `--wiki WIKI` | Named wiki. |
+| `--hub HUB` | Hub path for --wiki. |
+| `--fail-on {warning,critical}` | Lowest severity that exits 1. (default: critical) |
+| `--json` | Print JSON. |
+
 ## `llm-wiki rules`
 
 Inspect and declare the Knowmade corpus rule-set contract.
@@ -614,7 +653,7 @@ Exit 2 unless the running engine is the pinned one (the CI step).
 
 List compiled articles due for refresh under the configured freshness windows.
 
-Subcommands: `report`.
+Subcommands: `report`, `score`.
 
 ### `llm-wiki freshness report`
 
@@ -633,11 +672,52 @@ Read-only. Windows come from freshness_hot_days, freshness_warm_days and freshne
 | `--include-snapshots` | Also list freshness: snapshot articles. |
 | `--json` | Print JSON. |
 
+### `llm-wiki freshness score`
+
+Read-only. librarian.md's four 0-25 dimensions with volatility half-lives (hot 30, warm 90, cold 365 days); compiled-from: conversation rebased on two. Threshold from freshness_threshold in config.md (a topic inherits HUB/config.md's), default 70. Exit 0, or 2 when the root is missing or is a hub.
+
+| Argument | Meaning |
+|---|---|
+| `--path PATH` | Score the wiki root at this path. |
+| `--local` | Score ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
+| `--threshold N` | Override freshness_threshold (0-100). |
+| `--all` | List every article, not only those below the threshold. |
+| `--include-snapshots` | Also list freshness: snapshot articles. |
+| `--json` | Print JSON. |
+
+## `llm-wiki project`
+
+Deterministic project-folder maintenance under output/projects/.
+
+Subcommands: `migrate-why`.
+
+### `llm-wiki project migrate-why`
+
+Lossless C8c migration: title and goal from the frontmatter, derived Members sections dropped, every other section kept in order. Skips folders that have WHY.md; refuses a manifest with nothing to preserve. Exit 0, or 2 when the root is missing or is a hub.
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Wiki root path. |
+| `--local` | Use ./.wiki in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug> to the public sibling without -PRIVATE. (not with --private) |
+| `--include-archived` | Allow --wiki to resolve an archived topic. |
+| `--dry-run` | Preview only (the default). (not with --apply) |
+| `--apply` | Write WHY.md, delete _project.md, log once. (not with --dry-run) |
+| `--json` | Print JSON. |
+
 ## `llm-wiki adopt`
 
 Scan, apply, resume, and verify deterministic brownfield adoption.
 
-Subcommands: `scan`, `apply`, `status`, `claim`, `complete`, `release`, `fail`, `sweep`, `verify`.
+Subcommands: `scan`, `apply`, `status`, `claim`, `complete`, `release`, `fail`, `sweep`, `repair`, `verify`.
 
 ### `llm-wiki adopt scan`
 
@@ -701,6 +781,7 @@ Claim ready rows for one worker.
 | `--worker WORKER` | (default: generated per process) |
 | `--retry-errors` | - |
 | `--force-unlock` | - |
+| `--allow-interrupted` | Claim although a move batch was interrupted. |
 | `--json` | - |
 
 ### `llm-wiki adopt complete`
@@ -752,6 +833,18 @@ Terminalize deterministic skip/review rows.
 | `batch` | Batch directory, or batch id with --wiki-root. |
 | `--wiki-root WIKI_ROOT` | Wiki root when batch is supplied by id; also overrides the root recorded in state.json. |
 | `--apply` | - |
+| `--force-unlock` | - |
+
+### `llm-wiki adopt repair`
+
+Finish the staging of an interrupted move batch.
+
+| Argument | Meaning |
+|---|---|
+| `batch` | Batch directory, or batch id with --wiki-root. |
+| `--wiki-root WIKI_ROOT` | Wiki root when batch is supplied by id; also overrides the root recorded in state.json. |
+| `--yes` | Required to move the remaining originals of a move batch. |
+| `--project-root PROJECT_ROOT` | Project the batch was adopted from, when the pin in state.json does not resolve. |
 | `--force-unlock` | - |
 
 ### `llm-wiki adopt verify`

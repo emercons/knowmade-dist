@@ -24,7 +24,10 @@ Policy, implemented once here:
 API: :func:`read` returns ``(fields, bounds, newline, bom)``; :func:`load`
 returns the same facts plus the text as a :class:`FrontmatterFile`;
 :func:`update` applies a block transform; :func:`set_field` replaces or adds
-one key; :func:`write_document` writes a whole document.
+one key; :func:`write_document` writes a whole document. Field values are
+read once here too: :func:`field_value` is the raw text of a field in a block
+(lint, specialist ``SKILL.md``), :func:`scalar_field` the text of a parsed
+scalar (the engine pins, through ``rules.config_fields`` for ``config.md``).
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ __all__ = [
     "load",
     "read",
     "read_block",
+    "scalar_field",
     "set_field",
     "set_field_in_block",
     "set_list",
@@ -164,9 +168,18 @@ def read(path: Path) -> tuple[dict[str, Any], Bounds, str, bool]:
     return loaded.fields, loaded.bounds, loaded.newline, loaded.bom
 
 
-def read_block(path: Path) -> str:
-    """The LF-normalised frontmatter block text of ``path``."""
-    return load(path).block
+def read_block(path: Path, default: str | None = None) -> str:
+    """The LF-normalised frontmatter block text of ``path``.
+
+    A file without a complete block raises :class:`FrontmatterError`, or
+    returns ``default`` when one is given.
+    """
+    try:
+        return load(path).block
+    except FrontmatterError:
+        if default is None:
+            raise
+        return default
 
 
 def _encode(prefix: str, block: str, rest: str, newline: str, bom: bool) -> bytes:
@@ -284,13 +297,48 @@ def set_list(block: str, key: str, values: list[str]) -> str:
     return set_field_in_block(block, key, list(values))
 
 
-def field_value(block: str, field: str) -> str | None:
-    """The raw text after ``field:`` on its line, or ``None`` when empty/absent."""
+_BLOCK_SCALAR_INDICATORS = {">", "|", ">-", "|-"}
+
+
+def field_value(block: str, field: str, *, folded: bool = False) -> str | None:
+    """The raw text after ``field:`` on its line, or ``None`` when empty/absent.
+
+    The one reader of a top-level field's text in a frontmatter block (lint,
+    specialist ``SKILL.md`` metadata); quotes are left as written. With
+    ``folded`` a block-scalar indicator (``>``, ``|``, ``>-``, ``|-``) reads
+    the indented lines that follow it, joined by single spaces.
+    """
     match = re.search(rf"(?m)^{re.escape(field)}\s*:\s*(.*)$", block)
     if not match:
         return None
     value = match.group(1).strip()
+    if folded and value in _BLOCK_SCALAR_INDICATORS:
+        continuation: list[str] = []
+        for line in block[match.end() :].splitlines():
+            if not line.strip():
+                if continuation:
+                    continuation.append("")
+                continue
+            if not line.startswith((" ", "\t")):
+                break
+            continuation.append(line.strip())
+        value = " ".join(part for part in continuation if part)
     return value if value else None
+
+
+def scalar_field(fields: dict[str, Any] | None, key: str) -> str | None:
+    """A parsed scalar field as text, or None for absent, empty, boolean or list values.
+
+    The accessor for fields already parsed by :func:`read` (or
+    ``rules.config_fields`` for ``config.md``).
+    """
+    if not fields:
+        return None
+    value = fields.get(key)
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def has_value(block: str, field: str) -> bool:

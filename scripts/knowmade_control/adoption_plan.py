@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dry-run-first brownfield adoption scanner for Knowmade.
 
-The ``llm-wiki-adopt`` entry point lives in ``adoption``; this module holds the
-scanner, classifier, and batch writer it drives.
+The ``llm-wiki adopt`` and ``llm-wiki-adopt`` entry points live in ``adopt_cli``;
+this module holds the scanner, classifier, and batch writer they drive.
 
 Turn an existing populated project directory into a project-local Knowmade wiki
 without blindly moving the source tree. The helper inventories existing

@@ -161,9 +161,14 @@ def say(text: str, *, actions: bool, stream=None) -> None:
     print(text, file=stream or sys.stdout)
 
 
+# ANNOTATION, escape() and annotation() below are kept identical to
+# ANNOTATION_KINDS, escape_annotation() and annotation_line() in
+# scripts/knowmade_control/lint_report.py (`lint --github-annotations`);
+# this script imports nothing from the engine. tests/test-local-cli-lint-ci.sh
+# compares their output.
 def escape(value: str, *, prop: bool = False) -> str:
     value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return value.replace(":", "%3A").replace(",", "%2C") if prop else value
+    return value.replace(":", "%3A").replace(",", "%2C") if prop else value.replace("::", ": :")
 
 
 def annotation(issue: dict, root: Path) -> str:
@@ -175,7 +180,8 @@ def annotation(issue: dict, root: Path) -> str:
     except ValueError:
         name = target.as_posix()
     check = issue.get("check") or "lint"
-    return f"::{kind} file={escape(name, prop=True)},title={escape(f'Knowmade {check}', prop=True)}::{escape(str(issue.get('message', '')))}"
+    line = f"line={issue['line']}," if issue.get("line") else ""
+    return f"::{kind} file={escape(name, prop=True)},{line}title={escape(f'Knowmade {check}', prop=True)}::{escape(str(issue.get('message', '')))}"
 
 
 def main(argv: list[str] | None = None) -> int:

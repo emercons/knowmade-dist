@@ -11,10 +11,17 @@ rejected, because a repair run over many roots at once cannot be reviewed
 Discovery, in order, without duplicates (the first source of a path wins):
 
 1. the entries of the hub registry ``wikis.json`` (archived entries are left
-   out), which includes the ``hub`` entry, the hub root itself;
-2. every ``topics/<slug>/`` directory that holds an ``_index.md``;
+   out), which includes the ``hub`` entry, the hub root itself, each at the
+   path ``HUB/wikis.local.json`` gives it on this machine;
+2. every ``topics/<slug>/`` directory;
 3. with ``--include-nested-wiki``, every ``topics/<slug>/.wiki/`` directory
    that holds an ``_index.md``.
+
+A registry path or ``topics/<slug>/`` without an ``_index.md`` whose
+``.wiki/`` holds one is that topic's wiki root (``roots.registry_entry_path``,
+``roots.wiki_root_of``), linted under the topic's slug without
+``--include-nested-wiki``; the flag only adds a ``.wiki/`` nested inside a
+topic that is a wiki itself, as ``<slug>/.wiki``.
 
 A candidate without an ``_index.md`` (the hub's stub private directories, or a
 registry path that is not there) is reported as skipped, not linted;
@@ -41,14 +48,16 @@ from typing import Any
 from . import fsio as _fsio
 from .common import PRIVATE_SUFFIX, read_registry
 from .roots import (
+    NESTED_WIKI_DIR as NESTED_WIKI,
     initialized_wiki_root,
     is_archived_registry_entry,
+    read_local_registry,
+    registry_entry_path,
     resolve_hub_args,
-    resolve_registry_path,
+    wiki_root_of,
 )
 
 SUMMARY_NAME = "summary"
-NESTED_WIKI = ".wiki"
 SEVERITIES = ("critical", "warning", "suggestion", "info")
 
 
@@ -77,6 +86,7 @@ def discover_roots(hub: Path, *, include_nested_wiki: bool) -> list[Candidate]:
     if (hub / "wikis.json").is_file():
         try:
             wikis = read_registry(hub).get("wikis", {})
+            overlay = read_local_registry(hub)
         except SystemExit as exc:
             raise MultiLintError(str(exc.code)) from None
         for slug, entry in sorted(wikis.items()):
@@ -84,14 +94,14 @@ def discover_roots(hub: Path, *, include_nested_wiki: bool) -> list[Candidate]:
                 continue
             if is_archived_registry_entry(entry):
                 continue
-            add(slug, resolve_registry_path(entry["path"], hub), "registry")
+            add(slug, registry_entry_path(hub, slug, entry, overlay), "registry")
 
     topics = hub / "topics"
     if topics.is_dir():
         for topic in sorted(path for path in topics.iterdir() if path.is_dir()):
             if topic.name.startswith("."):
                 continue
-            add(topic.name, topic, "topics")
+            add(topic.name, wiki_root_of(topic), "topics")
             nested = topic / NESTED_WIKI
             if include_nested_wiki and nested.is_dir():
                 add(f"{topic.name}/{NESTED_WIKI}", nested, "nested")

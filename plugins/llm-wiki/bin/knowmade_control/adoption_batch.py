@@ -26,6 +26,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterator
 
+from .adoption_plan import MOVE_CHECKPOINT_EVERY, stage_ingest_files
 from .fsio import atomic_write_text
 from .stdio import configure_utf8_stdio
 
@@ -471,10 +472,31 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def staging_counts(rows: list[dict[str, Any]]) -> tuple[int, int]:
+    """``(moved, still planned)`` ingest files of a batch whose staging did not finish."""
+    moved = sum(1 for row in rows if row.get("state") == "staged-move")
+    pending = sum(
+        1 for row in rows
+        if row.get("state") == "planned" and row.get("kind") == "file" and row.get("classification") == "ingest"
+    )
+    return moved, pending
+
+
 def cmd_claim(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     with batch_lock(batch, args.force_unlock):
         _wiki_root, manifest, state, rows = validate_batch(batch, args.wiki_root)
+        if state.get("staging") == "interrupted" and not args.allow_interrupted:
+            # knowmade#84: the unmoved originals still sit at their source paths,
+            # so a "planned" row would be handed out without its staged copy.
+            moved, pending = staging_counts(rows)
+            print(
+                f"batch {batch} has an interrupted move: {moved} file(s) moved, {pending} still at their source "
+                "paths. Run `adopt verify` to list the rows that were not moved, then `adopt repair "
+                f"{args.batch} --yes` to finish staging (or pass --allow-interrupted to claim anyway).",
+                file=sys.stderr,
+            )
+            return 2
         eligible = set(READY_STATES)
         if args.retry_errors:
             eligible.add("error")
@@ -620,6 +642,62 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def project_root_of(batch: Path, state: dict[str, Any], override: str | None) -> Path:
+    """The project a batch was adopted from: ``--project-root``, else the pin next to the manifest."""
+    relative = state.get("project_root_relative")
+    if override:
+        root = Path(override).expanduser().resolve()
+    elif isinstance(relative, str) and relative:
+        root = (batch / relative).resolve()
+    else:
+        raise SystemExit("state.json records no project_root_relative; pass --project-root")
+    if not root.is_dir():
+        raise SystemExit(f"project root is not a directory: {root}; pass --project-root")
+    return root
+
+
+def cmd_repair(args: argparse.Namespace) -> int:
+    """Finish the staging of an interrupted batch (knowmade#84).
+
+    Re-stages the ``planned`` ingest rows whose originals still sit at their
+    source paths; rows already moved are left alone. A row whose original is
+    gone is recorded as an error, as ``apply`` would have done.
+    """
+    batch = resolve_batch(args.batch, args.wiki_root)
+    with batch_lock(batch, args.force_unlock):
+        _wiki_root, manifest, state, rows = validate_batch(batch, args.wiki_root)
+        if state.get("staging") != "interrupted":
+            print(f"Nothing to repair: staging is {state.get('staging') or 'complete'}.")
+            return 0
+        mode = str(state.get("mode"))
+        if mode == "move" and not args.yes:
+            raise SystemExit("repairing a move batch moves the remaining originals into staged/; re-run with --yes")
+        project_root = project_root_of(batch, state, args.project_root)
+        todo = [
+            row for row in rows
+            if row.get("state") == "planned" and row.get("kind") == "file" and row.get("classification") == "ingest"
+        ]
+
+        def checkpoint(row: dict[str, Any], done: int, _warned: list[str]) -> None:
+            append_events(batch, [event_payload("stage-move", row, staged_path=row.get("staged_path"))])
+            if done % MOVE_CHECKPOINT_EVERY == 0:
+                write_rows(manifest, rows)
+
+        try:
+            staged, warnings = stage_ingest_files(todo, project_root, batch, mode, bool(args.yes), checkpoint)
+        except BaseException as exc:
+            state["stage_error"] = f"{type(exc).__name__}: {exc}"
+            commit_transition(batch, manifest, state, rows, [])
+            raise
+        state["staging"] = "complete"
+        state.pop("stage_error", None)
+        state["staged_files"] = sum(1 for row in rows if row.get("state") in {"staged-copy", "staged-move"})
+        state["staging_warnings"] = [str(row.get("source_path")) for row in rows if row.get("state") == "error"]
+        commit_transition(batch, manifest, state, rows, [event_payload("repair", staged=staged, warnings=len(warnings))])
+    print(f"Repaired staging: {staged} file(s) staged, {len(warnings)} could not be staged.")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     batch = resolve_batch(args.batch, args.wiki_root)
     wiki_root, _manifest, state, rows = validate_batch(batch, args.wiki_root)
@@ -628,11 +706,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     staging = state.get("staging")
     staging_open = staging in {"pending", "interrupted"}
     if staging_open:
-        moved = sum(1 for row in rows if row.get("state") == "staged-move")
-        pending = sum(
-            1 for row in rows
-            if row.get("state") == "planned" and row.get("kind") == "file" and row.get("classification") == "ingest"
-        )
+        moved, pending = staging_counts(rows)
         detail = f": {state['stage_error']}" if state.get("stage_error") else ""
         problems.append(
             f"staging {staging}: {moved} file(s) moved, {pending} still planned (not moved){detail}"
@@ -689,6 +763,7 @@ COMMANDS = {
     "release": cmd_release,
     "fail": cmd_fail,
     "sweep": cmd_sweep,
+    "repair": cmd_repair,
     "verify": cmd_verify,
 }
 
@@ -721,6 +796,7 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("--worker", default=f"{socket.gethostname()}:{os.getpid()}")
     claim.add_argument("--retry-errors", action="store_true")
     claim.add_argument("--force-unlock", action="store_true")
+    claim.add_argument("--allow-interrupted", action="store_true", help="Claim although a move batch was interrupted.")
     claim.add_argument("--json", action="store_true")
     claim.set_defaults(func=cmd_claim)
 
@@ -754,6 +830,13 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--apply", action="store_true")
     sweep.add_argument("--force-unlock", action="store_true")
     sweep.set_defaults(func=cmd_sweep)
+
+    repair = subs.add_parser("repair")
+    add_common(repair)
+    repair.add_argument("--yes", action="store_true", help="Required to move the remaining originals of a move batch.")
+    repair.add_argument("--project-root", help="Project the batch was adopted from, when the pin in state.json does not resolve.")
+    repair.add_argument("--force-unlock", action="store_true")
+    repair.set_defaults(func=cmd_repair)
 
     verify = subs.add_parser("verify")
     add_common(verify)

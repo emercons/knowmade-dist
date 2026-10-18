@@ -19,6 +19,15 @@ snapshot only relax lint. An article that is stale only because a configured
 window is shorter than the default, an invalid window and an unknown
 ``freshness`` value are new strictness, reported through
 ``rule_lint.issue_versioned`` from rules/:data:`WINDOW_RULE_SET` on.
+
+``freshness score`` computes the librarian's composite 0-100 score
+(``references/librarian.md`` § Staleness Scoring, knowmade#83): four 0-25
+dimensions (source freshness, verification, compilation, source-chain
+integrity), each age decayed with the volatility half-life (hot 30, warm 90,
+cold 365 days), a ``compiled-from: conversation`` article rebased on its two
+dated dimensions. It lists the articles below ``freshness_threshold``
+(``config.md``, inherited from ``HUB/config.md``, default 70). Lint never
+reads the threshold.
 """
 
 from __future__ import annotations
@@ -34,8 +43,8 @@ from typing import Any
 from . import engine as _engine
 from . import rule_lint as _rule_lint
 from . import rules as _rules
-from .common import add_scope_arguments, parse_date
-from .lint_docs import load_documents
+from .common import add_scope_arguments, as_string_list, parse_date
+from .lint_docs import load_documents, resolve_source_ref
 from .lint_report import LintContext
 from .markdown import today_date
 from .roots import is_hub, resolve_wiki_root_args
@@ -266,6 +275,127 @@ def report_payload(wiki_root: Path, *, due: int = 0, include_snapshots: bool = F
     }
 
 
+HALF_LIVES: dict[str, int] = {"hot": 30, "warm": 90, "cold": 365}
+THRESHOLD_KEY = "freshness_threshold"
+DEFAULT_THRESHOLD = 70
+
+
+def resolve_threshold(wiki_root: Path) -> tuple[int, str, list[str]]:
+    """``(threshold, source, problems)``: the root's ``freshness_threshold``, else the hub's, else 70."""
+    problems: list[str] = []
+    layers = [("wiki", wiki_root, _rules.config_fields(wiki_root))]
+    hub = _engine.topic_hub(wiki_root)
+    if hub is not None:
+        layers.append(("hub", hub, _rules.config_fields(hub)))
+    for source, root, fields in layers:
+        if not fields or THRESHOLD_KEY not in fields:
+            continue
+        value = fields[THRESHOLD_KEY]
+        text = str(value).strip().strip("\"'")
+        if isinstance(value, bool) or not text.isdigit() or int(text) > 100:
+            problems.append(f"{root / 'config.md'}: Invalid {THRESHOLD_KEY}: {value!r}; expected 0-100.")
+            continue
+        return int(text), source, problems
+    return DEFAULT_THRESHOLD, "default", problems
+
+
+def _decayed(days: int, half_life: int) -> float:
+    return 25 * 0.5 ** (max(days, 0) / half_life)
+
+
+def article_score(ctx: LintContext, doc: Any, today: dt.date) -> dict[str, Any]:
+    """The composite freshness score of one compiled article (librarian.md § Staleness Scoring)."""
+    fields = doc.frontmatter
+    volatility = fields.get("volatility")
+    if not isinstance(volatility, str) or volatility not in HALF_LIVES:
+        volatility = "warm"
+    half_life = HALF_LIVES[volatility]
+    verified = parse_date(str(fields.get("verified") or ""))
+    updated = parse_date(str(fields.get("updated") or fields.get("created") or ""))
+    factors = {
+        "verification": _decayed((today - verified).days, half_life) if verified else 0.0,
+        "compilation": _decayed((today - updated).days, half_life) if updated else 0.0,
+    }
+    conversation = str(fields.get("compiled-from") or "").strip().lower() == "conversation"
+    unresolved: list[str] = []
+    if conversation:
+        score = 2 * sum(factors.values())
+    else:
+        refs = as_string_list(fields.get("sources"))
+        ages: list[int] = []
+        for ref in refs:
+            target = resolve_source_ref(ctx, doc.path, ref, True)
+            raw = ctx.documents.get(target) if target is not None else None
+            if target is None:
+                unresolved.append(ref)
+                continue
+            ingested = parse_date(str(raw.frontmatter.get("ingested") or "")) if raw else None
+            if ingested is not None:
+                ages.append((today - ingested).days)
+        factors["source_freshness"] = _decayed(round(sum(ages) / len(ages)), half_life) if ages else 0.0
+        factors["integrity"] = 25 * (len(refs) - len(unresolved)) / len(refs) if refs else 0.0
+        score = sum(factors.values())
+    raw_freshness = fields.get(FRESHNESS_KEY)
+    return {
+        "score": round(score),
+        "volatility": volatility,
+        "half_life": half_life,
+        "factors": {name: round(value) for name, value in factors.items()},
+        "conversation": conversation,
+        "unresolved_sources": unresolved,
+        "snapshot": isinstance(raw_freshness, str) and raw_freshness.strip().lower() == SNAPSHOT,
+    }
+
+
+def score_payload(
+    wiki_root: Path, *, threshold: int | None = None, include_all: bool = False, include_snapshots: bool = False
+) -> dict[str, Any]:
+    """Articles below the freshness threshold (or every article), lowest score first. Read-only."""
+    ctx = LintContext(wiki_root)
+    load_documents(ctx)
+    configured, source, problems = resolve_threshold(ctx.root)
+    if threshold is None:
+        threshold = configured
+    else:
+        source = "argument"
+    today = today_date()
+    rows: list[dict[str, Any]] = []
+    snapshots_skipped = 0
+    for rel, doc in _compiled_documents(ctx):
+        row = {"path": rel, **article_score(ctx, doc, today)}
+        if not include_all and row["score"] >= threshold:
+            continue
+        if row["snapshot"] and not include_snapshots:
+            snapshots_skipped += 1
+            continue
+        rows.append(row)
+    rows.sort(key=lambda row: (row["score"], row["path"]))
+    return {
+        "schema": "knowmade/freshness-score/v1",
+        "root": str(ctx.root),
+        "today": today.isoformat(),
+        "threshold": threshold,
+        "threshold_source": source,
+        "half_lives": dict(HALF_LIVES),
+        "articles": rows,
+        "snapshots_skipped": snapshots_skipped,
+        "problems": problems,
+    }
+
+
+def _print_score(payload: dict[str, Any]) -> None:
+    print(f"Freshness threshold {payload['threshold']} ({payload['threshold_source']}); half-lives hot 30, warm 90, cold 365.")
+    for problem in payload["problems"]:
+        print(f"  ignored: {problem}")
+    if not payload["articles"]:
+        print("No article below the threshold.")
+    for row in payload["articles"]:
+        factors = ", ".join(f"{name} {value}" for name, value in sorted(row["factors"].items()))
+        print(f"  {row['score']:>3}  {row['path']}  {row['volatility']} ({factors})")
+    if payload["snapshots_skipped"]:
+        print(f"{payload['snapshots_skipped']} snapshot article(s) left out (--include-snapshots).")
+
+
 def _print_report(payload: dict[str, Any]) -> None:
     windows = ", ".join(
         f"{volatility} {spec['days']}" + ("" if spec["source"] == "default" else f" ({spec['source']} config.md)")
@@ -302,14 +432,24 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.due < 0:
-        print("freshness report: --due must be zero or more days", file=sys.stderr)
-        return 2
-    payload = report_payload(wiki_root, due=args.due, include_snapshots=args.include_snapshots)
+    if args.freshness_command == "score":
+        if args.threshold is not None and not 0 <= args.threshold <= 100:
+            print("freshness score: --threshold must be 0-100", file=sys.stderr)
+            return 2
+        payload = score_payload(
+            wiki_root, threshold=args.threshold, include_all=args.all, include_snapshots=args.include_snapshots
+        )
+        printer = _print_score
+    else:
+        if args.due < 0:
+            print("freshness report: --due must be zero or more days", file=sys.stderr)
+            return 2
+        payload = report_payload(wiki_root, due=args.due, include_snapshots=args.include_snapshots)
+        printer = _print_report
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        _print_report(payload)
+        printer(payload)
     return 0
 
 
@@ -348,5 +488,26 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
         "--include-snapshots", action="store_true", help="Also list freshness: snapshot articles."
     )
     report.add_argument("--json", action="store_true", help="Print JSON.")
+    score = sub.add_parser(
+        "score",
+        help="Composite 0-100 freshness score; list articles below freshness_threshold.",
+        description=(
+            "Read-only. librarian.md's four 0-25 dimensions with volatility half-lives (hot 30, "
+            "warm 90, cold 365 days); compiled-from: conversation rebased on two. Threshold from "
+            "freshness_threshold in config.md (a topic inherits HUB/config.md's), default 70. "
+            "Exit 0, or 2 when the root is missing or is a hub."
+        ),
+    )
+    score.add_argument("--path", help="Score the wiki root at this path.")
+    add_scope_arguments(
+        score,
+        local_help="Score ./.wiki in the current directory.",
+        public_help="Resolve --wiki <slug> to the public sibling without -PRIVATE.",
+        include_archived_help="Allow --wiki to resolve an archived topic.",
+    )
+    score.add_argument("--threshold", type=int, metavar="N", help="Override freshness_threshold (0-100).")
+    score.add_argument("--all", action="store_true", help="List every article, not only those below the threshold.")
+    score.add_argument("--include-snapshots", action="store_true", help="Also list freshness: snapshot articles.")
+    score.add_argument("--json", action="store_true", help="Print JSON.")
     freshness.set_defaults(func=run)
     return freshness

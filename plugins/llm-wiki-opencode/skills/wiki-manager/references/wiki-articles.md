@@ -209,7 +209,7 @@ Each dimension's decay curve is scaled by the article's `volatility` tier — a 
 
 Articles with `compiled-from: conversation` have no fetchable raw source chain. For those articles, skip source freshness and source chain integrity, compute verification recency and compilation recency at 0-25 points each, then multiply the 50-point subtotal by 2 so the final score still lands on 0-100. Articles with `compiled-from: mixed` use the standard four-dimension formula because they still carry raw sources.
 
-The freshness threshold is set per wiki in `config.md` (`freshness_threshold`, default: 70); the librarian and `wiki refresh --due` flag articles scoring below it. Deterministic lint does not compute the score and never reads the threshold: it applies the day windows below.
+The freshness threshold is set per wiki in `config.md` (`freshness_threshold`, default: 70); the librarian and `wiki refresh --due` flag articles scoring below it. `llm-wiki freshness score --json` computes it (formula: `librarian.md` § Staleness Scoring); lint never reads the threshold and applies the day windows below.
 
 ### Lint Windows And Snapshots
 

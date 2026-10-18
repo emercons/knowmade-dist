@@ -4,7 +4,12 @@ Structure (C1), frontmatter schema and the legacy-frontmatter repair (C2),
 index consistency and in-place index repair (C3), source provenance and the
 source-reference rewrite (C4b, C18), tags (C5), coverage and its repair (C6),
 projects (C8), placement (C11), unknown files (C12) and source lifecycle
-pointers (C20). Freshness and volatility (C14, C15) live in ``freshness``
+pointers (C20). The former agent passes made deterministic by
+emercons/knowmade#83 (master index statistics C3, one-way See Also C4, tag
+spelling variants C5, orphan articles C6, legacy manifests and staleness C8,
+project candidates C9, inventory/dataset migration candidates C16/C17) report
+through ``agent_pass_issue``: info in rules/3, the message ending in its
+``(kind)``. Freshness and volatility (C14, C15) live in ``freshness``
 (knowmade#108). The order these run in, and therefore the order the repairs
 happen in, is ``lint.lint_steps``. Split out of ``lint`` (emercons/knowmade#105
 R3).
@@ -12,6 +17,7 @@ R3).
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import shutil
@@ -19,6 +25,7 @@ import urllib.parse
 from pathlib import Path
 
 from . import frontmatter as _frontmatter
+from . import projects as _projects
 from . import rule_lint as _rule_lint
 from . import rules as _rules
 from . import source_lifecycle as _source_lifecycle
@@ -26,6 +33,7 @@ from .common import (
     PRIVATE_SUFFIX,
     as_string_list,
     first_body_summary,
+    parse_date,
     is_under,
     strip_matching_quotes,
     table_cell,
@@ -38,13 +46,16 @@ from .indexing import (
     index_links_to,
     is_index_checked_directory,
     is_local_markdown_link,
+    refresh_index_rows,
     regenerate_directory_index,
     repair_directory_index,
+    stale_index_rows,
 )
-from .lint_links import markdown_relative_link, resolve_link_target, slugify
+from .lint_links import WIKILINK_RE, markdown_relative_link, resolve_link_target, slugify, strip_code_blocks
 from .lint_report import Document, LintContext, document_text, markdown_files
 from .markdown import (
     default_schema_text,
+    split_markdown_frontmatter,
     today_date,
     write_text_preserving,
     yaml_quote,
@@ -795,6 +806,32 @@ def check_index_consistency(ctx: LintContext) -> None:
             )
 
 
+def check_index_rows(ctx: LintContext) -> None:
+    """A generated index row must match its article's frontmatter (C3, #99).
+
+    Runs after the frontmatter repairs, so one ``--fix`` run indexes an article
+    with the summary and tags it was just given. ``index-row-stale`` is an info
+    from rules/3 on; ``--fix`` rewrites just the stale rows, in place.
+    """
+    for directory in sorted(path for path in ctx.root.rglob("*") if path.is_dir()):
+        index = directory / "_index.md"
+        if not is_index_checked_directory(ctx.root, directory) or not index.is_file():
+            continue
+        try:
+            text = index.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rows = stale_index_rows(ctx, directory, index_contract(ctx.root, directory), text)
+        if rows and ctx.fix_allowed("index", index, "refresh stale index rows", check="C3"):
+            refresh_index_rows(ctx, directory, rows)
+        elif rows:
+            _rule_lint.issue_versioned(
+                ctx, _rules.CURRENT_RULE_SET,
+                f"{len(rows)} generated index row(s) differ from the article frontmatter (index-row-stale).",
+                index, check="C3", fixable=True, fix_class="index",
+            )
+
+
 def index_problems(directory: Path, contract: str, text: str) -> tuple[list[Path], list[str]]:
     """Return the required entries an index lacks and the dead links it carries."""
     missing_entries = [
@@ -1060,6 +1097,24 @@ def check_tags(ctx: LintContext) -> None:
         matches = sorted(group & present)
         if len(matches) > 1:
             ctx.issue("warning", f"Near-duplicate tags found: {', '.join(matches)}.", check="C5")
+    spellings: dict[str, set[str]] = {}
+    for tag in present:
+        spellings.setdefault(tag_key(tag), set()).add(tag)
+    for key in sorted(spellings):
+        if len(spellings[key]) > 1:
+            listed = ", ".join(f"{tag} ({len(tag_locations[tag])})" for tag in sorted(spellings[key]))
+            agent_pass_issue(
+                ctx,
+                f"Tags differ only in case, separators or a plural s: {listed}; pick one (tag-near-duplicate).",
+                None,
+                check="C5",
+            )
+
+
+def tag_key(tag: str) -> str:
+    """A tag folded for near-duplicate detection: case, ``_``/space/``-`` and one trailing ``s`` ignored."""
+    key = re.sub(r"[\s_-]+", "", tag.strip().lower())
+    return key[:-1] if len(key) > 3 and key.endswith("s") and not key.endswith("ss") else key
 
 
 def underlying_source_of(ctx: LintContext, raw_file: Path) -> Path | None:
@@ -1320,18 +1375,307 @@ def refresh_directory_index(ctx: LintContext, directory: Path) -> None:
         repair_directory_index(ctx, directory, contract, missing_entries, dead_links)
 
 
+# The rule set that introduced the deterministic versions of the former agent
+# passes (emercons/knowmade#83): info on a rules/3 corpus, absent before.
+AGENT_PASS_RULE_SET = 3
+
+
+def agent_pass_issue(ctx: LintContext, message: str, path: Path | None, *, check: str) -> None:
+    """Report one finding of a former agent pass; the message ends with its ``(kind)``."""
+    _rule_lint.issue_versioned(ctx, AGENT_PASS_RULE_SET, message, path, check=check)
+
+
 def check_projects(ctx: LintContext) -> None:
-    projects = ctx.root / "output" / "projects"
-    if not projects.exists():
-        return
-    for project in sorted(child for child in projects.iterdir() if child.is_dir()):
-        why = project / "WHY.md"
-        if not why.exists() or not why.read_text(encoding="utf-8", errors="replace").strip():
+    # ``output/projects/.archive`` holds archived projects; it is not a project.
+    for project in _projects.project_folders(ctx.root):
+        has_why = _projects.has_why(project)
+        if not has_why:
             ctx.issue("warning", "Project is missing a non-empty WHY.md.", project, check="C8")
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", project.name) or re.search(
             r"\d{4}-\d{2}-\d{2}", project.name
         ):
             ctx.issue("warning", "Project slug should be lowercase, hyphen-separated, <=40 chars, no dates.", project, check="C8")
+        if (project / _projects.LEGACY).is_file():
+            agent_pass_issue(
+                ctx,
+                "Legacy _project.md beside WHY.md; WHY.md is authoritative, remove _project.md after review "
+                "(project-legacy-manifest)."
+                if has_why
+                else "Legacy project manifest; `llm-wiki project migrate-why --dry-run` previews the lossless "
+                "WHY.md migration, `--apply` writes it (project-legacy-manifest).",
+                project / _projects.LEGACY,
+                check="C8",
+            )
+        check_project_staleness(ctx, project)
+
+
+def check_project_staleness(ctx: LintContext, project: Path) -> None:
+    """C8b: a member whose ``sources:`` include a raw source ingested after the member's ``updated:``."""
+    for member in markdown_files(project):
+        if member.name in {_projects.WHY, _projects.LEGACY, "_index.md"}:
+            continue
+        try:
+            fields = _frontmatter.load(member).fields
+        except (OSError, UnicodeDecodeError, _frontmatter.FrontmatterError):
+            continue
+        updated = parse_date(str(fields.get("updated") or ""))
+        if updated is None:
+            continue
+        newer: list[tuple[dt.date, Path]] = []
+        for ref in as_string_list(fields.get("sources")):
+            if ref.strip().startswith(("http://", "https://")):
+                continue
+            target = resolve_source_ref(ctx, member, ref, False)
+            raw = ctx.documents.get(target) if target is not None else None
+            ingested = parse_date(str(raw.frontmatter.get("ingested") or "")) if raw else None
+            if ingested is not None and ingested > updated:
+                newer.append((ingested, target))
+        if newer:
+            date, newest = max(newer)
+            agent_pass_issue(
+                ctx,
+                f"Project member cites {len(newer)} raw source(s) ingested after its updated date "
+                f"{updated.isoformat()} (newest: {ctx.rel(newest)}, {date.isoformat()}); review it "
+                "(project-stale).",
+                member,
+                check="C8",
+            )
+
+
+# ``output/`` subdirectories a workflow owns: project folders and collect's
+# downloaded media (``output/assets/collect-<slug>/``).
+OUTPUT_SANCTIONED_DIRS = {"projects", "assets"}
+CANDIDATE_PREFIXES = ("article-", "output-", "report-")
+CANDIDATE_NOISE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|(?:^|-)v\d+(?=-|$)|(?:^|-)final(?=-|$)")
+
+
+def project_candidate_stem(stem: str) -> str:
+    """A loose output's name minus dates, ``-vN``, ``-final`` and an ``article-``/``output-``/``report-`` prefix."""
+    stem = slugify(stem)
+    for prefix in CANDIDATE_PREFIXES:
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    return re.sub(r"-+", "-", CANDIDATE_NOISE_RE.sub("-", stem)).strip("-")
+
+
+def check_output_candidates(ctx: LintContext) -> None:
+    """C9: loose files and directories in ``output/``, and loose outputs that look like one project."""
+    output = ctx.root / "output"
+    if not output.is_dir():
+        return
+    loose: list[Path] = []
+    for child in sorted(output.iterdir()):
+        if child.name.startswith(".") or is_os_metadata(child.name):
+            continue
+        if child.is_dir():
+            if child.name not in OUTPUT_SANCTIONED_DIRS and any(path.is_file() for path in child.rglob("*")):
+                agent_pass_issue(
+                    ctx,
+                    "Output subdirectory outside projects/ holds files; after review move it into a project "
+                    "folder (`wiki project new`) (output-loose-directory).",
+                    child,
+                    check="C9",
+                )
+        elif child.suffix.lower() != ".md":
+            agent_pass_issue(
+                ctx,
+                "Loose non-markdown file in output/; assets belong in a project folder beside the markdown "
+                "that uses them (output-loose-binary).",
+                child,
+                check="C9",
+            )
+        elif child.name != "_index.md":
+            loose.append(child)
+    groups: dict[str, list[Path]] = {}
+    for path in loose:
+        stem = project_candidate_stem(path.stem)
+        if stem:
+            groups.setdefault(stem.split("-", 1)[0], []).append(path)
+    for files in groups.values():
+        if len(files) < 3:
+            continue
+        prefix: list[str] = []
+        for tokens in zip(*(project_candidate_stem(path.stem).split("-") for path in files)):
+            if len(set(tokens)) != 1:
+                break
+            prefix.append(tokens[0])
+        slug = "-".join(prefix)
+        names = ", ".join(path.name for path in files)
+        agent_pass_issue(
+            ctx,
+            f"{len(files)} loose outputs share the prefix `{slug}` ({names}); candidate project `{slug}` "
+            "(project-candidate)."
+            if len(slug) >= 4
+            else f"{len(files)} loose outputs share a name start ({names}) but no 4-character prefix; "
+            "group them by hand if they belong together (project-candidate).",
+            output,
+            check="C9",
+        )
+
+
+# Name and title words that mark an output as tracking state (inventory.md
+# § Discovery) or as a dataset description (datasets.md § Discovery).
+INVENTORY_CANDIDATE_WORDS = frozenset(
+    "queue backlog inventory candidate candidates watch watchlist sources corpus dataset parts skus gear assets".split()
+)
+DATASET_CANDIDATE_WORDS = frozenset(
+    "dataset datasets data corpus archive dump warehouse lake parquet sqlite duckdb csv jsonl snapshot".split()
+)
+
+
+def _candidate_words(path: Path) -> set[str]:
+    words = set(re.split(r"[^a-z0-9]+", path.stem.lower()))
+    try:
+        title = _frontmatter.load(path).fields.get("title")
+    except (OSError, UnicodeDecodeError, _frontmatter.FrontmatterError):
+        title = None
+    if isinstance(title, str):
+        words |= set(re.split(r"[^a-z0-9]+", title.lower()))
+    return words - {""}
+
+
+def check_migration_candidates(ctx: LintContext) -> None:
+    """C16/C17: outputs whose name or title says they are inventory or a dataset description."""
+    output = ctx.root / "output"
+    for path in markdown_files(output):
+        rel = path.relative_to(output).parts
+        if path.name == "_index.md" or (rel[0] == "projects" and path.name in {_projects.WHY, _projects.LEGACY}):
+            continue
+        words = _candidate_words(path)
+        rel_path = ctx.rel(path)
+        hits = sorted(words & INVENTORY_CANDIDATE_WORDS)
+        if hits:
+            agent_pass_issue(
+                ctx,
+                f"Output looks like tracking state ({', '.join(hits)}); review "
+                f"`wiki inventory migrate-output {rel_path} --dry-run` (inventory-migration-candidate).",
+                path,
+                check="C16",
+            )
+        hits = sorted(words & DATASET_CANDIDATE_WORDS)
+        if hits:
+            agent_pass_issue(
+                ctx,
+                f"Output looks like a dataset description ({', '.join(hits)}); review "
+                f"`wiki dataset migrate-output {rel_path} --dry-run` (dataset-migration-candidate).",
+                path,
+                check="C17",
+            )
+
+
+SEE_ALSO_HEADING_RE = re.compile(r"^##\s+see also\s*$", re.I)
+
+
+def _article_links(ctx: LintContext, articles: dict[Path, Document]) -> dict[Path, tuple[set[Path], set[Path]]]:
+    """For each compiled article: ``(articles it links to anywhere, articles under its See Also)``.
+
+    Markdown links resolve relative to the file; ``[[wiki-links]]`` by slug or alias, as C4 resolves them.
+    """
+    slugs: dict[str, set[Path]] = {}
+    for path, doc in articles.items():
+        for name in {path.stem, *as_string_list(doc.frontmatter.get("aliases"))}:
+            slugs.setdefault(slugify(name), set()).add(path)
+    result: dict[Path, tuple[set[Path], set[Path]]] = {}
+    for path, doc in articles.items():
+        parts = split_markdown_frontmatter(document_text(doc))
+        body = strip_code_blocks(parts[1] if parts else document_text(doc))
+        everywhere: set[Path] = set()
+        see_also: set[Path] = set()
+        section: list[str] = []
+        inside = False
+        for line in body.split("\n"):
+            if line.startswith("## "):
+                inside = bool(SEE_ALSO_HEADING_RE.match(line))
+            elif inside:
+                section.append(line)
+        for text, found in ((body, everywhere), ("\n".join(section), see_also)):
+            for link in extract_link_destinations(text):
+                if is_local_markdown_link(link):
+                    target = resolve_link_target(doc.path.parent, link).resolve()
+                    if target in articles:
+                        found.add(target)
+            for match in WIKILINK_RE.finditer(text):
+                stem = match.group(1).strip().replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+                owners = slugs.get(slugify(stem[:-3] if stem.lower().endswith(".md") else stem), set())
+                if len(owners) == 1:
+                    found |= owners
+        everywhere.discard(path)
+        see_also.discard(path)
+        result[path] = (everywhere, see_also)
+    return result
+
+
+def check_article_cross_links(ctx: LintContext) -> None:
+    """C4: one-way See Also links; C6: articles no other article links to (when there are two or more)."""
+    articles = {
+        doc.path.resolve(): doc
+        for doc in ctx.documents.values()
+        if is_under(doc.path.resolve(), ctx.root / "wiki") and doc.path.name != COVERAGE_REFERENCE
+    }
+    links = _article_links(ctx, articles)
+    for source in sorted(links):
+        for target in sorted(links[source][1]):
+            if source not in links[target][0]:
+                agent_pass_issue(
+                    ctx,
+                    f"{ctx.rel(source)} lists this article under See Also, but it does not link back; "
+                    "add the reverse link if it makes sense (see-also-one-way).",
+                    target,
+                    check="C4",
+                )
+    if len(articles) < 2:
+        return
+    linked = set().union(*(everywhere for everywhere, _ in links.values()))
+    for path in sorted(set(articles) - linked):
+        agent_pass_issue(
+            ctx,
+            "No other compiled article links to this one; add a See Also link from a related article "
+            "(orphan-article).",
+            path,
+            check="C6",
+        )
+
+
+MASTER_STAT_RE = re.compile(
+    r"^\s*[-*]\s+(sources|articles|inventory records|datasets|dataset manifests|outputs):\s*(\d+)\b", re.I | re.M
+)
+
+
+def master_index_counts(root: Path) -> dict[str, int]:
+    """The master ``_index.md`` statistics, derived from files (``indexing.md`` § Master Index Statistics).
+
+    Inventory views are derived pages, not records, so ``inventory/views/`` is not counted.
+    """
+    views = root / "inventory" / "views"
+    return {
+        "sources": len(content_markdown_files(root / "raw")),
+        "articles": len(content_markdown_files(root / "wiki")),
+        "inventory records": len([path for path in content_markdown_files(root / "inventory") if not is_under(path, views)]),
+        "datasets": len(list((root / "datasets").glob("*/MANIFEST.md"))),
+        "outputs": len(content_markdown_files(root / "output")),
+    }
+
+
+def check_index_statistics(ctx: LintContext) -> None:
+    """C3: a statistic in the master ``_index.md`` that disagrees with the files."""
+    index = ctx.root / "_index.md"
+    if not index.is_file():
+        return
+    text = index.read_text(encoding="utf-8", errors="replace")
+    counts: dict[str, int] | None = None
+    for match in MASTER_STAT_RE.finditer(text):
+        counts = counts or master_index_counts(ctx.root)
+        label = match.group(1).lower()
+        actual = counts["datasets" if label == "dataset manifests" else label]
+        if int(match.group(2)) != actual:
+            agent_pass_issue(
+                ctx,
+                f"Master index says {match.group(1)}: {match.group(2)}, but the wiki has {actual}; update the "
+                "statistic (index-stats-drift).",
+                index,
+                check="C3",
+            )
 
 
 def check_source_lifecycle_pointers(ctx: LintContext) -> None:

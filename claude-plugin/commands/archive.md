@@ -12,8 +12,8 @@ explicit restore/maintenance possible.
 
 Archive moves are deterministic, so this command calls the CLI. It never runs
 `mkdir`/`mv` or edits `wikis.json`, the hub `_index.md` or `log.md` by hand.
-Read `skills/wiki-manager/references/archive.md` for the lifecycle and
-`skills/wiki-manager/references/cli.md` for exact flags.
+Read `skills/wiki-manager/references/archive.md` for the lifecycle;
+`<cli> archive --help` has the exact flags.
 
 ### Locate the CLI and the hub
 

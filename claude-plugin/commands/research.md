@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 
 Conduct deep research on the topic in $ARGUMENTS. This is an automated pipeline: search → stage in `inbox/` → ingest into `raw/` → compile.
 
-Research is inbox-first, like every other Knowmade intake path. No research agent writes to `raw/` directly: every captured source is first staged as an `inbox/` capture by the agent that found it, and the batch is then processed into `raw/` by the coordinator using the same protocol `/wiki:ingest` uses (`references/ingestion.md` § Inbox Processing, `references/knowmade-profile.md` § Inbox-First Source Lifecycle). The research-specific staging and batch rules live in Phase 3 below and in `references/research-infrastructure.md` § Inbox Staging & Batch Ingest.
+Research is inbox-first, like every other Knowmade intake path. No research agent writes to `raw/` directly: every captured source is first staged as an `inbox/` capture by the agent that found it, and the batch is then processed into `raw/` by the coordinator using the same protocol `/wiki:ingest` uses (`references/ingestion.md` § Inbox Processing, `references/knowmade-profile.md` § Inbox-First Source Lifecycle). The research-specific staging and batch rules live in Phase 3 below and in `references/research-staging.md`.
 
 ### Parse $ARGUMENTS
 
@@ -72,8 +72,8 @@ through auto-classification.
 
 <!-- hub-prelude:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
-1. HUB: read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
-2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
+1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic` to create one, or run `/wiki init <topic>` first."
@@ -117,4 +117,4 @@ The procedural sections this command refers to as "below" (Specialist selection,
 | Phase 3 (stage and ingest, inbox-first) | `skills/wiki-manager/references/research-protocol.md` § Phase 3 |
 | Phases 4 and 5 (compile, report and log), Gap-Closing Offer | `skills/wiki-manager/references/research-protocol.md` § Phase 4, § Phase 5, § Gap-Closing Offer |
 
-A mode section modifies the phases; it does not replace them, so read the matching phase sections as well. Templates, scoring formulas and session schemas stay in `skills/wiki-manager/references/research-infrastructure.md`, which those sections cite where it is needed.
+A mode section modifies the phases; it does not replace them, so read the matching phase sections as well. Templates, scoring formulas and session schemas live in one small file per phase (agents, credibility, staging, rounds, sessions, plan); each section names the one it needs at the step that needs it.

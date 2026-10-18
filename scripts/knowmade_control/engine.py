@@ -64,6 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from . import fsio as _fsio
+from .frontmatter import scalar_field
 from . import roots as _roots
 from . import rules as _rules
 
@@ -244,20 +245,9 @@ def engine_rule_set() -> int:
     return _rules.CURRENT_RULE_SET
 
 
-def _scalar(fields: dict[str, Any] | None, key: str) -> str | None:
-    """A scalar frontmatter value as text, or None for absent, empty or list values."""
-    if not fields:
-        return None
-    value = fields.get(key)
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def declares_pin(fields: dict[str, Any] | None) -> bool:
     """Whether a frontmatter block declares any engine pin key."""
-    return any(_scalar(fields, key) for key in PIN_KEYS)
+    return any(scalar_field(fields, key) for key in PIN_KEYS)
 
 
 def topic_hub(wiki_root: Path) -> Path | None:
@@ -299,13 +289,13 @@ def pin_source(wiki_root: Path) -> tuple[dict[str, Any] | None, Path, str]:
 def declared_pins(wiki_root: Path) -> dict[str, str]:
     """The pin keys ``wiki_root`` declares or inherits (see :func:`pin_source`)."""
     pins, _config, _source = pin_source(wiki_root)
-    declared = {key: _scalar(pins, key) for key in PIN_KEYS}
+    declared = {key: scalar_field(pins, key) for key in PIN_KEYS}
     return {key: value for key, value in declared.items() if value is not None}
 
 
 def declared_field(wiki_root: Path, key: str) -> str | None:
     """Return a scalar field declared in the wiki's config.md frontmatter."""
-    return _scalar(_rules.config_fields(wiki_root), key)
+    return scalar_field(_rules.config_fields(wiki_root), key)
 
 
 def declared_commit(wiki_root: Path) -> str | None:
@@ -343,7 +333,7 @@ def _version_form(
     ``llm_wiki_version`` also matches the running upstream baseline.
     """
     for key in (KNOWMADE_VERSION_KEY, CHECKER_VERSION_KEY):
-        value = _scalar(fields, key)
+        value = scalar_field(fields, key)
         if value and _VERSION.match(value):
             if key == KNOWMADE_VERSION_KEY:
                 return value, key, _compare(value, running, prefix=False)
@@ -435,7 +425,7 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     commit = engine_commit()
     version = engine_version()
     pins, pin_config, source = pin_source(wiki_root)
-    declared_sha = _scalar(pins, CHECKER_SHA_KEY)
+    declared_sha = scalar_field(pins, CHECKER_SHA_KEY)
     declared_sha = declared_sha if declared_sha and _SHA.match(declared_sha) else None
     declared_ver, version_key, version_form = _version_form(pins, version)
     declared_rules, rule_present = _rules.declared_rule_set(wiki_root)
@@ -480,7 +470,7 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
         "declared_rule_set": declared_rules,
         "rule_set_status": rule_status,
         "effective_rule_set": effective_rules,
-        "declared_repo": _scalar(pins, CHECKER_REPO_KEY),
+        "declared_repo": scalar_field(pins, CHECKER_REPO_KEY),
         "declared_version_key": version_key,
         "pin_source": source,
         "pin_config": str(pin_config),
@@ -493,8 +483,8 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     }
     # Optional keys, present only when there is something to say.
     upstream = {
-        "repo": _scalar(pins, UPSTREAM_REPO_KEY),
-        "sha": _scalar(pins, UPSTREAM_SHA_KEY),
+        "repo": scalar_field(pins, UPSTREAM_REPO_KEY),
+        "sha": scalar_field(pins, UPSTREAM_SHA_KEY),
     }
     if upstream["repo"] or upstream["sha"]:
         state_doc["declared_upstream"] = upstream

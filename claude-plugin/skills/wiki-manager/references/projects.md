@@ -101,7 +101,7 @@ inside an already selected topic wiki.
 
 ## Staleness detection
 
-A project is **stale** when new information relevant to it has been ingested since its artifacts were last updated. This is detected by lint check C8b, not by a manifest field, and the chain runs through frontmatter that already exists:
+A project is **stale** when new information relevant to it has been ingested since its artifacts were last updated. Lint reports it per member (`project-stale`, C8), not through a manifest field, and the chain runs through frontmatter that already exists:
 
 1. Scan the project folder for member files with `sources:` in frontmatter
 2. Follow each `sources:` entry to the raw source file
@@ -127,13 +127,4 @@ The simpler model: pass `--project <slug>` explicitly when you want project scop
 
 ## Migration from legacy `_project.md`
 
-Existing wikis created under v0.1.0/v0.1.1 will have `_project.md` manifests. Lint check C8c detects these and auto-migrates:
-
-1. Read `_project.md` frontmatter
-2. Extract `goal:` (or `title:` if goal is missing)
-3. Read the `## Goal`, `## Context`, `## Current State` sections if present
-4. Write `WHY.md` in the same folder with the first `#` heading as the title and the extracted prose as the body
-5. Delete `_project.md`
-6. Report the migration in the lint output
-
-This is the first real application of the lint-is-the-migration principle codified in `linting.md`. One-time healing; idempotent; no separate migration command needed. See `linting.md` C8c for the full rule.
+Existing wikis created under v0.1.0/v0.1.1 will have `_project.md` manifests. Lint reports each one (`project-legacy-manifest`, C8) and `llm-wiki project migrate-why --apply` migrates it losslessly to `WHY.md`: the first application of the lint-is-the-migration principle in `linting.md`. One-time healing; idempotent. The rule is in `linting.md` § C8c.

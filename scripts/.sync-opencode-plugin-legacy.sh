@@ -71,63 +71,18 @@ for helper in $ADOPT_HELPERS; do
   chmod 0755 "$CLAUDE_BIN/$helper" "$TARGET_PLUGIN/bin/$helper"
 done
 
-mkdir -p "$TARGET_PLUGIN/skills" "$TARGET_SKILL"
-# references/ is a symlink into the canonical source. It must never be copied
-# over: copying the source references/ onto its own symlink would write into
-# the canonical tree. Mirror every other entry, then handle the link itself.
-find "$TARGET_SKILL" -mindepth 1 -maxdepth 1 ! -name references -exec rm -rf {} +
-for entry in "$SOURCE_SKILL"/* "$SOURCE_SKILL"/.[!.]*; do
-  [ -e "$entry" ] || continue
-  case "$(basename "$entry")" in
-    references) continue ;;
-  esac
-  cp -R "$entry" "$TARGET_SKILL/"
-done
-
-# Recreate the references symlink only when it is missing or wrong. Rewriting a
-# correct link every run is what breaks checkouts on platforms where ln -s
-# silently produces something other than a symlink (Windows without the
-# privilege to create them), turning a good tree into a dirty one.
-#
-# There are two correct representations. On a platform that has symlinks, the
-# entry is one. Where core.symlinks is false — git's own default on Windows —
-# git materialises a tracked symlink as a *regular file* holding the link
-# target, and that file is exactly what the repository wants committed. Treating
-# it as "not a link" is what made every sync destroy a healthy checkout: the
-# script removed the placeholder, failed to create a real link, and left a
-# directory copy in its place.
-REFERENCES_LINK="../../../../claude-plugin/skills/wiki-manager/references"
-
-references_is_intact() {
-  local path="$TARGET_SKILL/references"
-  if [ -L "$path" ]; then
-    [ "$(readlink "$path")" = "$REFERENCES_LINK" ]
-    return
-  fi
-  # Placeholder form: a regular file that git tracks with symlink mode 120000
-  # and whose whole content is the link target. The tracking question is always
-  # asked of the checkout, by repository-relative path, so it still holds when
-  # KNOWMADE_SYNC_OUT points the output tree outside the repository.
-  [ -f "$path" ] || return 1
-  [ "$(git -C "$ROOT" ls-files -s -- "$TARGET_PLUGIN_REL/skills/wiki-manager/references" 2>/dev/null | cut -d' ' -f1)" = "120000" ] || return 1
-  [ "$(cat "$path")" = "$REFERENCES_LINK" ]
-}
-
-if references_is_intact; then
-  :
-else
-  rm -rf "$TARGET_SKILL/references"
-  ln -s "$REFERENCES_LINK" "$TARGET_SKILL/references" 2>/dev/null || true
-  if [ ! -L "$TARGET_SKILL/references" ]; then
-    # No symlink support: write the same placeholder git itself checks out, so
-    # the result is byte-identical to what the repository tracks and the tree
-    # stays clean. A directory copy would both dirty the tree and duplicate the
-    # canonical references.
-    rm -rf "$TARGET_SKILL/references"
-    printf '%s' "$REFERENCES_LINK" > "$TARGET_SKILL/references"
-    echo "note: this platform cannot create symlinks; wrote the tracked link placeholder instead." >&2
-  fi
-fi
+mkdir -p "$TARGET_PLUGIN/skills"
+# references/ is copied like every other entry (emercons/knowmade#125), exactly
+# as the Codex mirror does. It used to be a tracked symlink into the canonical
+# source, which a URL or archive fetch of SKILL.md alone never delivered and
+# which git turns into a plain text file on Windows when core.symlinks is false.
+# Real copies need no link support anywhere. The old target is removed first, and
+# `rm -rf` on a symlink removes the link itself, never the tree behind it, so an
+# upgraded checkout whose references entry is still the old link (or its
+# placeholder file) is replaced rather than written through into the canonical
+# source.
+rm -rf "$TARGET_SKILL"
+cp -R "$SOURCE_SKILL" "$TARGET_SKILL"
 
 # Best-effort OpenCode query preset. It is instruction-only and shares the
 # runtime-neutral query contract, but no provider-specific live model gate is
@@ -190,10 +145,8 @@ replacements = [
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. The\nactive agent is both compiler and query engine; Obsidian is an optional viewer.\n",
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. OpenCode\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## OpenCode Integration Notes\n\nThis skill is loaded as an instruction file. OpenCode does not have Claude-style `/wiki:*` slash commands or Codex-style `@wiki` invocations. Treat those examples as shorthand for the equivalent natural-language request. For example, `/wiki:compile` means the user is asking you to compile the wiki.\n\nOpenCode's built-in tools (`read`, `write`, `edit`, `glob`, `grep`, `bash`, `webfetch`, `websearch`) map directly to the tools this skill requires. Web search requires `OPENCODE_ENABLE_EXA=1` in the environment.\n\n**Permissions**: OpenCode sandboxes file access to the project directory. The configured Knowmade hub is external. Add `external_directory` permissions in `opencode.json` for the hub and `{ \"~/.config/llm-wiki/**\": \"allow\" }`; for the preferred default, allow `~/knowmade/**`. If your hub uses another absolute path (for example iCloud Drive), add that path instead. Alternatively, use `--local` mode to keep everything in `.wiki/` inside the project.\n",
     ),
-    (
-        "**Dual-linking for Obsidian + agents.** Cross-references use both `[[wikilink]]` (for Obsidian graph view) and standard markdown `[text](path)` (for agent navigation) on the same line: `[[slug|Name]] ([Name](../category/slug.md))`. Bidirectional when it makes sense.",
-        "**Dual-linking for Obsidian + OpenCode.** Cross-references use both `[[wikilink]]` (for Obsidian graph view) and standard markdown `[text](path)` (for OpenCode navigation) on the same line: `[[slug|Name]] ([Name](../category/slug.md))`. Bidirectional when it makes sense.",
-    ),
+    # The Dual-linking principle moved to references/principles.md
+    # (emercons/knowmade#81); references are shared verbatim and say "agent".
     (
         "When this skill activates outside an explicit wiki invocation:",
         "When this skill activates outside of an explicit wiki-related request:",
@@ -216,7 +169,7 @@ for old, new in replacements:
 
 skill_path.write_text(text, encoding="utf-8", newline="\n")
 
-# references/ is a symlink to claude-plugin/skills/wiki-manager/references and
+# references/ is copied from claude-plugin/skills/wiki-manager/references and
 # is shared verbatim — no per-file replacements needed. Source references use
 # runtime-neutral wording ("the agent") so they read correctly under all runtimes.
 PY

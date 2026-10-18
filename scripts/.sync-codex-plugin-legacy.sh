@@ -193,8 +193,11 @@ EOF
 # when present, otherwise execute an installed helper from the Codex plugin
 # cache. The cache lives under the marketplace name this repository registers
 # (see .agents/plugins/marketplace.json and scripts/bootstrap-codex-plugin.sh),
-# so the fallback globs that marketplace first and only then any marketplace.
-# Among candidates it prefers the version this hooks.json was generated for,
+# so the fallback globs only that marketplace. It never widens to another
+# marketplace: a machine that also has upstream nvk/llm-wiki installed
+# (wiki@llm-wiki) would otherwise let this hook run upstream's helper
+# (emercons/knowmade#124). No Knowmade cache entry means no helper, and the
+# hook exits 0 without capturing anything. Among candidates it prefers the version this hooks.json was generated for,
 # then the highest version by numeric component comparison -- never mtime,
 # which would pick whichever cache was touched last, including a foreign
 # upstream llm-wiki install. The fallback contains no user content and
@@ -222,7 +225,7 @@ launcher = (
     "h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); "
     "c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); "
     "g=lambda m:glob.glob(os.path.join(c,m,\"wiki\",\"*\",\"hooks\",\"llm_wiki_session.py\")); "
-    f"xs=[] if os.path.isfile(p) else (g(\"{marketplace}\") or g(\"*\")); "
+    f"xs=[] if os.path.isfile(p) else g(\"{marketplace}\"); "
     "v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); "
     "k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); "
     "p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); "
@@ -322,10 +325,8 @@ replacements = [
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. The\nactive agent is both compiler and query engine; Obsidian is an optional viewer.\n",
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. Codex\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## Codex Plugin Notes\n\nCodex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@wiki` invocation.\n",
     ),
-    (
-        "**Dual-linking for Obsidian + agents.** Cross-references use both `[[wikilink]]` (for Obsidian graph view) and standard markdown `[text](path)` (for agent navigation) on the same line: `[[slug|Name]] ([Name](../category/slug.md))`. Bidirectional when it makes sense.",
-        "**Dual-linking for Obsidian + Codex.** Cross-references use both `[[wikilink]]` (for Obsidian graph view) and standard markdown `[text](path)` (for Codex navigation) on the same line: `[[slug|Name]] ([Name](../category/slug.md))`. Bidirectional when it makes sense.",
-    ),
+    # The Dual-linking principle moved to references/principles.md
+    # (emercons/knowmade#81); references are shared verbatim and say "agent".
     (
         "When this skill activates outside an explicit wiki invocation:",
         "When this skill activates outside of an explicit `@wiki` invocation or `/wiki`-style shorthand:",
@@ -371,7 +372,7 @@ need for it:
 - `ingest-collection` → `references/ingestion-collections.md`
 - hub inbox dispatch → `references/hub-dispatch.md` and `references/knowmade-profile.md`
 - `adapter` and private-adapter execution → `references/adapters.md`
-- `collect` → `references/inventory.md` and `references/research-infrastructure.md`
+- `collect` → `references/inventory.md`
 - `inventory` → `references/inventory.md`
 - `idea` → `references/ideas.md`
 - `dataset` → `references/datasets.md`
@@ -381,7 +382,7 @@ need for it:
   needed to answer
 - `lint` → `references/linting.md`
 - `audit` → `references/audit.md`
-- `research` → `references/research-protocol.md`, `references/research-modes.md` and `references/research-infrastructure.md`
+- `research` → `references/research-protocol.md` and `references/research-modes.md`; they name the per-phase file (`research-agents`, `-credibility`, `-staging`, `-rounds`, `-sessions`, `-plan`) each step reads
 - `plan` → `references/plan-protocol.md`
 - `assess` → `references/assess-protocol.md`
 - `output` → `references/output-protocol.md`

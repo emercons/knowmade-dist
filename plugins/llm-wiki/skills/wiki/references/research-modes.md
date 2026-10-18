@@ -14,71 +14,13 @@ When `--min-time` is set, create and maintain:
 - an **ephemeral session registry** for crash recovery and round-to-round state
 - **durable provenance artifacts** for replayable audit trails and resume briefings
 
-**Ephemeral location**: `<wiki-root>/.research-session.json`
-
-**Durable locations**:
-- `<wiki-root>/.session-events.jsonl`
-- `<wiki-root>/.session-checkpoint.json`
-
-**Schema**:
-```json
-{
-  "session_id": "YYYY-MM-DD-HHmmss",
-  "topic": "research topic",
-  "mode": "single|plan",
-  "start_time": "ISO 8601",
-  "min_time_budget": "2h",
-  "specialists": [
-    {
-      "name": "research-methodologist",
-      "version": "0.1.0",
-      "sha256": "<content-sha256>"
-    }
-  ],
-  "current_round": 1,
-  "paths": [
-    {
-      "name": "Path name",
-      "focus": "What this path investigates",
-      "search_angles": ["angle1", "angle2"],
-      "status": "pending|in_progress|completed|failed",
-      "sources_ingested": 3
-    }
-  ],
-  "rounds_completed": [
-    {
-      "round": 1,
-      "sources_ingested": 5,
-      "articles_compiled": 3,
-      "gaps": ["gap1", "gap2"],
-      "progress_score": 65
-    }
-  ],
-  "cumulative_sources": 5,
-  "cumulative_articles": 3,
-  "status": "in_progress"
-}
-```
-
-The `mode` field defaults to `"single"` for backward compatibility. When `--plan` is set, `mode` is `"plan"` and `paths` is populated. For single-path sessions, `paths` is omitted. See `references/research-infrastructure.md` § Research Plan Schema for the full schema and resume protocol.
-
-**Lifecycle**:
-1. **Create** `.research-session.json` at session start (Round 1 begins)
-2. **Append** `research_started` to `.session-events.jsonl` and write an initial `.session-checkpoint.json`
-3. **Update** after each round completes — sources, articles, gaps, progress score
-4. **Append** round and reflection events after each meaningful milestone; refresh `.session-checkpoint.json`
-5. **On completion** → set status to `completed`, append `research_completed`, refresh `.session-checkpoint.json`, delete only `.research-session.json`
-6. **On interruption** → `.research-session.json` persists with status `in_progress`; durable provenance files remain
-
-**Resume detection**: At command start, if `.research-session.json` exists with `status: "in_progress"`:
-- Read the file to understand what was already done
-- Ask: "Found interrupted session (Round N, M sources so far). Continue from Round N+1, or start fresh?"
-- If continue: skip Phase 1, read round N's gaps as starting point for round N+1
-- If fresh: delete the file and start over
-
-If no active `.research-session.json` exists but `.session-checkpoint.json` does, read the checkpoint and recent `.session-events.jsonl` entries to summarize the most recent completed research before starting fresh.
-
-**Cleanup**: Delete `.research-session.json` when research completes normally. Keep `.session-events.jsonl` and `.session-checkpoint.json` as durable provenance.
+Both live in the wiki root: `.research-session.json` (ephemeral, deleted on
+normal completion) and `.session-events.jsonl` plus `.session-checkpoint.json`
+(durable). Their schemas, lifecycle, resume protocol and cleanup are in
+`references/research-sessions.md` (`mode: plan` adds `paths`:
+`references/research-plan.md`). On resume, skip Phase 1 and start from the last
+completed round's gaps. Round scoring, termination and reflection are in
+`references/research-rounds.md`.
 
 When `--min-time` is set, research runs in ROUNDS until the time budget is spent:
 
@@ -310,7 +252,7 @@ After Phase 1 (existing knowledge check), generate a research plan:
 On confirmation, launch one Agent per path (single message, multiple Agent tool calls). Each path-agent receives:
 
 - Its specific focus and search angles from the plan
-- The standard agent template from `references/research-infrastructure.md`
+- The standard agent template from `references/research-agents.md`
 - Instructions to run the full search → stage → credibility → ingest pipeline (Phases 2, 2b, 3 below). The path-agent is the batch coordinator for its own sub-agents: sub-agents stage captures in `inbox/`, the path-agent reviews and processes them into `raw/`
 - A path identifier used to prefix inbox capture and raw file slugs for deduplication
 
@@ -339,7 +281,7 @@ In addition to the standard report fields, include:
 
 #### Session Registry Extension
 
-When `--plan` is active, `.research-session.json` includes additional fields. See `references/research-infrastructure.md` § Research Plan Schema for the full schema. The `mode` field distinguishes plan sessions from single-path sessions. Resume detection checks `paths[].status` to re-launch only incomplete paths.
+When `--plan` is active, `.research-session.json` includes additional fields. See `references/research-plan.md` for the full schema. The `mode` field distinguishes plan sessions from single-path sessions. Resume detection checks `paths[].status` to re-launch only incomplete paths.
 
 #### Interaction with `--min-time`
 

@@ -9,6 +9,7 @@ compatibility module ``legacy_cli`` (which imports ``run_schema`` from here).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +133,17 @@ def run_schema(args: Any) -> int:
     if is_hub(root):
         raise SystemExit("schema operations target a topic wiki, not the hub")
     subcommand = args.schema_command
+    if not (root / "config.md").is_file():
+        # A typo path or a directory that is not a wiki: one message and exit
+        # 2 (a usage error, as `links` and `privacy` do), never a traceback or a
+        # successful "missing" status (emercons/knowmade#103).
+        message = f"not an initialized wiki: {root}"
+        if args.json:
+            error = {"command": subcommand, "error": message, "ok": False, "root": str(root)}
+            print(json.dumps(error, indent=2, sort_keys=True))
+        else:
+            print(f"llm-wiki schema: {message}", file=sys.stderr)
+        return 2
     if subcommand == "status":
         payload = schema_status_payload(root)
         if args.json:

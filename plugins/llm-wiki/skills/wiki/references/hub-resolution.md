@@ -15,8 +15,8 @@ deliberately short: the common case needs no reference read.
 
 <!-- hub-prelude-template:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
-1. HUB: read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
-2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
+1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude-template:end -->
 
@@ -29,9 +29,9 @@ stays in the command, next to the block (see Wiki-requirement variants).
 any filesystem search. Each step is a single Read. Most configured sessions
 resolve by step 3.**
 
-The hub path comes from one `hub_path` config (or `~/wiki/` when no config
-exists). Earlier versions checked `~/wiki/` first, which fails in sandboxed
-environments where `~/wiki/` is not an allowed path.
+HUB order: `--hub`, then `$LLM_WIKI_HUB`, then (only with `"hub_discovery":
+"cwd"` in config) the nearest enclosing directory holding `wikis.json` and
+`topics/`, then the steps below; `llm-wiki hub where` names the winner.
 
 1. Read `~/.config/llm-wiki/config.json` (expand `~` to `$HOME`).
 2. If config has `hub_path`, expand the leading `~` ONLY and treat that as the
@@ -175,27 +175,21 @@ which wiki to compare against) stay in the command file.
 
 ## Registry Path Resolution
 
-`HUB/wikis.json` usually lives inside the shared hub folder, so its paths must
-be portable across machines. Prefer relative paths for topic wikis:
-
-```json
-{
-  "default": "<HUB>",
-  "wikis": {
-    "hub": { "path": "<HUB>", "description": "Hub" },
-    "bitcoin": { "path": "topics/bitcoin", "description": "Bitcoin wiki" }
-  },
-  "local_wikis": []
-}
-```
+Tracked `HUB/wikis.json` paths ([format](wiki-structure.md#wikisjson-format))
+must be portable: `<HUB>`-relative. A machine-specific path goes in the
+gitignored `HUB/wikis.local.json`, same shape, only `path` read.
 
 Resolve an entry path in this order:
 
-1. `<HUB>` or `HUB` → the resolved hub path
-2. `<HUB>/...` or `HUB/...` → relative to the resolved hub path
-3. Leading `~/...` → expand `~` on the current machine
-4. Absolute path → use as written
-5. Any other path → relative to HUB
+1. `HUB/wikis.local.json` path of the same slug, for an active entry only
+2. `<HUB>` or `HUB` → the resolved hub path
+3. `<HUB>/...` or `HUB/...` → relative to the resolved hub path
+4. Leading `~/...` → expand `~` on the current machine
+5. Absolute path → use as written
+6. Any other path → relative to HUB
+7. A directory with no `_index.md` but a `.wiki/_index.md` → that `.wiki/`
+
+`llm-wiki hub registry check --portable` fails on a non-portable tracked path.
 
 If an entry's path is missing but `HUB/topics/<entry-name>/_index.md` exists,
 use `HUB/topics/<entry-name>` and repair the registry on the next `wikis.json`

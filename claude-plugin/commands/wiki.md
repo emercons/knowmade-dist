@@ -8,8 +8,8 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(mkdir
 
 <!-- hub-prelude:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
-1. HUB: read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
-2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
+1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` if found. Variant: **wiki-neutral** — `wiki.md` is the router, init, and config command, so "wiki missing" is not always an error; the init subcommand creates the wiki, status shows an empty hub gracefully, and the natural-language router explains how to create one.
@@ -156,8 +156,7 @@ from any other table.
 Before routing an external-action request, run the route check with the
 bundled CLI, normalizing the requested effect to a lowercase token first:
 `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" adapter route --intent <effect> --resource '<url>' --json`
-(`scripts/llm-wiki` in a source checkout; flags in
-`skills/wiki-manager/references/cli.md`). If the CLI cannot run, treat the
+(`scripts/llm-wiki` in a source checkout; flags in `adapter route --help`). If the CLI cannot run, treat the
 result as `unavailable` for an action request and fail closed; `router.md`
 says how each outcome routes.
 

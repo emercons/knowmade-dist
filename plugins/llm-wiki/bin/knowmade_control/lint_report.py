@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +58,8 @@ class Issue:
     check: str = ""
     # The repair class that fixes it (``FIX_CLASSES``); empty when not fixable.
     fix_class: str = ""
+    # The 1-based line in ``path`` the finding is about; 0 when it has none.
+    line: int = 0
 
     def sort_key(self) -> tuple[int, str, str]:
         order = {"critical": 0, "warning": 1, "suggestion": 2, "info": 3}
@@ -146,9 +149,10 @@ class LintContext:
         *,
         check: str,
         fix_class: str = "",
+        line: int = 0,
     ) -> None:
         self.issues.append(
-            Issue(severity, message, path, fixable, fixed, check, fix_class if fixable else "")
+            Issue(severity, message, path, fixable, fixed, check, fix_class if fixable else "", line)
         )
 
     @property
@@ -281,13 +285,57 @@ def report_lint_result(ctx: LintContext, args: argparse.Namespace) -> int:
     exit code, so ``--fail-on`` can never make them disagree.
     """
     fail_on = effective_fail_on(args, ctx.preflight)
-    exit_code = lint_exit_code(ctx.counts(), fail_on)
+    counts = ctx.counts()
+    max_warnings = getattr(args, "max_warnings", None)
+    too_many_warnings = max_warnings is not None and counts["warning"] > max_warnings
+    exit_code = 1 if too_many_warnings else lint_exit_code(counts, fail_on)
     failed = exit_code != 0
     if args.json:
-        print_json_report(ctx, failed=failed, fail_on=fail_on)
+        print_json_report(ctx, failed=failed, fail_on=fail_on, max_warnings=max_warnings)
     else:
-        print_text_report(ctx, failed=failed)
+        print_text_report(ctx, failed=failed, max_warnings=max_warnings)
+    if getattr(args, "github_annotations", False):
+        # Workflow commands are read from both streams of an Actions step, so
+        # --json keeps stdout a single JSON document.
+        print_annotations(ctx, sys.stderr if args.json else sys.stdout)
     return REFUSED_EXIT if ctx.refused else exit_code
+
+
+# GitHub workflow-command kind for each severity. ``scripts/ci-lint`` renders
+# the same annotations from ``lint --json``; it is a standalone script and
+# imports nothing from here, so ANNOTATION_KINDS, ``escape_annotation`` and
+# ``annotation_line`` are kept identical to its ANNOTATION, ``escape`` and
+# ``annotation`` by hand (a test compares their output).
+ANNOTATION_KINDS = {"critical": "error", "warning": "warning", "suggestion": "notice", "info": "notice"}
+
+
+def escape_annotation(value: str, *, prop: bool = False) -> str:
+    """Escape one workflow-command field: CR, LF and ``%``; in data also ``::``, in a property ``:`` and ``,``."""
+    value = value.replace("%", "%25").replace(chr(13), "%0D").replace(chr(10), "%0A")
+    if prop:
+        return value.replace(":", "%3A").replace(",", "%2C")
+    return value.replace("::", ": :")
+
+
+def annotation_line(ctx: LintContext, issue: Issue) -> str:
+    """``::<kind> file=...,line=...,title=Knowmade C<n>::<message>`` for one finding."""
+    kind = ANNOTATION_KINDS.get(issue.severity, "notice")
+    target = issue.path if issue.path else ctx.root
+    try:
+        name = Path(os.path.relpath(target, Path.cwd())).as_posix()
+    except ValueError:  # another drive on Windows
+        name = Path(target).as_posix()
+    properties = [f"file={escape_annotation(name, prop=True)}"]
+    if issue.line:
+        properties.append(f"line={issue.line}")
+    check = issue.check or "lint"
+    properties.append(f"title={escape_annotation(f'Knowmade {check}', prop=True)}")
+    return f"::{kind} {','.join(properties)}::{escape_annotation(issue.message)}"
+
+
+def print_annotations(ctx: LintContext, stream: Any) -> None:
+    for issue in sorted(ctx.active_issues(), key=lambda item: item.sort_key()):
+        print(annotation_line(ctx, issue), file=stream)
 
 
 def effective_fail_on(args: argparse.Namespace, preflight: bool = False) -> str:
@@ -329,6 +377,7 @@ def print_json_report(
     ctx: LintContext,
     failed: bool | None = None,
     fail_on: str = "suggestion",
+    max_warnings: int | None = None,
 ) -> None:
     counts = ctx.counts()
     if failed is None:
@@ -348,10 +397,13 @@ def print_json_report(
                 "message": issue.message,
                 "path": ctx.rel(issue.path) if issue.path else None,
                 "fixable": issue.fixable,
+                **({"line": issue.line} if issue.line else {}),
             }
             for issue in sorted(ctx.active_issues(), key=lambda item: item.sort_key())
         ],
     }
+    if max_warnings is not None:
+        report["max_warnings"] = max_warnings
     if ctx.preflight or ctx.refused:
         report["plan"] = [planned_fix_json(ctx, item) for item in ctx.plan]
     if ctx.refused:
@@ -368,7 +420,11 @@ def planned_fix_json(ctx: LintContext, item: PlannedFix) -> dict[str, str]:
     }
 
 
-def print_text_report(ctx: LintContext, failed: bool | None = None) -> None:
+def print_text_report(
+    ctx: LintContext,
+    failed: bool | None = None,
+    max_warnings: int | None = None,
+) -> None:
     counts = ctx.counts()
     if failed is None:
         failed = lint_exit_code(counts) != 0
@@ -401,7 +457,7 @@ def print_text_report(ctx: LintContext, failed: bool | None = None) -> None:
         print("\nFindings:")
         for issue in sorted(ctx.active_issues(), key=lambda item: item.sort_key()):
             prefix = SEVERITY_LABELS.get(issue.severity, issue.severity.title())
-            location = f" ({ctx.rel(issue.path)})" if issue.path else ""
+            location = f" ({ctx.rel(issue.path)}{f':{issue.line}' if issue.line else ''})" if issue.path else ""
             fixable = " Run again with --fix to apply the safe fix." if issue.fixable and not ctx.fix else ""
             print(f"- {prefix}: {issue.message}{location}{fixable}")
     else:
@@ -412,6 +468,8 @@ def print_text_report(ctx: LintContext, failed: bool | None = None) -> None:
         f"{counts['suggestion']} suggestions, {counts['info']} info, "
         f"{len(ctx.fixes)} auto-fixed."
     )
+    if max_warnings is not None and counts["warning"] > max_warnings:
+        print(f"{counts['warning']} warnings exceed --max-warnings {max_warnings}.")
     if ctx.refused:
         refused = ",".join(sorted({item.fix_class for item in ctx.refused}))
         print(f"Result: REFUSED (--refuse-on {refused})")

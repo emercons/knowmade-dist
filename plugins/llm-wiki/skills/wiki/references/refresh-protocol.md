@@ -91,15 +91,7 @@ After all actions, update the article's `verified` date to today.
 
 ### --due Mode
 
-When `--due` is set (`llm-wiki freshness report --path <topic> --json` lists the articles past their day window deterministically; the score below ranks them):
-
-1. Read all wiki articles (glob `wiki/**/*.md`, exclude `_index.md`)
-2. For each, read `volatility` and `verified` from frontmatter
-3. Compute days since verified
-4. Read `freshness_threshold` from `config.md` (default: 70)
-5. Filter to articles scoring below the threshold
-6. Sort by score ascending (lowest freshness first)
-7. Present as numbered list:
+When `--due` is set, run `llm-wiki freshness score --path <topic> --json`: it lists the articles below `freshness_threshold` (default 70), lowest score first (`freshness report` adds the ones past their day window). Present them as a numbered list:
 
 ```
 ### Articles due for freshness review

@@ -1,66 +1,7 @@
 """Codex app-server JSON-RPC client shared by the live harnesses.
 
-``scripts/benchmark-token-efficiency`` and ``scripts/eval-codex-adoption``
-each carried a copy of this client and the copies had drifted apart
-(emercons/knowmade#67, R2.1). This module is the one implementation: process
-lifecycle, the JSON-RPC request/notification protocol, the turn event loop
-with dynamic-tool dispatch, and the per-turn token accounting the benchmark
-reports (emercons/knowmade#46).
-
-Divergences between the two copies and what this module keeps:
-
-- ``Event`` carried ``received_at`` only in the benchmark copy. Kept: the
-  timestamp is what TTFT and latency are measured from.
-- ``request()`` returned ``(result, received_at)`` in the benchmark and the
-  bare result in the eval. Kept: the tuple; callers that do not time the
-  response discard the second value.
-- ``request()`` in the benchmark raised on any server-initiated request that
-  arrived while a response was pending; the eval buffered it. Kept: buffering.
-  A dynamic tool call that arrives before the ``turn/start`` response is then
-  dispatched by the turn loop instead of aborting the run, and an unsupported
-  request still fails at the next turn loop with the same message.
-- ``request()`` in the eval also scanned the pending buffer for a response
-  before reading the queue. Dropped: a response cannot precede its request,
-  and ``next_event()`` is the only consumer of the buffer.
-- ``resolve_command()`` in the eval rejected an empty command; the benchmark
-  returned an empty argv that would have failed later inside ``Popen``.
-  Kept: the explicit ``AppServerError``.
-- ``close()`` in the eval killed the child without waiting; the benchmark
-  waited after ``kill()``. Kept: the wait, so a ``TemporaryDirectory`` cleanup
-  that follows never races a child that still holds files open.
-- A non-JSON stdout line: the benchmark raised inside the reader thread and
-  surfaced the exception; the eval queued an ``AppServerError`` and stopped.
-  Both then queued "stdout closed". Kept: one error item, then the closed
-  marker, in that order, so the first message the main thread sees names the
-  cause.
-- Reader-side attributes were private in the benchmark and public in the
-  eval. Kept: private; ``token_totals`` is the one public piece of state.
-- ``initialize()`` hard-coded a client name per script. Kept: parameterised.
-- Model-generated tool arguments were decoded with an unguarded
-  ``json.loads`` in both copies, so one malformed string aborted a paid run.
-  Replaced by :func:`parse_tool_arguments`, which returns ``None`` and lets
-  the handler answer ``success: false``.
-- The turn loop: the benchmark tracked TTFT, token usage, compactions and
-  ``commandExecution``/``fileChange``/``mcpToolCall`` items; the eval tracked
-  only output, status and error. Kept: the superset in :func:`run_turn`;
-  item rows go through an optional ``on_item`` callback so each harness keeps
-  its own report shape.
-- Default server commands differ (the benchmark disables Codex code mode,
-  the eval does not). They are harness policy, not client behaviour, and stay
-  in the scripts.
-
-Token accounting (emercons/knowmade#46). ``thread/tokenUsage/updated`` is
-emitted once per model request and carries two blocks: ``last`` (that one
-request) and ``total`` (cumulative for the thread). A turn that calls a tool
-makes at least two model requests, so recording ``last`` at ``turn/completed``
-described only the request after the final tool result and dropped the one
-where the skill text was actually uncached. :func:`run_turn` snapshots the
-thread's ``total`` before ``turn/start`` and records the delta at
-``turn/completed``; ``token_accounting`` in the result says which rule
-produced the numbers (``total_delta``; ``last_sum`` when the server reported
-no usable ``total``; ``none`` when it reported nothing). Reports recorded
-with the old ``last`` rule are not comparable with ones recorded under this
-rule; see ``benchmarks/README.md``.
+The one client for the benchmark and the adoption eval; the divergences between
+their former copies are recorded in ``docs/history/app-server-changelog.md``.
 """
 
 from __future__ import annotations
@@ -424,6 +365,19 @@ def run_turn(
     ``(tool_result, activity_row)``; ``on_item`` may turn a completed
     non-message item into an activity row. Both kinds of rows land in
     ``tool_activity`` in event order.
+
+    Token accounting (emercons/knowmade#46). ``thread/tokenUsage/updated`` is
+    emitted once per model request and carries two blocks: ``last`` (that one
+    request) and ``total`` (cumulative for the thread). A turn that calls a tool
+    makes at least two model requests, so recording ``last`` at ``turn/completed``
+    described only the request after the final tool result and dropped the one
+    where the skill text was actually uncached. :func:`run_turn` snapshots the
+    thread's ``total`` before ``turn/start`` and records the delta at
+    ``turn/completed``; ``token_accounting`` in the result says which rule
+    produced the numbers (``total_delta``; ``last_sum`` when the server reported
+    no usable ``total``; ``none`` when it reported nothing). Reports recorded
+    with the old ``last`` rule are not comparable with ones recorded under this
+    rule; see ``benchmarks/README.md``.
     """
     snapshot = dict(server.token_totals.get(thread_id) or {})
     started = time.monotonic()

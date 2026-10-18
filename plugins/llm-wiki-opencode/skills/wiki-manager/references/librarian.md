@@ -19,7 +19,7 @@ operational protocols for `wiki librarian`.
 
 ## Staleness Scoring (Pass 1)
 
-Composite score 0-100 across four dimensions, each contributing 0-25 points. Uses the same four dimensions as the freshness design in `wiki-articles.md`, applied per-article.
+Composite score 0-100 across four dimensions, each contributing 0-25 points. Uses the same four dimensions as the freshness design in `wiki-articles.md`, applied per-article. `llm-wiki freshness score --all --json` computes it deterministically: one row per article with `score`, `factors` and `unresolved_sources`.
 
 ### Dimensions
 

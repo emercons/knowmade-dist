@@ -137,6 +137,7 @@ def issue_versioned(
     fix_class: str = "",
     exceptional_critical: bool = False,
     target_rule_set: int | None = None,
+    line: int = 0,
 ) -> None:
     """Emit a stricter lint rule at the severity appropriate for this corpus.
 
@@ -150,7 +151,8 @@ def issue_versioned(
     when set, so a minimal context without the keyword still works).
     ``target_rule_set`` overrides the corpus declaration. It exists for findings
     about the declaration itself (outside the window, so no supported set can
-    judge it); ordinary checks must leave it unset.
+    judge it); ordinary checks must leave it unset. ``line`` is the 1-based line
+    of the finding in ``path``, 0 when it has none (passed on only when set).
     """
     if target_rule_set is None:
         try:
@@ -164,7 +166,8 @@ def issue_versioned(
     )
     if severity is None:
         return
+    extra = {"line": line} if line else {}
     if fixable and fix_class:
-        ctx.issue(severity, message, path, fixable=True, check=check, fix_class=fix_class)
+        ctx.issue(severity, message, path, fixable=True, check=check, fix_class=fix_class, **extra)
     else:
-        ctx.issue(severity, message, path, fixable=fixable, check=check)
+        ctx.issue(severity, message, path, fixable=fixable, check=check, **extra)

@@ -10,9 +10,24 @@ USER_HOME="${HOME}"
 PRINT_ONLY=0
 VERIFY=0
 ALLOW_COEXISTING=0
-# How often `codex plugin add` is attempted when Windows refuses to replace the
-# cache entry (see codex_plugin_add below). Attempt N waits N seconds first.
-CODEX_INSTALL_ATTEMPTS="${CODEX_INSTALL_ATTEMPTS:-5}"
+# How long `codex plugin add` is retried in total when Windows refuses to
+# replace the cache entry (see codex_plugin_add below): the sum of the waits
+# between attempts, in seconds. The waits double from 1 s and are capped at
+# CACHE_RETRY_CAP_SECONDS, so the default 30 s budget is about 8 attempts. 0
+# disables retrying. A scanner that held the entry for more than ~10 s outlasted
+# the old fixed 5-attempt schedule (knowmade#86).
+CACHE_RETRY_SECONDS="${KNOWMADE_CODEX_CACHE_RETRY_SECONDS:-30}"
+CACHE_RETRY_CAP_SECONDS=5
+# Exit status when the budget ran out while Codex still could not replace the
+# entry (EX_TEMPFAIL). Callers such as tests/test-codex-runtime.sh use it to
+# tell "something outside this repository held a file" from a real failure.
+EXIT_CACHE_HELD=75
+case "$CACHE_RETRY_SECONDS" in
+  ''|*[!0-9]*)
+    echo "KNOWMADE_CODEX_CACHE_RETRY_SECONDS must be a whole number of seconds, got '$CACHE_RETRY_SECONDS'" >&2
+    exit 1
+    ;;
+esac
 
 usage() {
   cat <<'EOF'
@@ -33,6 +48,15 @@ Options:
   --allow-coexisting     Install even when another enabled plugin named wiki
                          (upstream wiki@llm-wiki) would make @wiki ambiguous
   -h, --help             Show this help
+
+Environment:
+  KNOWMADE_CODEX_CACHE_RETRY_SECONDS
+                         On Windows a scanner or indexer can hold a file in the
+                         Codex plugin cache and block the install's directory
+                         rename. The install is retried (waits of 1, 2, 4, then
+                         5 s) for up to this many seconds in total (default 30,
+                         0 = no retry). When it runs out the helper names the
+                         held file and exits 75.
 EOF
 }
 
@@ -179,12 +203,12 @@ fi
 # sweep_cache_leftovers removes. The read-only bit travels with a copied file
 # on Windows and would stop Codex from removing an old version, so the entry
 # is made writable before every attempt.
-sweep_cache_leftovers() {
+sweep_cache_leftovers() {  # sweep_cache_leftovers [quiet]: quiet suppresses the still-in-use warning
   local leftover
   [[ -d "$PLUGIN_CACHE_ROOT" ]] || return 0
   for leftover in "$PLUGIN_CACHE_ROOT"/plugin-install-* "$PLUGIN_CACHE_ROOT"/plugin-backup-*; do
     [[ -e "$leftover" ]] || continue
-    if ! rm -rf "$leftover" 2>/dev/null; then
+    if ! rm -rf "$leftover" 2>/dev/null && [[ "${1:-}" != quiet ]]; then
       echo "warning: stale Codex cache directory is still in use and was left behind:" >&2
       echo "  $leftover" >&2
     fi
@@ -200,15 +224,39 @@ is_cache_replace_error() {
   grep -Eq 'os error (5|32)\b|failed to (activate|back up) (updated )?plugin cache entry|failed to remove existing plugin cache entry' <<<"$1"
 }
 
+# find_held_file: best-effort name of the file that keeps Codex from replacing
+# the entry. Windows refuses to rename a file another process holds open, so a
+# rename to a probe name and back identifies it; on POSIX nothing is ever held
+# and nothing is reported. Prints the first held path and succeeds, or fails.
+find_held_file() {
+  local root candidate probe
+  for root in "$PLUGIN_CACHE_ROOT"/plugin-install-* "$PLUGIN_CACHE_ROOT"/plugin-backup-* "$PLUGIN_CACHE_ENTRY"; do
+    [[ -d "$root" ]] || continue
+    while IFS= read -r candidate; do
+      probe="$candidate.knowmade-probe"
+      if mv -- "$candidate" "$probe" 2>/dev/null; then
+        mv -- "$probe" "$candidate" 2>/dev/null || true
+      else
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done < <(find "$root" -type f 2>/dev/null | head -n 2000)
+  done
+  return 1
+}
+
 # codex_plugin_add <codex plugin add arguments...>: run the install, retrying
-# while Codex cannot replace the cache entry. Prints the stdout of the
-# successful attempt (the JSON result when --json was given).
+# while Codex cannot replace the cache entry, for up to CACHE_RETRY_SECONDS of
+# waiting (exponential backoff from 1 s, capped at CACHE_RETRY_CAP_SECONDS).
+# Prints the stdout of the successful attempt (the JSON result when --json was
+# given). When the budget runs out it names the held file where it can and
+# returns EXIT_CACHE_HELD; any other failure returns Codex's own status.
 codex_plugin_add() {
-  local attempt=1 output errors status
+  local attempt=1 output errors status delay=1 waited=0 pause held
   local err_file
   err_file="$(mktemp)"
   while :; do
-    sweep_cache_leftovers
+    sweep_cache_leftovers quiet
     make_cache_writable
     status=0
     output="$(codex_in_home "$USER_HOME" plugin add "$@" 2>"$err_file")" || status=$?
@@ -220,19 +268,39 @@ codex_plugin_add() {
       printf '%s\n' "$output"
       return 0
     fi
-    if ! is_cache_replace_error "$errors" || [[ "$attempt" -ge "$CODEX_INSTALL_ATTEMPTS" ]]; then
+    if ! is_cache_replace_error "$errors"; then
       rm -f "$err_file"
       [[ -z "$output" ]] || printf '%s\n' "$output" >&2
       printf '%s\n' "$errors" >&2
-      if is_cache_replace_error "$errors"; then
-        echo "Codex could not replace the installed plugin cache entry after $attempt attempts:" >&2
-        echo "  $PLUGIN_CACHE_ENTRY" >&2
-        echo "Close whatever holds files under that directory (Codex, an editor, a terminal, a scanner) and rerun." >&2
-      fi
       return "$status"
     fi
-    echo "Codex could not replace the plugin cache entry (attempt $attempt of $CODEX_INSTALL_ATTEMPTS); retrying in ${attempt}s" >&2
-    sleep "$attempt"
+    if [[ "$waited" -ge "$CACHE_RETRY_SECONDS" ]]; then
+      rm -f "$err_file"
+      [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+      printf '%s\n' "$errors" >&2
+      echo "Codex could not replace the installed plugin cache entry after $attempt attempt(s) and ${waited}s of retrying:" >&2
+      echo "  $PLUGIN_CACHE_ENTRY" >&2
+      if held="$(find_held_file)"; then
+        echo "A file under the plugin cache is held open by another process (virus scanner, search indexer, editor, a running Codex):" >&2
+        echo "  $held" >&2
+      else
+        echo "No single held file could be identified; something may hold a directory under it." >&2
+      fi
+      echo "Close whatever holds it, or exclude $PLUGIN_CACHE_ROOT from scanning/indexing, then rerun." >&2
+      echo "To wait longer, set KNOWMADE_CODEX_CACHE_RETRY_SECONDS (now $CACHE_RETRY_SECONDS)." >&2
+      return "$EXIT_CACHE_HELD"
+    fi
+    pause="$delay"
+    if [[ "$pause" -gt $((CACHE_RETRY_SECONDS - waited)) ]]; then
+      pause=$((CACHE_RETRY_SECONDS - waited))
+    fi
+    echo "Codex could not replace the plugin cache entry (attempt $attempt); retrying in ${pause}s (${waited}s of ${CACHE_RETRY_SECONDS}s waited)" >&2
+    sleep "$pause"
+    waited=$((waited + pause))
+    delay=$((delay * 2))
+    if [[ "$delay" -gt "$CACHE_RETRY_CAP_SECONDS" ]]; then
+      delay="$CACHE_RETRY_CAP_SECONDS"
+    fi
     attempt=$((attempt + 1))
   done
 }

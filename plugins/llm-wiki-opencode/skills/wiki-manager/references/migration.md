@@ -238,6 +238,13 @@ If a worker decides not to process an already claimed row yet, release it:
 llm-wiki adopt release <batch> --item-id <id>
 ```
 
+### Interrupted move batch
+
+`adopt claim` exits 2 on a batch whose `state.json` says `staging: interrupted`
+(a `--mode move --apply` that died part-way): unmoved originals still sit at
+their source paths. `adopt verify` lists which rows moved. `adopt repair <batch>
+--yes` stages the rest; `claim --allow-interrupted` overrides the guard.
+
 ### Lock recovery
 
 Mutations use `.batch.lock` and fail closed if another worker owns the batch.

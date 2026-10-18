@@ -20,10 +20,15 @@ from typing import Any, NamedTuple
 from . import freshness as _freshness
 from .common import PRIVATE_SUFFIX, add_scope_arguments
 from .lint_docs import (
+    check_article_cross_links,
     check_canonical_placement,
     check_coverage,
     check_frontmatter_schema,
     check_index_consistency,
+    check_index_rows,
+    check_index_statistics,
+    check_migration_candidates,
+    check_output_candidates,
     check_projects,
     check_source_lifecycle_pointers,
     check_source_provenance,
@@ -34,6 +39,8 @@ from .lint_docs import (
     fix_source_references,
     load_documents,
 )
+from .datasets import check_datasets
+from .lint_citations import check_citations
 from .lint_hub import (
     HUB_STEPS,
     check_engine_contract,
@@ -52,6 +59,15 @@ from .lint_report import (
     report_lint_result,
 )
 from .roots import is_hub, resolve_wiki_root_args as resolve_wiki_root
+
+
+# Opt-in checks, run after every step of a wiki root (never on a hub root and
+# never repairing): ``lint --profile NAME`` enables one. Off by default, so a
+# plain ``lint`` is unchanged. Each is judged through the severity ladder.
+PROFILES: dict[str, Step] = {
+    "citations": Step("citations profile", check_citations),
+    "datasets": Step("datasets profile", check_datasets),
+}
 
 
 # What a wiki root runs after the checks every root runs, in run order. The
@@ -85,8 +101,16 @@ WIKI_STEPS: tuple[Step, ...] = (
         fix="regenerate a generated index, repair a curated one in place",
         fix_class="index",
     ),
+    Step(
+        "index rows",
+        check_index_rows,
+        fix="refresh the stale rows of a generated index (after the frontmatter repairs)",
+        fix_class="index",
+    ),
+    Step("index statistics", check_index_statistics),
     Step("links", check_links),
     Step("wiki-links", check_wikilinks),
+    Step("article cross-links", check_article_cross_links),
     Step("footnotes", check_footnotes),
     Step("source provenance", check_source_provenance),
     Step("tags", check_tags),
@@ -98,6 +122,8 @@ WIKI_STEPS: tuple[Step, ...] = (
     ),
     Step("freshness", _freshness.check_freshness),
     Step("projects", check_projects),
+    Step("output candidates", check_output_candidates),
+    Step("migration candidates", check_migration_candidates),
     Step("source lifecycle pointers", check_source_lifecycle_pointers),
 )
 
@@ -178,11 +204,44 @@ def fix_options(args: argparse.Namespace) -> FixOptions:
     )
 
 
+def profile_names(value: str) -> list[str]:
+    """``argparse`` type of a ``NAME[,NAME]`` lint-profile list."""
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    unknown = [name for name in names if name not in PROFILES]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(
+            f"unknown lint profile {', '.join(unknown) or repr(value)}; "
+            f"choose from {', '.join(PROFILES)}"
+        )
+    return names
+
+
+def non_negative_int(value: str) -> int:
+    """``argparse`` type of a count that may be zero."""
+    try:
+        number = int(value)
+    except ValueError:
+        number = -1
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"expected a non-negative integer, not {value!r}")
+    return number
+
+
 def run_lint(args: argparse.Namespace) -> int:
     # Imported here: lint_multi runs this very function once per root.
     from .lint_multi import run_all, wants_multi
 
     if wants_multi(args):
+        if getattr(args, "github_annotations", False) or getattr(args, "max_warnings", None) is not None:
+            # --all prints one aggregated report: per-root annotations and a
+            # per-root warning budget have no place in it. Use ci-lint, or
+            # lint each root.
+            print(
+                "lint: --github-annotations and --max-warnings apply to one root; "
+                "they cannot be combined with --all.",
+                file=sys.stderr,
+            )
+            return REFUSED_EXIT
         return run_all(args)
     root = resolve_wiki_root(args)
     options = fix_options(args)
@@ -211,6 +270,9 @@ def run_lint(args: argparse.Namespace) -> int:
             return report_lint_result(probe, args)
     for step in steps:
         step.run(ctx)
+    if not is_hub(root):
+        for name in dict.fromkeys(_class_list(getattr(args, "profile", None))):
+            PROFILES[name].run(ctx)
     return report_lint_result(ctx, args)
 
 
@@ -262,10 +324,7 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     lint = subparsers.add_parser(
         "lint",
         help="Run local structural checks on a wiki root.",
-        description=(
-            "Run deterministic checks that do not require an LLM. Pass a wiki root "
-            "path, or use --local/--wiki to resolve one through the normal hub rules."
-        ),
+        description="Deterministic checks (no LLM) on a wiki root given by path, --local or --wiki.",
     )
     lint.add_argument("path", nargs="?", help="Wiki root path to lint.")
     lint.add_argument("--fix", action="store_true", help="Apply unambiguous structural fixes.")
@@ -280,19 +339,31 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     lint.add_argument(
         "--strict-engine",
         action="store_true",
-        help=(
-            "Treat a mismatch between the declared and running engine as a protocol "
-            "violation rather than a warning."
-        ),
+        help="Make a declared/running engine mismatch critical, not a warning.",
     )
     lint.add_argument(
         "--fail-on",
         choices=FAIL_ON_LEVELS,
         default=None,
-        help=(
-            "Lowest severity that makes the command exit non-zero "
-            "(default: suggestion, i.e. any finding; none for --preflight)."
-        ),
+        help="Lowest severity that exits non-zero (default: suggestion; none for --preflight).",
+    )
+    lint.add_argument(
+        "--github-annotations",
+        action="store_true",
+        help="Print GitHub annotations after the report.",
+    )
+    lint.add_argument(
+        "--max-warnings",
+        type=non_negative_int,
+        metavar="N",
+        help="Exit 1 above N warnings.",
+    )
+    lint.add_argument(
+        "--profile",
+        action="append",
+        type=profile_names,
+        metavar="NAME[,NAME]",
+        help=f"Opt-in checks: {', '.join(PROFILES)}.",
     )
     lint.add_argument(
         "--all",

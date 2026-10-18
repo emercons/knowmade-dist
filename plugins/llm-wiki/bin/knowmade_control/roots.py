@@ -16,11 +16,18 @@ when ``config.json`` opts in with ``"hub_discovery": "cwd"``, then the
 configured ``hub_path`` / ``resolved_path``, then ``~/wiki``.
 :func:`resolve_hub_selection` applies that order and says which source won;
 :func:`resolve_hub_path` is only its configured rungs (``--hub``, then
-``config.json``, then ``~/wiki``), kept byte-identical to the copy
-``scripts/llm-wiki-session`` vendors, so it ignores ``LLM_WIKI_HUB`` and
+``config.json``, then ``~/wiki``). ``scripts/llm-wiki-session`` vendors it
+with :func:`hub_env_value` (stamped by ``scripts/sync-session-vendor.py``),
+so the session capture honours ``--hub`` and ``LLM_WIKI_HUB`` but not cwd
 discovery. Mutating commands that
 take ``--require-cwd-hub`` refuse through :func:`require_cwd_hub` when the
 selected hub is not the one the current directory is in.
+
+A registry entry names its wiki root in two steps (:func:`registry_entry_path`,
+knowmade#114): the gitignored per-machine overlay ``HUB/wikis.local.json``
+replaces the ``path`` of an active entry with the same slug
+(:func:`read_local_registry`), and a directory without ``_index.md`` whose
+``.wiki/`` has one names that nested ``.wiki`` (:func:`wiki_root_of`).
 """
 
 from __future__ import annotations
@@ -41,6 +48,8 @@ from .fsio import (
 
 DEFAULT_PRIVATE_SUFFIX = "-PRIVATE"
 HUB_ENV = "LLM_WIKI_HUB"
+LOCAL_REGISTRY_NAME = "wikis.local.json"
+NESTED_WIKI_DIR = ".wiki"
 HUB_DISCOVERY_KEY = "hub_discovery"
 # A drive path as written on Windows: ``C:\x``, ``C:/x``, ``/C:/x``, or the Git
 # Bash spelling ``/c/x`` (also ``/c`` alone). Whether it applies is decided by
@@ -116,6 +125,25 @@ def expand_leading_tilde(value: str, platform: str | None = None) -> Path:
 
 def initialized_wiki_root(path: Path) -> bool:
     return (path / "_index.md").exists()
+
+
+def wiki_root_of(path: Path) -> Path:
+    """The wiki root a topic or registry path names.
+
+    ``path`` itself when it holds ``_index.md`` or when neither it nor its
+    nested ``.wiki/`` does; ``path/.wiki`` when only the nested one does (the
+    hybrid ``topics/<slug>/.wiki`` layout, knowmade#114). A path that already
+    ends in ``.wiki`` is returned unchanged unless it nests another one.
+    """
+    nested = path / NESTED_WIKI_DIR
+    if not initialized_wiki_root(path) and initialized_wiki_root(nested):
+        return nested
+    return path
+
+
+def topic_directory_of(root: Path) -> Path:
+    """The directory that holds the wiki root ``root``: its parent for a nested ``.wiki``."""
+    return root.parent if root.name == NESTED_WIKI_DIR else root
 
 
 def is_hub(path: Path) -> bool:
@@ -203,6 +231,96 @@ def resolve_registry_path(raw_path: str, hub: Path, platform: str | None = None)
     return hub / text
 
 
+def read_local_registry(hub: Path) -> dict[str, str]:
+    """Slug to path from the per-machine overlay ``hub/wikis.local.json``.
+
+    The file has the shape of ``wikis.json`` (``{"wikis": {"<slug>": {"path":
+    "..."}}}``); only ``path`` is read. A missing file is an empty overlay; an
+    unreadable or malformed one is fatal, as an unreadable registry is (#91),
+    so a machine never silently resolves a slug to the tracked path it meant
+    to replace.
+    """
+    path = hub / LOCAL_REGISTRY_NAME
+    if not path.exists():
+        return {}
+    data = read_json_object(path, "local wiki registry")
+    wikis = data.get("wikis", {})
+    if not isinstance(wikis, dict):
+        raise SystemExit(f"invalid local wiki registry {path}: wikis must be an object")
+    overlay: dict[str, str] = {}
+    for slug, entry in wikis.items():
+        raw = entry.get("path") if isinstance(entry, dict) else None
+        if not isinstance(raw, str) or not raw.strip():
+            raise SystemExit(
+                f"invalid local wiki registry {path}: wikis.{slug}.path must be a non-empty string"
+            )
+        overlay[str(slug)] = raw
+    return overlay
+
+
+def overlay_path(slug: str, entry: dict[str, Any] | None, overlay: dict[str, str]) -> str | None:
+    """The overlay path that replaces ``entry``'s on this machine, or None.
+
+    Only an active tracked entry is overlaid: an archived entry, and a slug the
+    tracked registry does not know, keep their tracked meaning.
+    """
+    if not isinstance(entry, dict) or is_archived_registry_entry(entry):
+        return None
+    return overlay.get(slug)
+
+
+def registry_entry_path(
+    hub: Path,
+    slug: str,
+    entry: dict[str, Any] | None,
+    overlay: dict[str, str] | None = None,
+) -> Path:
+    """The wiki root of registry entry ``slug`` on this machine.
+
+    The overlay path when :func:`overlay_path` gives one, else the tracked
+    ``path`` (default ``topics/<slug>``), resolved by
+    :func:`resolve_registry_path` and then :func:`wiki_root_of`. ``overlay``
+    defaults to ``hub/wikis.local.json``.
+    """
+    overlay = read_local_registry(hub) if overlay is None else overlay
+    raw = overlay_path(slug, entry, overlay)
+    if raw is None:
+        raw = str((entry or {}).get("path") or f"topics/{slug}")
+    return wiki_root_of(resolve_registry_path(raw, hub))
+
+
+
+
+def is_portable_registry_path(raw_path: str) -> bool:
+    """Whether a tracked registry path means the same on every machine.
+
+    Judged on the text, never on the running platform, because a tracked
+    ``wikis.json`` is read on all of them: a drive path, a POSIX absolute path,
+    a UNC or backslash-rooted path, a leading ``~`` and a relative path that
+    climbs out of the hub with ``..`` are machine-specific; ``<HUB>``, ``HUB``,
+    ``.`` and paths below them are portable.
+    """
+    text = raw_path.strip().replace("\\", "/")
+    if not text or text.startswith(("/", "~")) or WINDOWS_ABSOLUTE_PATH_RE.match(text):
+        return False
+    for prefix in ("<HUB>/", "HUB/"):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    else:
+        if text in {"<HUB>", "HUB"}:
+            return True
+    depth = 0
+    for part in text.split("/"):
+        if part == "..":
+            depth -= 1
+            if depth < 0:
+                return False
+        elif part not in {"", "."}:
+            depth += 1
+    return True
+
+
 def _read_hub_config(config: Path) -> dict[str, Any]:
     return read_json_object(config, "hub config")
 
@@ -218,6 +336,12 @@ class HubSelection:
 
     path: Path
     source: str
+
+
+def hub_env_value(environ: dict[str, str] | None = None) -> str | None:
+    """The ``LLM_WIKI_HUB`` value, stripped; ``None`` when unset or blank."""
+    environ = os.environ if environ is None else environ
+    return (environ.get(HUB_ENV) or "").strip() or None
 
 
 def hub_config_path(home: Path | None = None) -> Path:
@@ -236,8 +360,7 @@ def resolve_hub_selection(
 ) -> HubSelection:
     if explicit_hub:
         return HubSelection(expand_leading_tilde(str(explicit_hub)), "explicit")
-    environ = os.environ if environ is None else environ
-    from_env = (environ.get(HUB_ENV) or "").strip()
+    from_env = hub_env_value(environ)
     if from_env:
         return HubSelection(expand_leading_tilde(from_env), "env")
     home = home or home_directory()
@@ -364,8 +487,8 @@ def resolve_wiki_identity(
             private_suffix=private_suffix,
         )
         registry_path = hub_path / "wikis.json"
-        fallback_topic = hub_path / "topics" / slug
-        fallback_archived = hub_path / "topics" / ".archive" / slug
+        fallback_topic = wiki_root_of(hub_path / "topics" / slug)
+        fallback_archived = wiki_root_of(hub_path / "topics" / ".archive" / slug)
         data: dict[str, Any] | None = None
         if registry_path.exists():
             data = _read_registry(hub_path)
@@ -397,7 +520,7 @@ def resolve_wiki_identity(
             raise SystemExit(
                 f"wiki is archived: {slug}. Use --include-archived or restore it first."
             )
-        selected = resolve_registry_path(str(entry["path"]), hub_path)
+        selected = registry_entry_path(hub_path, slug, entry)
         if not initialized_wiki_root(selected) and initialized_wiki_root(fallback_topic):
             selected = fallback_topic
             archived = False

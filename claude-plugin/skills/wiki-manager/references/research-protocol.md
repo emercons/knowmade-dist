@@ -4,8 +4,13 @@ The base research path, moved verbatim out of `commands/research.md` so the comm
 file stays small: pre-flight awareness and specialist selection, then the single-round
 topic-mode protocol (Phases 1-5, the agent prompt template, the gap-closing offer).
 Read it after the target wiki is resolved. Modes and multi-round research live in
-[`research-modes.md`](research-modes.md); templates, scoring and session schemas in
-[`research-infrastructure.md`](research-infrastructure.md).
+[`research-modes.md`](research-modes.md); templates, scoring and session schemas in one file per phase:
+[`research-agents.md`](research-agents.md) (Phase 2),
+[`research-credibility.md`](research-credibility.md) (Phase 2b),
+[`research-staging.md`](research-staging.md) (Phase 3),
+[`research-rounds.md`](research-rounds.md) and
+[`research-sessions.md`](research-sessions.md) (`--min-time`),
+[`research-plan.md`](research-plan.md) (`--plan`).
 
 ## Pre-flight (before Phase 1)
 
@@ -107,68 +112,17 @@ Retardmax differences:
 
 #### Agent Prompt Template
 
-Every research agent receives a structured prompt following this template. Well-structured prompts are the #1 predictor of agent success — "most sub-agent failures aren't execution failures, they're invocation failures."
-
-**Standard template (all modes)**:
-```
-You are a research agent. Your task:
-
-**Objective**: Research "{topic}" from the {Agent Role} angle.
-**Focus**: {Role-specific focus from the table above}
-**Search strategy**: {Strategy from the table above}
-**Current wiki state**: The wiki already covers: {brief summary from Phase 1}. Search for what's NOT covered.
-**Constraints**:
-- Run 2-3 WebSearch queries (vary terms, don't repeat)
-- For each promising result, use WebFetch to extract full content
-- Skip: paywalled, SEO spam, thin, duplicate
-- Target 3-5 high-quality sources
-- Stage each source you keep as an inbox capture at `inbox/{capture-name}` using the research capture schema (`references/research-infrastructure.md` § Inbox Staging): frontmatter title, source, research_query, research_agent, agent_quality, key findings, then the fetched content. Do NOT write anything under `raw/` — the coordinator processes the batch.
-
-**Return format**: For each source found:
-- Title, URL, inbox capture path, quality score (1-5)
-- Key findings (3-5 bullet points)
-- Why it's worth ingesting (1 sentence)
-
-**Quality scoring guide**:
-- 5: Peer-reviewed, landmark paper, primary data
-- 4: Authoritative blog, official docs, well-sourced industry report
-- 3: Decent coverage, some original insight, reasonable sourcing
-- 2: Thin, mostly derivative, limited sourcing
-- 1: SEO spam, no original content, unverifiable claims
-```
-
-**Question mode variant**: Replace "from the {Agent Role} angle" with "answering: {specific sub-question}". Add: "Your deliverable is evidence that answers this specific sub-question."
-
-**Thesis mode variant**: Add thesis filter:
-```
-**Thesis**: "{thesis statement}"
-**Key variables**: {extracted variables}
-**Your lens**: {Agent Focus from thesis table}
-**Evaluation**: For each source, rate:
-- Relevance: direct | indirect | tangential (skip tangential)
-- Evidence strength: meta-analysis > RCT > cohort > case study > expert opinion > anecdotal
-- Direction: supports | opposes | nuances the thesis
-```
+Every research agent receives the template for its mode from
+`references/research-agents.md` (topic, question and thesis templates, retardmax
+variants). Fill the role, focus and search strategy from the table above and the
+wiki-state summary from Phase 1.
 
 #### Phase 2b: Credibility Review
 
 After all agents return and before ingestion, run a credibility assessment. This prevents the "fox guarding the henhouse" problem where agents self-rate their own source quality. The review reads the staged `inbox/` captures (not only the agents' summaries) and records `credibility_score` and `credibility_tier` in each capture's frontmatter, so the decision travels with the item into `raw/`.
 
-**For each source returned by agents, evaluate**:
-
-| Signal | Scoring |
-|--------|---------|
-| Peer-reviewed? (DOI, journal name, conference) | +2 if yes, 0 if no |
-| Publication recency (last 3 years) | +1 if recent, 0 if older, -1 if >10 years |
-| Author authority (known expert, cited elsewhere) | +1 if established, 0 if unknown |
-| Potential bias (industry-sponsored, activist org) | -1 if detected, 0 if clean |
-| Corroboration (multiple agents found similar claims) | +1 per additional agent, max +2 |
-
-**Credibility tiers**:
-- **High** (4-6 points): Peer-reviewed, recent, authoritative, unbiased → ingest with confidence: high
-- **Medium** (2-3 points): Published but not peer-reviewed, or older, or unknown author → ingest with confidence: medium
-- **Low** (0-1 points): Blog, press release, unverifiable, biased → ingest only if no better source covers this angle; set confidence: low
-- **Reject** (<0 points): Obvious spam, predatory journal, fabricated data → skip entirely
+Score every source with the rubric, bias signals and tiers in
+`references/research-credibility.md`.
 
 **Process**:
 1. Score all sources from all agents
@@ -181,7 +135,7 @@ In **retardmax mode**: lower the rejection threshold (accept Medium and above wi
 
 #### Phase 3: Stage and Ingest (inbox-first)
 
-Research reuses the `/wiki:ingest` protocol: a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-infrastructure.md` § Inbox Staging & Batch Ingest.
+Research reuses the `/wiki:ingest` protocol: a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-staging.md`.
 
 **Stage (each search agent, during Phase 2 — parallel-safe)**
 
@@ -250,14 +204,9 @@ Never write to `raw/` from a capture that does not exist in `inbox/` first. If a
    - **Remaining gaps**: what's still not covered (numbered list — used by gap-closing offer below)
    - **Suggested follow-ups**: specific subtopics for next round (or manual `/wiki:research` commands)
    - **Time spent**: this round / total elapsed (if --min-time)
-   - **Progress score**: 0-100, calculated as:
-     - Sources ingested this round × 3 (max 30)
-     - Articles created/updated this round × 5 (max 30)
-     - Cross-references added × 2 (max 20)
-     - Average source credibility score × 4 (max 20)
-     - Score interpretation: 0-40 = minimal, 41-70 = moderate, 71-90 = strong, 91-100 = comprehensive
+   - **Progress score**: 0-100 per `references/research-rounds.md` § Formula, with its interpretation
    - **Cumulative progress** (if --min-time): total across all rounds, round-over-round delta
-   - **Termination recommendation**: If progress score ≥ 80 AND remaining gaps are low-priority AND cross-reference density is high (>60% of articles linked) → "Research quality ceiling reached. Consider early completion." If progress score < 40 → "Low yield this round. Consider: different search terms, --deep mode, or narrower topic focus."
+   - **Termination recommendation**: per `references/research-rounds.md` § Termination Decision Tree
 
 #### Gap-Closing Offer
 

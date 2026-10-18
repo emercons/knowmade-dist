@@ -1,9 +1,10 @@
 # Skill Workflows
 
 Detail moved verbatim out of `SKILL.md` so the always-loaded skill stays small. `SKILL.md`
-keeps the identity, hub and privacy pointers, the principles, ambient behavior, and a
-one-line-per-workflow index; everything below is the prose that index points at. `HUB/`
-means the resolved hub path (`hub-resolution.md`).
+keeps the identity, hub and privacy pointers, a principle summary, ambient behavior, and a
+one-line-per-workflow index; everything below is the prose that index points at. The
+numbered principles are in `principles.md`. `HUB/` means the resolved hub path
+(`hub-resolution.md`).
 
 ## Wiki Location
 
@@ -27,46 +28,6 @@ directory, else HUB) is defined in
 When a command targets the hub and the hub has no content, suggest creating a topic sub-wiki instead.
 
 See [references/wiki-structure.md](wiki-structure.md) for the complete directory layout; file formats are in [references/wiki-format.md](wiki-format.md) and [references/wiki-articles.md](wiki-articles.md).
-
-## Core Principles
-
-Items moved out of the numbered list in `SKILL.md` (the numbers are the same):
-
-11. **Archive is quiet preservation.** Archived topic wikis live under
-`HUB/topics/.archive/<slug>/` and are hidden from normal semantic workflows.
-They remain structurally maintainable through explicit archive/lint operations.
-Deep queries may surface archived index matches separately, but archived content
-must not influence new synthesis unless the user explicitly includes it.
-
-12. **Session capture is operational memory.** Harness session digests live in
-`HUB/.sessions/` or `.wiki/.sessions/`, not in topic `raw/` by default.
-Automated hooks may capture redacted checkpoints, but promotion into topic wikis
-is explicit and user-directed.
-
-13. **Feedback is candidate memory.** User corrections, preferences, approvals,
-and plan-acceptance signals may be captured as redacted candidates under
-`HUB/.sessions/feedback/`, but generic acknowledgements are ignored and durable
-wiki promotion remains explicit.
-
-15. **One human inbox, many topic workers.** `HUB/inbox/` is a shallow staging
-queue. A dispatcher classifies items by subject and privacy, routes them to one
-or more topic inboxes, and only then lets topic-specific workers ingest and
-compile them.
-
-16. **Private adapters are a content-free external execution plane.** Their
-machine-local registry lives under `~/.config/llm-wiki/`, not in the hub.
-Adapter repositories contain tool code only; real inputs and all runtime
-outputs remain in separately controlled external data planes. Only reviewed
-`wiki-safe` candidates may enter the wiki through normal provenance and
-compilation workflows. See
-[references/adapters.md](adapters.md).
-
-17. **Specialists are bounded methods, not credentials.** Personal,
-instruction-only specialist packages live locally under `HUB/.skills/` and are
-enabled per active topic. Loading one never grants tools, write access, professional
-authority, or permission to spawn agents. Select the minimum useful method,
-preserve disagreement, and record its version/hash. See
-[references/specialists.md](specialists.md).
 
 ## Workflow Flows
 
@@ -132,8 +93,7 @@ Flow: read active Idea indexes and Project `WHY.md` files → cross-link only
 explicit lineage → render separate read-only tables without copying records.
 
 ### Collect
-See [references/inventory.md](inventory.md) and
-[references/research-infrastructure.md](research-infrastructure.md).
+See [references/inventory.md](inventory.md).
 Flow: Scope a bounded catalog request → infer scale and media policy → search
 for candidate artifacts, examples, resources, entities, tools, media, or memes
 → fetch only promising context pages → deduplicate aliases/reposts/rehosts →
@@ -246,7 +206,7 @@ Terminal links break when they wrap to a second line. Rules for all wiki operati
    /Users/name/wiki/topics/my-topic/output/report-2026-04-08.md
    ```
 
-See `references/research-infrastructure.md` § Agent Prompt Templates for examples. Applies to ingest, compile, collect, research, output, assess.
+Applies to ingest, compile, collect, research, output, assess.
 
 ## Confidence Scoring
 

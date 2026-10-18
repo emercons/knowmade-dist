@@ -29,7 +29,9 @@ from .roots import (
     is_archived_registry_entry,
     is_permission_denied,
     permission_denied_message,
+    registry_entry_path,
     resolve_registry_path,
+    wiki_root_of,
 )
 
 
@@ -193,15 +195,20 @@ def topic_entry(data: dict[str, Any], slug: str) -> dict[str, Any] | None:
 
 
 def active_topic_path(hub: Path, slug: str, entry: dict[str, Any] | None = None) -> Path:
+    """The wiki root of active topic ``slug``: overlay, then tracked path, then ``topics/<slug>``.
+
+    Nested-aware: a directory whose wiki is its ``.wiki/`` gives that ``.wiki``
+    (``roots.registry_entry_path``, knowmade#114).
+    """
     if entry and entry.get("path") and not is_archived_registry_entry(entry):
-        return resolve_registry_path(str(entry["path"]), hub)
-    return hub / "topics" / slug
+        return registry_entry_path(hub, slug, entry)
+    return wiki_root_of(hub / "topics" / slug)
 
 
 def archived_topic_path(hub: Path, slug: str, entry: dict[str, Any] | None = None) -> Path:
     if entry and entry.get("path") and is_archived_registry_entry(entry):
-        return resolve_registry_path(str(entry["path"]), hub)
-    return hub / "topics" / ".archive" / slug
+        return wiki_root_of(resolve_registry_path(str(entry["path"]), hub))
+    return wiki_root_of(hub / "topics" / ".archive" / slug)
 
 
 def is_initialized_topic(path: Path) -> bool:
