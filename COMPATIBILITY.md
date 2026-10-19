@@ -31,7 +31,7 @@ the running engine's current rule set until deliberately declared/migrated.
 Migration is recipe-driven: an upstream or older Knowmade corpus reaches the
 current layout through the ordered existing commands of the "Deterministic
 Upgrade Recipe" in
-[`references/migration.md`](claude-plugin/skills/wiki-manager/references/migration.md),
+[`references/migration.md`](claude-plugin/skills/knowmade/references/migration.md),
 never through a silent rewrite. The recipe leaves every evidence file under
 `raw/` and `wiki/` byte-identical; `tests/test-migration-fixtures.sh` proves it
 on frozen upstream and Knowmade wikis.
@@ -255,6 +255,115 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.9.0.25.1 — Sprint J: Phase 4 stable identity, federation registry and the Claude/OpenCode rename
+
+**#182, Claude plugin renamed `wiki@knowmade` → `knowmade@knowmade` and the
+OpenCode skills renamed `wiki-manager`/`wiki-query` → `knowmade`/`knowmade-query`
+— breaking packaging change, no deprecation window.** Owner decision of
+2026-10-19, finishing for Claude and OpenCode what `#168` did for Codex: the
+plugin name `wiki` is also upstream's (`wiki@llm-wiki`), so the Claude command
+prefix `/wiki:` and the skill names were ambiguous beside it. Corpus rule set
+unchanged; deterministic CLI/protocol surface unchanged (no `llm-wiki`
+namespace, flag, exit code or payload moves; `references/cli.md` changes only
+in its file path). Classified "Packaging/install change", breaking on that
+surface, with an agent-spec rename (every command and reference that said
+`/wiki:<cmd>` now says `/knowmade:<cmd>`; no behaviour change):
+
+| Before (up to v0.8.0.25.1) | After |
+|---|---|
+| Claude plugin `wiki@knowmade` (`claude-plugin/.claude-plugin/plugin.json` and the marketplace entry `name: wiki`) | `knowmade@knowmade`; the marketplace keeps the name `knowmade` |
+| commands `/wiki:<cmd>`; `Skill: wiki:x` in the router command | `/knowmade:<cmd>`; `Skill: knowmade:x`; command file names unchanged (`/wiki` alone still names `commands/wiki.md`) |
+| canonical skill directory `claude-plugin/skills/wiki-manager/`, `name: wiki-manager` | `claude-plugin/skills/knowmade/`, `name: knowmade`, Claude skill id `knowmade:knowmade` (the Codex skill id as well) |
+| OpenCode `plugins/llm-wiki-opencode/skills/wiki-manager/` and `skills/wiki-query/` (`name: wiki-manager`, `name: wiki-query`) | `skills/knowmade/` (`name: knowmade`) and `skills/knowmade-query/` (`name: knowmade-query`); Pi: `/skill:knowmade` |
+| Claude plugin cache `~/.claude/plugins/cache/knowmade/wiki/<version>/` | `.../cache/knowmade/knowmade/<version>/` |
+
+Unchanged: the `claude-plugin/` directory name, the mirror directories
+`plugins/llm-wiki/` and `plugins/llm-wiki-opencode/`, the `scripts/llm-wiki*`
+launchers, `LLM_WIKI_HUB`, `~/.config/llm-wiki/`, `scripts/pi-wiki-query` and
+`scripts/pi-ds4-wiki-query`, the `wikis.json` registry, the portable
+`profiles/query-lite/` profile (`name: wiki-query`), the token-budget metric
+names, and every historical changelog entry and release record.
+
+The `/wiki:*` command prefix and the `wiki-manager` skill name are gone from
+the installed surface, and upstream's `wiki@llm-wiki` can now be installed
+beside Knowmade without sharing a plugin name or a skill id. A rename has no
+compatible intermediate state (one plugin cannot answer to two names), so the
+migration is two commands for a pinned release install and the OpenCode path
+change:
+
+- **Claude Code:** `claude plugin uninstall wiki@knowmade`, then the usual
+  marketplace re-add at the new tag and `claude plugin install
+  knowmade@knowmade` (`README.md`, "Upgrade"). Prompts, scripts and notes that
+  say `/wiki:<cmd>` change to `/knowmade:<cmd>`.
+- **OpenCode and Pi:** point `opencode.json` `instructions` and `pi --skill`
+  at `plugins/llm-wiki-opencode/skills/knowmade/SKILL.md` (or
+  `skills/knowmade-query/SKILL.md`); the old directories are not in the new
+  tag. `scripts/sync-opencode-plugin.sh` removes a stale `skills/wiki-manager`
+  and `skills/wiki-query` from a checkout that still has them, as the Codex
+  sync does for `skills/wiki` and `skills/wiki-query`.
+
+Tests: `tests/test-plugin-validate.sh` asserts the plugin name `knowmade` in
+both Claude manifests, the skill directory `claude-plugin/skills/knowmade/`
+with `name: knowmade`, the OpenCode skill names and directories, and no
+`/wiki:` or `wiki-manager` anywhere under `claude-plugin/commands/`,
+`claude-plugin/skills/` or `plugins/`; `tests/test-opencode-sync.sh` seeds a
+stale `wiki-manager` and `wiki-query` into the scratch regeneration and
+asserts both are removed; `tests/test-docs-consistency.sh` pins the README
+install command to `knowmade@knowmade` and the command table to
+`/knowmade:<cmd>`.
+
+**#188, Claude skill frontmatter fixed — agent spec, behaviour fix.** The
+`description: >` block scalar of the canonical `SKILL.md` had four continuation
+lines at column 0, which is invalid YAML, so Claude Code (checked with 2.1.302)
+loaded the skill with empty metadata in every release up to v0.8.0.25.1. The
+lines are now indented by two spaces (no wording change). The Claude skill thus
+loads with its `name`, `description` and `tools:` list for the first time:
+`description`-based activation and the `tools:` restriction take effect.
+The Claude skill description is now the short single-line form (153
+characters, inside the existing 155-character `claude_skill_description_chars`
+ceiling, which is not raised): "Knowmade practical knowledge bases", the
+`/knowmade` commands and the main trigger words. The former long trigger list
+is reduced to one scope sentence in the `SKILL.md` body.
+Corpus rule set, deterministic CLI/protocol and packaging unchanged (the Codex
+mirror carries its metadata in `agents/openai.yaml`; the OpenCode and Codex
+`SKILL.md` frontmatter is regenerated by the sync scripts and was valid).
+`tests/test-plugin-validate.sh` guards it: every line of a `key: >` / `key: |`
+block scalar must stay indented in the canonical `SKILL.md`, every generated
+mirror `SKILL.md` and `profiles/query-lite/SKILL.md`, and where the `claude`
+CLI is installed `claude plugin validate claude-plugin` and `claude plugin
+validate .` must pass (otherwise it prints `note: claude CLI absent, plugin
+validate skipped` and the pure-Python check still runs).
+
+- `hub_id` and fork re-identification (`KM-HUB-005`, #183). Corpus surface:
+  additive. Three optional keys, no severity change and no new lint check:
+  `hub_id` and `hub_forked_from` at the top level of a hub's `wikis.json`
+  (`hb-` plus 16 lowercase hex), and `wiki_forked_from` in a wiki's `config.md`
+  frontmatter (next to `wiki_id`). A corpus without them is unchanged; a rule
+  set N-2 reader that ignores unknown keys is unaffected. CLI-protocol surface:
+  additive for new forms (`identity assign --hub`, `identity status --hub`,
+  `identity fork (--wiki | --local | --hub)`; `identity fork --wiki` also
+  rewrites the topic's registry `id` when it equals the old id). One CLI
+  output change: `identity status` on a hub root (a hub path, or no scope
+  with a resolved hub) used to print the wiki payload `{"root", "wiki_id":
+  null, "declared": false}` / `wiki_id: none` and exit 0; it now prints the
+  hub payload (`"kind": "hub"`, `hub_id`, `topics`, no `wiki_id` key), and a
+  resolved hub without `wikis.json` exits 1 with one line. The wiki payload
+  gains `"kind": "wiki"`, and `hub_id`, `wiki_forked_from` when present.
+  `identity assign` is unchanged. Packaging and agent spec: no change beyond
+  the regenerated `references/cli.md` and the `wikis.json` note in
+  `wiki-structure.md`.
+
+- Machine-local federation registry and locate (`KM-HUB-004`, `KM-HUB-007`,
+  #184). CLI-protocol surface: additive, a new `registry` namespace
+  (`add`, `list`, `refresh`, `remove`, `locate`) and no change to an existing
+  verb or exit code; `registry add --assign` runs the existing
+  `identity assign`. New machine-local file `~/.config/llm-wiki/registry.json`
+  (`schema_version` 1), outside every corpus and never tracked; a reader of an
+  existing install ignores it. Corpus surface: no change (no new key, no lint
+  check). Resolution is unchanged: `hub_path`, `LLM_WIKI_HUB`, `--hub` and cwd
+  discovery behave as before. Packaging and agent spec: additive, the new
+  reference `federation.md` and the regenerated `references/cli.md`.
 
 ### v0.8.0.25.1 — Sprint I: Phase 3 brownfield gaps and the Codex plugin rename
 

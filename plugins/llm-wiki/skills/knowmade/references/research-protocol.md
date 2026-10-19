@@ -17,7 +17,7 @@ Read it after the target wiki is resolved. Modes and multi-round research live i
 ### Specialist selection
 
 After resolving the target and before decomposing the question, read
-`skills/wiki-manager/references/specialists.md`. If `--no-specialists` is set,
+`skills/knowmade/references/specialists.md`. If `--no-specialists` is set,
 record an empty specialist list and continue without reading `HUB/.skills/`.
 
 For a hub topic, read `HUB/.skills/_index.md` when present, then run:
@@ -135,7 +135,7 @@ In **retardmax mode**: lower the rejection threshold (accept Medium and above wi
 
 #### Phase 3: Stage and Ingest (inbox-first)
 
-Research reuses the `/wiki:ingest` protocol: a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-staging.md`.
+Research reuses the `/knowmade:ingest` protocol: a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-staging.md`.
 
 **Stage (each search agent, during Phase 2 — parallel-safe)**
 
@@ -150,10 +150,10 @@ For every source the agent decides to return, before returning:
 
 The coordinator is the research command itself, or in `--plan` mode the path-agent for its path. For each staged capture, in credibility order:
 
-1. **Selected** (top N by Phase 2b ranking, up to --sources): process the capture as `/wiki:ingest` processes an inbox item — read the capture, auto-detect type (academic → papers, news → articles, code → repos, guides → articles, data → data), extract and summarize, generate tags.
+1. **Selected** (top N by Phase 2b ranking, up to --sources): process the capture as `/knowmade:ingest` processes an inbox item — read the capture, auto-detect type (academic → papers, news → articles, code → repos, guides → articles, data → data), extract and summarize, generate tags.
 2. Write the processed artifact to `raw/{type}/YYYY-MM-DD-<source-slug>.md` (plan mode: `raw/{type}/YYYY-MM-DD-<path-slug>-<source-slug>.md`) with the standard raw frontmatter (`title`, `source`, `type`, `ingested`, `tags`, `summary`) plus the research provenance carried over from the capture: `inbox_item` (the capture's `inbox/.processed/` path), `research_query`, `research_agent`, `research_session` when present, `credibility_score`, and `credibility_tier`. The credibility tier is what compilation later turns into article `confidence:`.
 3. Move the capture to `inbox/.processed/` (same filename). The raw artifact's `inbox_item` and the capture's `source` URL are the two ends of the provenance link.
-4. **Skipped** (Reject tier, duplicate URL, >80% overlap, or ranked below the --sources cut): do not write to `raw/`. Add `ingest_status: skipped` and `skip_reason` to the capture frontmatter and move it to `inbox/.processed/` so the decision is auditable and the live inbox stays clean. Exception: a credible capture that was cut only by the `--sources` cap may be left pending in `inbox/` when the user is likely to want it — report it, and let the next round or `/wiki:ingest --inbox` process it.
+4. **Skipped** (Reject tier, duplicate URL, >80% overlap, or ranked below the --sources cut): do not write to `raw/`. Add `ingest_status: skipped` and `skip_reason` to the capture frontmatter and move it to `inbox/.processed/` so the decision is auditable and the live inbox stays clean. Exception: a credible capture that was cut only by the `--sources` cap may be left pending in `inbox/` when the user is likely to want it — report it, and let the next round or `/knowmade:ingest --inbox` process it.
 5. Deduplicate against existing `raw/` by `source` URL before writing; if the same URL was already ingested, treat the capture as skipped with `skip_reason: already-ingested`.
 6. Update `raw/{type}/_index.md`, `raw/_index.md`, and the master `_index.md` source count (best-effort; the Derived Index Protocol rebuilds on the next read). In `--plan` mode, path-agents skip index updates entirely.
 
@@ -162,7 +162,7 @@ Never write to `raw/` from a capture that does not exist in `inbox/` first. If a
 #### Phase 4: Compile
 
 1. Read all newly ingested sources
-2. Follow the compilation protocol in `skills/wiki-manager/references/compilation.md`:
+2. Follow the compilation protocol in `skills/knowmade/references/compilation.md`:
    - Extract key concepts, facts, relationships
    - Map to existing wiki articles
    - Create new articles or update existing ones
@@ -196,13 +196,13 @@ Never write to `raw/` from a capture that does not exist in `inbox/` first. If a
    - **Sources staged**: K inbox captures (all moved to `inbox/.processed/` unless listed as pending)
    - **Sources ingested**: M (list with URLs, quality scores, and raw paths)
    - **Sources skipped**: list with reason (low quality, duplicate, paywall, thin) — retired to `inbox/.processed/`
-   - **Pending in inbox**: captures left for a later round or `/wiki:ingest --inbox`
+   - **Pending in inbox**: captures left for a later round or `/knowmade:ingest --inbox`
    - **Articles created**: list with paths and summaries
    - **Articles updated**: list with what was added
    - **Confidence map**: which claims are high/medium/low confidence and why
    - **New connections**: cross-references discovered between new and existing articles
    - **Remaining gaps**: what's still not covered (numbered list — used by gap-closing offer below)
-   - **Suggested follow-ups**: specific subtopics for next round (or manual `/wiki:research` commands)
+   - **Suggested follow-ups**: specific subtopics for next round (or manual `/knowmade:research` commands)
    - **Time spent**: this round / total elapsed (if --min-time)
    - **Progress score**: 0-100 per `references/research-rounds.md` § Formula, with its interpretation
    - **Cumulative progress** (if --min-time): total across all rounds, round-over-round delta

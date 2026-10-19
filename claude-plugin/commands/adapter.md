@@ -7,7 +7,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(date:*), Bash(pyt
 ## Your task
 
 Manage or invoke a private llm-wiki adapter through the deterministic bundled
-CLI. Read `skills/wiki-manager/references/adapters.md` before acting.
+CLI. Read `skills/knowmade/references/adapters.md` before acting.
 
 Private-adapter management is wiki-neutral. Do not put executable registrations
 or absolute machine paths in `wikis.json` or a topic wiki. Resolve a topic wiki

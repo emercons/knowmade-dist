@@ -1,6 +1,6 @@
 # Lessons Learned Protocol
 
-The `/wiki:ll` (`wiki ll`) workflow, moved verbatim out of `commands/ll.md` so every
+The `/knowmade:ll` (`wiki ll`) workflow, moved verbatim out of `commands/ll.md` so every
 runtime ships it. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
 `$ARGUMENTS` is the user's request: free text plus the flags listed under
@@ -110,7 +110,7 @@ For each lesson, grep the target wiki's articles for related keywords. If a rele
 
 Create `raw/notes/YYYY-MM-DD-ll-<slug>.md` in the target wiki. Writing
 `raw/notes/` directly, without an `inbox/` item, is the session-distillate
-exception in `skills/wiki-manager/references/knowmade-profile.md`
+exception in `skills/knowmade/references/knowmade-profile.md`
 (Inbox-First Source Lifecycle); the private write-guard still applies:
 
 ```markdown
@@ -157,7 +157,7 @@ For each lesson where a relevant wiki article was identified in Stage 3:
 3. Use Edit to append the lesson's **Rule** as a new subsection or bullet, with a back-reference to the raw note
 4. Do NOT rewrite existing content — only append
 
-If no article matches, skip this stage. The lesson stays in `raw/notes/` and will be integrated during the next `/wiki:compile`.
+If no article matches, skip this stage. The lesson stays in `raw/notes/` and will be integrated during the next `/knowmade:compile`.
 
 ---
 
@@ -206,20 +206,20 @@ When `--dry-run` is passed:
 
 ```bash
 # Basic: extract lessons from current session
-/wiki:ll
+/knowmade:ll
 
 # With topic hint for better wiki targeting
-/wiki:ll "nono sandbox setup"
+/knowmade:ll "nono sandbox setup"
 
 # Target a specific wiki
-/wiki:ll --wiki cli-ai-coding
+/knowmade:ll --wiki cli-ai-coding
 
 # Preview before saving
-/wiki:ll --dry-run
+/knowmade:ll --dry-run
 
 # Also suggest CLAUDE.md rules
-/wiki:ll --rules
+/knowmade:ll --rules
 
 # Full: dry-run with rule suggestions
-/wiki:ll "nono codex profile debugging" --wiki cli-ai-coding --dry-run --rules
+/knowmade:ll "nono codex profile debugging" --wiki cli-ai-coding --dry-run --rules
 ```

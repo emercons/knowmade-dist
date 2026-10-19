@@ -19,7 +19,7 @@ resolution. `--json` prints a machine-readable report where offered. Flags
 listed under a namespace go before its subcommand (`archive --hub H list`);
 `archive`, `schema`, `identity` and `specialist` accept them after it too.
 
-Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `dataset`, `rules`, `engine`, `pin`, `freshness`, `project`, `adopt`, `source`.
+Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `registry`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `dataset`, `rules`, `engine`, `pin`, `freshness`, `project`, `adopt`, `source`.
 
 ## `llm-wiki lint`
 
@@ -156,7 +156,7 @@ Create a starter topic guide if schema.md is missing.
 
 ## `llm-wiki identity`
 
-A wiki's identity is declared as wiki_id in its config.md and is independent of where the wiki currently lives. Registry entries that carry the same id can be verified on resolution instead of trusted.
+A wiki's identity is declared as wiki_id in its config.md and a hub's as hub_id in its wikis.json; both are independent of where the root currently lives. Registry entries that carry the same id can be verified on resolution instead of trusted. assign never replaces a declared id; fork is the explicit way to re-identify an independent copy.
 
 Options and arguments given before the subcommand:
 
@@ -169,11 +169,11 @@ Options and arguments given before the subcommand:
 | `--public` | Resolve --wiki <slug>-PRIVATE to the public sibling <slug>. (not with --private) |
 | `--include-archived` | Allow identity operations on an explicitly targeted archived wiki. |
 
-Subcommands: `status`, `assign`.
+Subcommands: `status`, `assign`, `fork`.
 
 ### `llm-wiki identity status`
 
-Print the declared wiki id.
+Print the declared wiki id (or, with --hub, the hub id and each topic's).
 
 | Argument | Meaning |
 |---|---|
@@ -181,25 +181,41 @@ Print the declared wiki id.
 | `[path]` | Wiki root path. |
 | `--local` | Target .wiki/ in the current directory. |
 | `--wiki WIKI` | Named wiki from the hub registry. |
-| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--hub HUB` | Target the hub itself (path optional: the resolved hub); with --wiki, override the hub path. |
 | `--private` | Resolve --wiki <slug> to <slug>-PRIVATE. |
 | `--public` | Resolve --wiki <slug>-PRIVATE to <slug>. |
 | `--include-archived` | Allow targeting an archived wiki. |
 
 ### `llm-wiki identity assign`
 
-Declare a wiki id in config.md if the wiki has none.
+Declare a wiki id in config.md (or, with --hub, a hub id) if there is none.
 
 | Argument | Meaning |
 |---|---|
 | `[path]` | Wiki root path. |
 | `--local` | Target .wiki/ in the current directory. |
 | `--wiki WIKI` | Named wiki from the hub registry. |
-| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--hub HUB` | Target the hub itself (path optional: the resolved hub); with --wiki, override the hub path. |
 | `--private` | Resolve --wiki <slug> to <slug>-PRIVATE. |
 | `--public` | Resolve --wiki <slug>-PRIVATE to <slug>. |
 | `--include-archived` | Allow targeting an archived wiki. |
 | `--id ID` | Use this id instead of generating one. |
+| `--dry-run` | Report what would happen without writing. |
+
+### `llm-wiki identity fork`
+
+Replace a declared id with a new one and record the old one (independent copies).
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Wiki root path. |
+| `--local` | Target .wiki/ in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Target the hub itself (path optional: the resolved hub); with --wiki, override the hub path. |
+| `--private` | Resolve --wiki <slug> to <slug>-PRIVATE. |
+| `--public` | Resolve --wiki <slug>-PRIVATE to <slug>. |
+| `--include-archived` | Allow targeting an archived wiki. |
+| `--id ID` | Use this new id instead of generating one. |
 | `--dry-run` | Report what would happen without writing. |
 
 ## `llm-wiki hub`
@@ -244,6 +260,54 @@ Hub precedence: --hub, then LLM_WIKI_HUB, then the hub enclosing the current dir
 | Argument | Meaning |
 |---|---|
 | `--hub HUB` | Override hub path. |
+| `--json` | Print JSON. |
+
+## `llm-wiki registry`
+
+Machine-local registry of hubs and wikis keyed on their stable ids (~/.config/llm-wiki/registry.json). It lists the roots this machine knows, keeps unavailable ones registered, and finds the current path of an id; it never replaces hub_path, LLM_WIKI_HUB, --hub or cwd discovery, and a root's own id stays authoritative. Exit 0 success, 1 a refusal (undeclared id, duplicate alias, ambiguity, nothing available), 2 unusable input (corrupt registry file, not a root, unknown id, lock held).
+
+Subcommands: `add`, `list`, `refresh`, `remove`, `locate`.
+
+### `llm-wiki registry add`
+
+<path> is a hub (wikis.json) or a wiki (config.md; for a wiki nested in a directory, pass its .wiki path). The root must declare an id (llm-wiki identity assign [--hub]); --assign assigns one, the only write into a root this namespace does. The same id at another path is a second replica (added, with a notice); the same id at the same path is a no-op.
+
+| Argument | Meaning |
+|---|---|
+| `path` | Hub or wiki root to register. |
+| `--alias ALIAS` | A unique name for this entry (surrounding whitespace is stripped). |
+| `--assign` | Assign an id to a root that declares none. |
+
+### `llm-wiki registry list`
+
+Read-only. Status: available (path exists and declares the registered id), unavailable (path missing or unreadable, or its wikis.json / config.md cannot be read; the entry stays), mismatch (the path declares another id; 'forked -> <id>' when it was forked from the registered one), undeclared (path exists, no id).
+
+| Argument | Meaning |
+|---|---|
+| `--json` | Print JSON. |
+
+### `llm-wiki registry refresh`
+
+Writes only last_seen, only on available entries, and only when it changes.
+
+_No arguments._
+
+### `llm-wiki registry remove`
+
+Removes exactly one entry. An id with several replicas, or a path shared by several entries, exits 1 and lists them; name the path to pick one. Nothing inside the root is touched.
+
+| Argument | Meaning |
+|---|---|
+| `target` | An id, an alias or a registered path. |
+
+### `llm-wiki registry locate`
+
+Read-only. Exactly one available replica: its path, exit 0. None available: exit 1 with the last known paths and statuses. Several available: exit 1 'ambiguous: N replicas of <id>'; --all lists them and exits 0. An alias selects its own entry. Unknown id or alias: exit 2.
+
+| Argument | Meaning |
+|---|---|
+| `target` | An id (hb-... / wk-...) or an alias. |
+| `--all` | List every available replica instead of failing on several. |
 | `--json` | Print JSON. |
 
 ## `llm-wiki retract`

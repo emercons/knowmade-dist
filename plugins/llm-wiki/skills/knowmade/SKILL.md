@@ -32,7 +32,7 @@ is both compiler and query engine; Obsidian is an optional viewer.
 
 ## Codex Plugin Notes
 
-Codex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.
+Codex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/knowmade:*` commands. Treat any `/wiki`, `/knowmade:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.
 
 Knowmade is this downstream project. `llm-wiki` is upstream. Preserve the
 upstream topic-wiki, provenance, schema, Ideas, Projects, session, query, and
@@ -83,6 +83,8 @@ activates ambiently, and its external candidates remain disabled; installation,
 topic enablement, commit, and publication are separate actions.
 
 ## Ambient Behavior
+
+The skill also covers ingest/import through inbox-first intake, inventory, datasets, Ideas and Projects portfolios, archives, sessions, feedback, private adapters, personal specialists and external resource actions.
 
 When this skill activates outside of an explicit `@knowmade` invocation or `/wiki`-style shorthand:
 

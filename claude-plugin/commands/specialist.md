@@ -7,10 +7,10 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 ## Your task
 
 Manage or apply personal specialist methods. Read
-`skills/wiki-manager/references/specialists.md` before acting. A specialist is
+`skills/knowmade/references/specialists.md` before acting. A specialist is
 a bounded evidence/review protocol, not a human credential or new authority.
 
-Resolve HUB by `skills/wiki-manager/references/hub-resolution.md` (variant E:
+Resolve HUB by `skills/knowmade/references/hub-resolution.md` (variant E:
 hub specialist library). Use the bundled deterministic helper:
 
 ```bash

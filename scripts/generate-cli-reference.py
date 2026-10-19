@@ -5,7 +5,7 @@ The command specs under claude-plugin/commands/ name deterministic CLI
 invocations. This script is the single source for what those invocations may
 look like: it walks the real parser (``knowmade_control.cli``) and writes
 every namespace, subcommand, flag and help string to
-``claude-plugin/skills/wiki-manager/references/cli.md``.
+``claude-plugin/skills/knowmade/references/cli.md``.
 
 The output is deterministic and independent of terminal width and of the Python
 version's ``argparse`` help formatter: it is assembled from parser attributes,
@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_DIR = ROOT / "scripts"
-OUTPUT = ROOT / "claude-plugin" / "skills" / "wiki-manager" / "references" / "cli.md"
+OUTPUT = ROOT / "claude-plugin" / "skills" / "knowmade" / "references" / "cli.md"
 
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))

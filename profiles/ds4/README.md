@@ -25,7 +25,7 @@ pi \
   --tools read,grep,find,ls
 ```
 
-Keep the existing full `wiki-manager` skill for write-capable research and
+Keep the existing full `knowmade` skill for write-capable research and
 maintenance. Do not give a local query profile write tools merely for
 convenience; switch profiles when the requested workflow changes.
 

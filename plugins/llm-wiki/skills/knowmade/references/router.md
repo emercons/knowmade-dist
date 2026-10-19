@@ -3,7 +3,7 @@
 The one routing table for free-text requests. `commands/wiki.md` and the
 `wiki` skill both read this file; do not keep a second copy.
 
-`wiki x` is the `x` workflow (`/wiki:x` where slash commands exist). Pass the
+`wiki x` is the `x` workflow (`/knowmade:x` where slash commands exist). Pass the
 user's text on minus the signal words, plus any `--wiki`, `--local`,
 `--project` flags.
 

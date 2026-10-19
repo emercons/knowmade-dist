@@ -1,6 +1,6 @@
 # Retract Protocol
 
-The `/wiki:retract` (`wiki retract`) workflow, moved verbatim out of
+The `/knowmade:retract` (`wiki retract`) workflow, moved verbatim out of
 `commands/retract.md` so every runtime ships it. `$ARGUMENTS` is the user's
 request: free text plus the flags of `llm-wiki retract` in [`cli.md`](cli.md).
 
@@ -93,7 +93,7 @@ keep the meaning they have above.
 
 ### 1. Resolve the wiki
 
-Follow `skills/wiki-manager/references/hub-resolution.md`: configured `hub_path`, then named wiki or local
+Follow `skills/knowmade/references/hub-resolution.md`: configured `hub_path`, then named wiki or local
 `.wiki/`, then the hub. Read the selected `_index.md`. Do not broaden a named or
 local source-path request beyond that selected root.
 
@@ -122,7 +122,7 @@ Run this phase only with `--apply`.
    remaining sources independently support it.
 5. Update derived indexes and counts.
 6. Rewrite an affected article only as step 4 requires, from its remaining
-   sources. A fuller resynthesis is a separate `/wiki:compile --source`
+   sources. A fuller resynthesis is a separate `/knowmade:compile --source`
    request, not a retract flag.
 7. Append a generic operation entry to the topic and hub logs. Do not include
    source content or a freeform user explanation in the log.

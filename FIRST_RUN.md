@@ -37,7 +37,7 @@ llm-wiki-session disable   # turns capture off again
 
 You can also leave the hooks untrusted. The `@knowmade` skill works either way. See
 the [Session Memory section of the README](README.md#session-memory) and
-[`sessions.md`](claude-plugin/skills/wiki-manager/references/sessions.md).
+[`sessions.md`](claude-plugin/skills/knowmade/references/sessions.md).
 
 ## New empty knowledge base
 
@@ -49,7 +49,7 @@ A project-local wiki is appropriate when the knowledge belongs naturally with on
 
 This is the important case where PDFs, downloads, scraped sites, notes, repositories, and data already exist before Knowmade.
 
-Use the deterministic `llm-wiki adopt` namespace (`scripts/llm-wiki` in a checkout, `bin/llm-wiki` in an installed runtime package). It is dry-run-first. Every flag is listed in the generated [`cli.md`](claude-plugin/skills/wiki-manager/references/cli.md) reference. The older `scripts/llm-wiki-adopt` and `scripts/llm-wiki-adopt-batch` executables remain only as compatibility shims over the same implementation; use the unified namespace in new work.
+Use the deterministic `llm-wiki adopt` namespace (`scripts/llm-wiki` in a checkout, `bin/llm-wiki` in an installed runtime package). It is dry-run-first. Every flag is listed in the generated [`cli.md`](claude-plugin/skills/knowmade/references/cli.md) reference. The older `scripts/llm-wiki-adopt` and `scripts/llm-wiki-adopt-batch` executables remain only as compatibility shims over the same implementation; use the unified namespace in new work.
 
 ```bash
 llm-wiki adopt scan /path/to/project
@@ -177,7 +177,7 @@ explicit `local` or `git` retention decision as a portable pointer, and
 `verify` rechecks hashes and pointers. Storage paths and size limits come from
 the `source_store` block of the wiki's `config.md` (shown in the README's
 [Quick Start](README.md#quick-start)); every flag is in the generated
-[`cli.md`](claude-plugin/skills/wiki-manager/references/cli.md).
+[`cli.md`](claude-plugin/skills/knowmade/references/cli.md).
 
 ## Do not clone Knowmade into every project
 

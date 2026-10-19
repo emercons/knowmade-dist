@@ -51,7 +51,7 @@ Round 3+: Continue pattern (research → reflect → decide) until:
           - Progress score ≥ 80 with no high-impact gaps (early completion), OR
           - Two consecutive rounds with progress score < 40 (diminishing returns)
 
-Final:   Run /wiki:lint --fix to clean up
+Final:   Run /knowmade:lint --fix to clean up
          → Generate a summary of everything researched
          → Report total: rounds, sources, articles, progress trajectory, time spent
          → Append completion event, refresh .session-checkpoint.json
@@ -74,7 +74,7 @@ Final:   Run /wiki:lint --fix to clean up
 
 **Example:**
 ```
-/wiki:research "CRISPR gene therapy" --new-topic --min-time 2h --deep
+/knowmade:research "CRISPR gene therapy" --new-topic --min-time 2h --deep
 ```
 Creates `HUB/topics/crispr-gene-therapy/`, then runs ~3-5 research rounds over 2 hours, progressively drilling into subtopics the earlier rounds surfaced.
 
@@ -121,7 +121,7 @@ In `--retardmax` mode: add rabbit-hole agents + skip decomposition confirmation.
 
 #### Thesis Research Mode (`--mode thesis`)
 
-**Why this exists as a mode, not a separate command**: thesis research is 70% the same pipeline as topic/question research (agent dispatch, credibility scoring, session registry, multi-round --min-time, compilation, ingestion). The 30% that's different is: scope filtering by claim, for/against agent framing, evidence strength classification, and verdict rendering. Those differences are described below as modifications to the standard phases. Previously this was a separate `/wiki:thesis` command (224 lines) which duplicated all the shared infrastructure.
+**Why this exists as a mode, not a separate command**: thesis research is 70% the same pipeline as topic/question research (agent dispatch, credibility scoring, session registry, multi-round --min-time, compilation, ingestion). The 30% that's different is: scope filtering by claim, for/against agent framing, evidence strength classification, and verdict rendering. Those differences are described below as modifications to the standard phases. Previously this was a separate `/knowmade:thesis` command (224 lines) which duplicated all the shared infrastructure.
 
 **Phase 0: Decompose the thesis.** Before any research, break the claim into:
 

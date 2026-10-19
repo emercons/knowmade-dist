@@ -47,7 +47,7 @@ transcripts. A target slug that does not end in `-PRIVATE` is refused unless
 `--allow-public` is passed; with it, the machine-identity rows (CWD, transcript
 pointer, git remote) and their literal values are scrubbed from the note.
   Promotion writes `raw/notes/` without an `inbox/` item: that is the
-  session-distillate exception in `skills/wiki-manager/references/knowmade-profile.md`
+  session-distillate exception in `skills/knowmade/references/knowmade-profile.md`
   (Inbox-First Source Lifecycle), and the write-guard still applies.
 
 ### Policy
@@ -100,4 +100,4 @@ Write-guard on promote: a digest may mention `-PRIVATE` topics, private goals,
 or private files; when `--topic <slug>` is a public, non-`-PRIVATE` topic,
 strip every such item from the promotion note (or promote into
 `<slug>-PRIVATE` instead) so the note and the public `log.md` carry no
-`-PRIVATE` path string or private-derived content; see `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+`-PRIVATE` path string or private-derived content; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.

@@ -9,10 +9,10 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(mkdir:*), Bash(mv
 Manage projects — folders inside a topic wiki's `output/projects/` directory that group related outputs. The only required file in a project is `WHY.md`, which captures the goal/rationale in plain markdown.
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` if found. Variant: **wiki-neutral** — see deviation below for the step-4 fallback.
 
@@ -23,11 +23,11 @@ or rerun with `--include-archived`; explicit archived operations must stay
 inside that archived topic path. The project subcommand `archive <slug>` only
 moves `output/projects/<slug>` inside the selected topic wiki.
 
-Read the projects architecture at `skills/wiki-manager/references/projects.md` for the full rationale — particularly *why* `WHY.md` is the only required file (it holds the precious, non-derivable rationale) and *why* everything else is derived from filesystem state.
+Read the projects architecture at `skills/knowmade/references/projects.md` for the full rationale — particularly *why* `WHY.md` is the only required file (it holds the precious, non-derivable rationale) and *why* everything else is derived from filesystem state.
 
 Idea awareness: if the user says "turn this Idea into a Project," "approve the
 brief," or equivalent, route to the Idea promotion workflow in
-`skills/wiki-manager/references/ideas.md`. Promotion freezes `BRIEF.md` and
+`skills/knowmade/references/ideas.md`. Promotion freezes `BRIEF.md` and
 cross-links the records. Keep `project new` available for direct Projects that
 do not originate as Ideas.
 
@@ -126,7 +126,7 @@ Active projects (N)
 
 With `--archived`, render a second "Archived projects" table below.
 
-If no projects exist, report: `No projects in <wiki>. Create one with /wiki:project new <slug> "goal".`
+If no projects exist, report: `No projects in <wiki>. Create one with /knowmade:project new <slug> "goal".`
 
 ---
 
@@ -150,7 +150,7 @@ No derived cache, no regeneration step — `show` always reflects current filesy
 
 Move an existing file into a project.
 
-1. Verify the project exists: `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail: `Project "<slug>" does not exist. Create it first with /wiki:project new <slug> "goal".`
+1. Verify the project exists: `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail: `Project "<slug>" does not exist. Create it first with /knowmade:project new <slug> "goal".`
 2. Resolve the source path (absolute or relative to wiki root)
 3. Verify the file exists
 4. `mv <source> <wiki-root>/output/projects/<slug>/<basename>`
@@ -184,4 +184,4 @@ After any mutation, output:
 - **Action taken**: created/listed/shown/added/archived
 - **Project(s) affected**: slug and path
 - **Members delta** (for `add`): `+1 member` or equivalent
-- **Next steps**: suggestions like `/wiki:research <topic> --project <slug>` or `/wiki:project show <slug>`
+- **Next steps**: suggestions like `/knowmade:research <topic> --project <slug>` or `/knowmade:project show <slug>`

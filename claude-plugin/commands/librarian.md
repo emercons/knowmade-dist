@@ -1,5 +1,5 @@
 ---
-description: "Keep the active wiki article layer in check: staleness, quality, accuracy, and coherence. Focused maintenance tool; broader trust audits belong to /wiki:audit."
+description: "Keep the active wiki article layer in check: staleness, quality, accuracy, and coherence. Focused maintenance tool; broader trust audits belong to /knowmade:audit."
 argument-hint: "scan [--article <path>] [--resume] [--passes <list>] [--include-archived] | report | fix <id> [--wiki <name|all>] [--local]"
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mv:*), Bash(mkdir:*), Bash(python3:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*), WebFetch, WebSearch, Agent
 ---
@@ -7,18 +7,18 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 ## Your task
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. `--wiki all` (this command only) → HUB with an `ALL_TOPICS` flag for step 6, instead of one wiki.
-5. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/wiki init` first."
+5. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/knowmade:wiki init` first."
 6. **Hub-level detection**: Librarian operates on the `wiki/` layer of a single topic wiki. The HUB has no `wiki/` subdirectory — only `wikis.json`, `_index.md`, `log.md`, and `topics/`. If `ALL_TOPICS` is set from `--wiki all`, read registered topic wikis from `HUB/wikis.json` (excluding the synthetic `hub` entry) and iterate the scan against each topic wiki sequentially. If the resolved wiki is the HUB (detected by the presence of `wikis.json` and the absence of a `wiki/` subdir) AND the user did not pass `--wiki <name>`, do NOT proceed with the scan against an empty topic surface. Instead, present a numbered list of registered topic wikis from `HUB/wikis.json` and ask the user to pick one. Re-resolve the wiki path with the selected name (`HUB/topics/<name>/`) and continue.
 
-Read the librarian reference at `skills/wiki-manager/references/librarian.md`. Then execute the requested subcommand.
+Read the librarian reference at `skills/knowmade/references/librarian.md`. Then execute the requested subcommand.
 
-`/wiki:librarian` is the focused wiki-maintenance tool. It reviews the `wiki/` layer only. If the user wants a broader trust inspection across outputs, provenance, and fresh research, direct them to `/wiki:audit`.
+`/knowmade:librarian` is the focused wiki-maintenance tool. It reviews the `wiki/` layer only. If the user wants a broader trust inspection across outputs, provenance, and fresh research, direct them to `/knowmade:audit`.
 
 Inventory awareness: librarian reports may recommend inventory records for
 durable maintenance follow-ups such as stale article clusters, weak source
@@ -50,7 +50,7 @@ Flags (apply to `scan`):
 When `--wiki all` is used, iterate active registered topic wikis only unless
 `--include-archived` is present. If a single `--wiki <name>` target is archived,
 ask for `--include-archived` or restoration before scanning. `-PRIVATE` topics
-are iterated too; see `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+are iterated too; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
 
 Write-guard: each topic's `.librarian/REPORT.md`, checkpoint, and any proposed
 fix are written inside that topic only, so a public topic's report never
@@ -114,9 +114,9 @@ After all articles are scored:
 1. Sort articles by staleness score (ascending — worst first).
 2. Filter to those below the freshness threshold.
 3. For each stale article, recommend an action:
-   - `refresh` — sources are old, article may be outdated. Delegate to `/wiki:refresh`.
+   - `refresh` — sources are old, article may be outdated. Delegate to `/knowmade:refresh`.
    - `verify` — article lacks `verified:` date or it's been too long. User should read and confirm.
-   - `expand` — thin article with few sources. Suggest `/wiki:research` to find more sources.
+   - `expand` — thin article with few sources. Suggest `/knowmade:research` to find more sources.
 4. Present the triage list to the user:
 
 ```
@@ -131,7 +131,7 @@ After all articles are scored:
    → Verify still accurate? (y/n/skip)
 ```
 
-5. For articles the user selects to refresh: invoke the refresh protocol in `skills/wiki-manager/references/refresh-protocol.md` for that article.
+5. For articles the user selects to refresh: invoke the refresh protocol in `skills/knowmade/references/refresh-protocol.md` for that article.
 6. For articles the user selects to verify: update `verified:` to today in the article's frontmatter.
 
 #### 3b. Topic-Guide Conventions Pass
@@ -199,9 +199,9 @@ Scan data: .librarian/scan-results.json
 
 ### Report Subcommand
 
-When the user runs `report` (or `/wiki:librarian report`):
+When the user runs `report` (or `/knowmade:librarian report`):
 
-1. Check if `.librarian/REPORT.md` exists. If not: "No librarian report found. Run `/wiki:librarian scan` first."
+1. Check if `.librarian/REPORT.md` exists. If not: "No librarian report found. Run `/knowmade:librarian scan` first."
 2. Read and display `REPORT.md`.
 3. Note when the scan was run (from `scan-results.json` → `completed_at`).
 4. If the scan is older than the wiki's staleness threshold for hot articles (30 days), suggest re-scanning.

@@ -7,7 +7,7 @@ allowed-tools: Read, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*)
 ## Your task
 
 Build a current portfolio view across Ideas and Projects. Read
-`skills/wiki-manager/references/portfolio.md`, plus `ideas.md` or `projects.md`
+`skills/knowmade/references/portfolio.md`, plus `ideas.md` or `projects.md`
 only when their derivation rules are needed.
 
 This operation is read-only. It must not create a `project-ideas` topic, a hub
@@ -15,13 +15,13 @@ Ideas/Portfolio directory, saved view, duplicate record, or activity-log entry.
 
 ### Resolve scope
 
-Resolve HUB by `skills/wiki-manager/references/hub-resolution.md`.
+Resolve HUB by `skills/knowmade/references/hub-resolution.md`.
 
 - `--local` selects the current `.wiki/`.
 - `--wiki <name>` selects one active topic from `HUB/wikis.json`.
 - With neither flag, select every active topic in `HUB/wikis.json`, excluding
   the synthetic `hub` entry. `-PRIVATE` topics are included; see
-  `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+  `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
 - Skip archived topics unless `--include-archived` is explicit.
 
 ### Build the catalog

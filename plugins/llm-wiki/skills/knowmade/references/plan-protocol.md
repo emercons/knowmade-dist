@@ -1,12 +1,12 @@
 # Plan Protocol
 
-The `/wiki:plan` (`wiki plan`) workflow, moved verbatim out of `commands/plan.md` so every
+The `/knowmade:plan` (`wiki plan`) workflow, moved verbatim out of `commands/plan.md` so every
 runtime ships it. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
 `$ARGUMENTS` is the user's request: free text plus the flags listed under
 Parse $ARGUMENTS.
 
-4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found (or no articles). Run `/wiki init` and `/wiki:research` first to build a knowledge base."
+4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found (or no articles). Run `/knowmade:wiki init` and `/knowmade:research` first to build a knowledge base."
 
 Generate an implementation plan for what the user wants to build, grounded in the wiki's accumulated research. Follow the 6-stage pipeline below.
 
@@ -15,7 +15,7 @@ Private goals awareness: when planning from a private topic wiki, read relevant
 context. Use them to choose tradeoffs and sequencing. They are not factual
 evidence; factual claims still need wiki/raw citations. Private siblings and
 `--with` wikis may be read freely; what a plan saved into a public topic may
-contain is governed by `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard and enforced in Stage 6.
+contain is governed by `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard and enforced in Stage 6.
 
 Inventory awareness: use active inventory records as planning constraints when
 they are relevant to the goal, especially blocked tasks, candidate corpora,
@@ -109,7 +109,7 @@ For each knowledge gap identified in Stage 1, run a targeted web search to fill 
 3. Synthesize findings into a brief gap-fill (3-5 bullet points per gap)
 4. If a gap is substantial enough, ingest the source into the wiki's `raw/` for future use
 
-Do NOT launch full research agents — this is lightweight, targeted filling. If gaps are large, suggest `/wiki:research` as a follow-up instead.
+Do NOT launch full research agents — this is lightweight, targeted filling. If gaps are large, suggest `/knowmade:research` as a follow-up instead.
 
 ---
 
@@ -216,7 +216,7 @@ Technical specification:
 
 ## Stage 6: Save & Log
 
-0. **Write-guard (mandatory when the target wiki is a public, non-`-PRIVATE` topic)**: apply `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard to the generated plan before saving. Every decision, risk row, phase grounding, and `Sources Consulted` entry traced to a `-PRIVATE` sibling, `--with` wiki, `goals.md`, or private inventory is either dropped or the plan is saved under `<slug>-PRIVATE/output/` instead; the saved file contains no `-PRIVATE` path string and no `sources:` entry into a private topic; if private context shaped the plan, say so in the Report and log it in the private sibling's `log.md`, not the public one.
+0. **Write-guard (mandatory when the target wiki is a public, non-`-PRIVATE` topic)**: apply `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard to the generated plan before saving. Every decision, risk row, phase grounding, and `Sources Consulted` entry traced to a `-PRIVATE` sibling, `--with` wiki, `goals.md`, or private inventory is either dropped or the plan is saved under `<slug>-PRIVATE/output/` instead; the saved file contains no `-PRIVATE` path string and no `sources:` entry into a private topic; if private context shaped the plan, say so in the Report and log it in the private sibling's `log.md`, not the public one.
 
 1. **Save** to `output/plan-{slug}-{YYYY-MM-DD}.md`. Follow core principle #9 (chunked writes): Write the frontmatter + executive summary first, then use sequential Edit calls to append each phase/section. With frontmatter:
    ```
@@ -244,17 +244,17 @@ Technical specification:
 
 ```bash
 # Full pipeline with interview and gap research
-/wiki:plan "build incremental compilation for Knowmade" --wiki knowmade-dev
+/knowmade:plan "build incremental compilation for Knowmade" --wiki knowmade-dev
 
 # Quick plan from wiki knowledge only (no interview, no research)
-/wiki:plan "add ephemeral wiki support" --wiki knowmade-dev --quick
+/knowmade:plan "add ephemeral wiki support" --wiki knowmade-dev --quick
 
 # RFC format for team review
-/wiki:plan "migrate from full to incremental compilation" --wiki knowmade-dev --format rfc
+/knowmade:plan "migrate from full to incremental compilation" --wiki knowmade-dev --format rfc
 
 # ADR for a specific decision
-/wiki:plan "choose between qmd and custom embedding search" --wiki knowmade-dev --format adr
+/knowmade:plan "choose between qmd and custom embedding search" --wiki knowmade-dev --format adr
 
 # Spec for implementation
-/wiki:plan "implement confidence decay for wiki articles" --wiki knowmade-dev --format spec
+/knowmade:plan "implement confidence decay for wiki articles" --wiki knowmade-dev --format spec
 ```

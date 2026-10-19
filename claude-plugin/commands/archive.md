@@ -12,7 +12,7 @@ explicit restore/maintenance possible.
 
 Archive moves are deterministic, so this command calls the CLI. It never runs
 `mkdir`/`mv` or edits `wikis.json`, the hub `_index.md` or `log.md` by hand.
-Read `skills/wiki-manager/references/archive.md` for the lifecycle;
+Read `skills/knowmade/references/archive.md` for the lifecycle;
 `<cli> archive --help` has the exact flags.
 
 ### Locate the CLI and the hub
@@ -38,7 +38,7 @@ destination exists, private topic not ignored by version control, path outside
 `topics/`) and let the user decide; never work around them with manual moves.
 
 Do not archive project-local `.wiki/` directories in v1. Project archive remains
-`/wiki:project archive`; inventory and dataset archive remain `status:
+`/knowmade:project archive`; inventory and dataset archive remain `status:
 archived`.
 
 ### Parse $ARGUMENTS
@@ -55,7 +55,7 @@ Subcommands:
 - **restore <slug>**: `<cli> archive restore <slug>`. The CLI refuses an
   existing active destination, restores the registry entry (`status: active`,
   `restored`) and appends both logs. Afterwards stale-check the restored topic's
-  master `_index.md` and suggest `/wiki:query --resume --wiki <slug>`.
+  master `_index.md` and suggest `/knowmade:query --resume --wiki <slug>`.
 - **peek <query>**: agent-only semantic pass, described below.
 
 Flags handled by the agent:
@@ -77,8 +77,8 @@ For `peek <query>`:
 3. Return an `Archived Matches` section. Make clear that these matches are
    preserved context, not active evidence.
 4. Suggest either:
-   - `/wiki:archive restore <slug>` when the user wants to resume the topic, or
-   - `/wiki:query "<question>" --wiki <slug> --include-archived` when they want
+   - `/knowmade:archive restore <slug>` when the user wants to resume the topic, or
+   - `/knowmade:query "<question>" --wiki <slug> --include-archived` when they want
      an explicit archived lookup without restoring.
 
 Do not read archived articles during `list` or `peek`.

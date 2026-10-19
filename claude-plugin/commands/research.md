@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 
 Conduct deep research on the topic in $ARGUMENTS. This is an automated pipeline: search → stage in `inbox/` → ingest into `raw/` → compile.
 
-Research is inbox-first, like every other Knowmade intake path. No research agent writes to `raw/` directly: every captured source is first staged as an `inbox/` capture by the agent that found it, and the batch is then processed into `raw/` by the coordinator using the same protocol `/wiki:ingest` uses (`references/ingestion.md` § Inbox Processing, `references/knowmade-profile.md` § Inbox-First Source Lifecycle). The research-specific staging and batch rules live in Phase 3 below and in `references/research-staging.md`.
+Research is inbox-first, like every other Knowmade intake path. No research agent writes to `raw/` directly: every captured source is first staged as an `inbox/` capture by the agent that found it, and the batch is then processed into `raw/` by the coordinator using the same protocol `/knowmade:ingest` uses (`references/ingestion.md` § Inbox Processing, `references/knowmade-profile.md` § Inbox-First Source Lifecycle). The research-specific staging and batch rules live in Phase 3 below and in `references/research-staging.md`.
 
 ### Parse $ARGUMENTS
 
@@ -33,7 +33,7 @@ Research is inbox-first, like every other Knowmade intake path. No research agen
 
 ### `--project <slug>` flag
 
-If `--project <slug>` is set, the research playbook/summary artifact is saved inside `output/projects/<slug>/` instead of flat `output/`, and compiled wiki articles get `project: <slug>` frontmatter. Verify the project exists at `<wiki-root>/output/projects/<slug>/WHY.md` before starting; if not, fail early with a suggestion to run `/wiki:project new <slug> "goal"` first.
+If `--project <slug>` is set, the research playbook/summary artifact is saved inside `output/projects/<slug>/` instead of flat `output/`, and compiled wiki articles get `project: <slug>` frontmatter. Verify the project exists at `<wiki-root>/output/projects/<slug>/WHY.md` before starting; if not, fail early with a suggestion to run `/knowmade:project new <slug> "goal"` first.
 
 There is no ambient project focus — pass `--project` explicitly when you want project scope. The focus-session mechanism was removed in the v0.2 projects simplification; see `references/projects.md` § "Focus" for the rationale.
 
@@ -51,7 +51,7 @@ from `goals.md`, `config.md`, and high-priority inventory records when cheap.
 Use them to prioritize research paths and practical deliverables. Do not treat
 goals as factual evidence. A `-PRIVATE` sibling may also be read when
 researching a public topic; what reaches the public topic's `raw/`, `wiki/`,
-and `log.md` is governed by `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard, applied in Phases 4 and 5.
+and `log.md` is governed by `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard, applied in Phases 4 and 5.
 
 At the end, propose inventory records only for durable follow-ups: important
 unresolved gaps, item/part decisions, candidate sources/corpora to revisit,
@@ -71,12 +71,12 @@ through auto-classification.
 ### Resolve HUB and wiki
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
-4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic` to create one, or run `/wiki init <topic>` first."
+4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic` to create one, or run `/knowmade:wiki init <topic>` first."
 
 **When `--new-topic` is set**, override the standard resolution:
 1. Derive a slug from the topic: lowercase, hyphens, no special chars, max 40 chars
@@ -107,14 +107,14 @@ The procedural sections this command refers to as "below" (Specialist selection,
 
 | Step | Read |
 |------|------|
-| After the target wiki is resolved, before decomposing the question | `skills/wiki-manager/references/research-protocol.md` § Specialist selection |
-| `--min-time` | `skills/wiki-manager/references/research-modes.md` § Minimum Time Research |
-| Question input | `skills/wiki-manager/references/research-modes.md` § Question Research Mode |
-| Thesis input (`--mode thesis` or auto-detected) | `skills/wiki-manager/references/research-modes.md` § Thesis Research Mode |
-| `--plan` | `skills/wiki-manager/references/research-modes.md` § Plan Mode |
-| Phase 1 (existing knowledge check) | `skills/wiki-manager/references/research-protocol.md` § Phase 1 |
-| Phases 2 and 2b (agent swarm, credibility review) | `skills/wiki-manager/references/research-protocol.md` § Phase 2, § Agent Prompt Template, § Phase 2b |
-| Phase 3 (stage and ingest, inbox-first) | `skills/wiki-manager/references/research-protocol.md` § Phase 3 |
-| Phases 4 and 5 (compile, report and log), Gap-Closing Offer | `skills/wiki-manager/references/research-protocol.md` § Phase 4, § Phase 5, § Gap-Closing Offer |
+| After the target wiki is resolved, before decomposing the question | `skills/knowmade/references/research-protocol.md` § Specialist selection |
+| `--min-time` | `skills/knowmade/references/research-modes.md` § Minimum Time Research |
+| Question input | `skills/knowmade/references/research-modes.md` § Question Research Mode |
+| Thesis input (`--mode thesis` or auto-detected) | `skills/knowmade/references/research-modes.md` § Thesis Research Mode |
+| `--plan` | `skills/knowmade/references/research-modes.md` § Plan Mode |
+| Phase 1 (existing knowledge check) | `skills/knowmade/references/research-protocol.md` § Phase 1 |
+| Phases 2 and 2b (agent swarm, credibility review) | `skills/knowmade/references/research-protocol.md` § Phase 2, § Agent Prompt Template, § Phase 2b |
+| Phase 3 (stage and ingest, inbox-first) | `skills/knowmade/references/research-protocol.md` § Phase 3 |
+| Phases 4 and 5 (compile, report and log), Gap-Closing Offer | `skills/knowmade/references/research-protocol.md` § Phase 4, § Phase 5, § Gap-Closing Offer |
 
 A mode section modifies the phases; it does not replace them, so read the matching phase sections as well. Templates, scoring formulas and session schemas live in one small file per phase (agents, credibility, staging, rounds, sessions, plan); each section names the one it needs at the step that needs it.

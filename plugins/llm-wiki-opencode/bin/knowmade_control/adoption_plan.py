@@ -109,7 +109,7 @@ def file_sha256(path: Path, limit: int) -> str | None:
 def is_knowmade_checkout(path: Path) -> bool:
     return (
         (path / "scripts" / "llm-wiki").is_file()
-        and (path / "claude-plugin" / "skills" / "wiki-manager" / "SKILL.md").is_file()
+        and (path / "claude-plugin" / "skills" / "knowmade" / "SKILL.md").is_file()
         and (path / "plugins" / "llm-wiki").exists()
     )
 

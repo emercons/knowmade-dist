@@ -1,17 +1,17 @@
 # Output Protocol
 
-The `/wiki:output` (`wiki output`) workflow, moved verbatim out of `commands/output.md` so every
+The `/knowmade:output` (`wiki output`) workflow, moved verbatim out of `commands/output.md` so every
 runtime ships it. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
 `$ARGUMENTS` is the user's request: free text plus the flags listed under
 Parse $ARGUMENTS.
 
-4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found (or no articles). Run `/wiki init` and `/wiki:compile` first."
+4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found (or no articles). Run `/knowmade:wiki init` and `/knowmade:compile` first."
 
 Generate an output artifact from wiki content based on $ARGUMENTS.
 
 Public/private awareness: the primary wiki, `--with` wikis, and sibling
-context may include a `-PRIVATE` topic; see `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard
+context may include a `-PRIVATE` topic; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard
 for the rule, and Process step 3.5 for the mandatory write-guard applied
 before the artifact is saved. If operating in a private topic wiki, private
 `goals.md` may guide framing and usefulness, but it is planning context rather
@@ -19,16 +19,16 @@ than factual evidence.
 
 Inventory and collect awareness: if the requested output is really a durable
 queue, candidate list, watch list, source backlog, or next-action table,
-recommend `/wiki:inventory` instead of creating another loose output. If the
+recommend `/knowmade:inventory` instead of creating another loose output. If the
 request needs web discovery plus a catalog of artifacts, examples, memes,
-media, tools, entities, or source candidates, recommend `/wiki:collect`
+media, tools, entities, or source candidates, recommend `/knowmade:collect`
 instead. If an output report discovers durable follow-ups, include a short
 "Inventory candidates" section with a sample shape and ask before creating
 records. Do not bury ongoing tracking state in a generated report.
 
 ### Parse $ARGUMENTS
 
-- **type** (required): One of: `summary`, `report`, `study-guide`, `slides`, `timeline`, `glossary`, `comparison`. Use `/wiki:collect` for `type: collection` catalogs because those require discovery, dedupe, media policy, and inventory fit checks.
+- **type** (required): One of: `summary`, `report`, `study-guide`, `slides`, `timeline`, `glossary`, `comparison`. Use `/knowmade:collect` for `type: collection` catalogs because those require discovery, dedupe, media policy, and inventory fit checks.
 - **--topic <topic>**: Focus on a specific topic or concept (matches against tags and titles)
 - **--sources <paths>**: Comma-separated list of specific wiki article paths to use
 - **--with <wiki>**: Load a supplementary wiki as additional context. The primary wiki (`--wiki`) provides the **subject** (what to write about); `--with` wikis provide **craft/skill** knowledge (how to write it). Multiple `--with` flags allowed. Example: `--wiki quantum-computing --with article-writing` uses quantum-computing for domain content and article-writing for structure, hooks, and writing techniques. A `-PRIVATE` `--with` wiki may be read; its material is subject to the write-guard in step 3.5.
@@ -86,7 +86,7 @@ When `--retardmax` is set:
 
 3. **Generate**: Create the artifact in the format specified for the output type. Draw domain content from the primary wiki and craft/technique guidance from `--with` wikis.
 
-3.5. **Write-guard (mandatory when the save target is a public, non-`-PRIVATE` topic)**: Before step 4, check the drafted artifact against `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard. The write does not proceed until every item passes:
+3.5. **Write-guard (mandatory when the save target is a public, non-`-PRIVATE` topic)**: Before step 4, check the drafted artifact against `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard. The write does not proceed until every item passes:
    - [ ] No fact, quote, number, or recommendation in the body traces to a `-PRIVATE` topic, `goals.md`, private inventory, or a private raw/inbox file — each such item is dropped, or the whole artifact is saved under `<slug>-PRIVATE/output/` instead.
    - [ ] The `sources:` frontmatter list and every inline link resolve inside the public topic; none points into a `-PRIVATE` topic.
    - [ ] The file contains no `-PRIVATE` path string anywhere (frontmatter, body, See Also, footnotes).

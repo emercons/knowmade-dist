@@ -23,6 +23,7 @@ from . import adapters as _adapters
 from . import adopt_cli as _adopt_cli
 from . import checkpoints as _checkpoints
 from . import datasets as _datasets
+from . import federation as _federation
 from . import freshness as _freshness
 from . import hub as _hub
 from . import hub_index as _hub_index
@@ -61,6 +62,7 @@ NAMESPACES: tuple[Namespace, ...] = (
     Namespace("schema", _hub.register_schema_parser),
     Namespace("identity", _hub.register_identity_parser),
     Namespace("hub", _hub_index.register_parser),
+    Namespace("registry", _federation.register_parser),
     Namespace("retract", _retract.register_parser),
     Namespace("specialist", _specialists.register_parser),
     Namespace("adapter", _adapters.register_parser),

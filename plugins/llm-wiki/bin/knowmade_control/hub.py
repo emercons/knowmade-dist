@@ -1032,9 +1032,11 @@ def register_identity_parser(subparsers: Any) -> argparse.ArgumentParser:
         "identity",
         help="Read or assign a wiki's stable identity.",
         description=(
-            "A wiki's identity is declared as wiki_id in its config.md and is "
-            "independent of where the wiki currently lives. Registry entries that "
-            "carry the same id can be verified on resolution instead of trusted."
+            "A wiki's identity is declared as wiki_id in its config.md and a hub's "
+            "as hub_id in its wikis.json; both are independent of where the root "
+            "currently lives. Registry entries that carry the same id can be "
+            "verified on resolution instead of trusted. assign never replaces a "
+            "declared id; fork is the explicit way to re-identify an independent copy."
         ),
     )
     # The path is accepted after the subcommand only: a parent positional would be
@@ -1046,22 +1048,39 @@ def register_identity_parser(subparsers: Any) -> argparse.ArgumentParser:
         include_archived_help="Allow identity operations on an explicitly targeted archived wiki.",
     )
     identity_sub = identity.add_subparsers(dest="identity_command", required=True)
-    identity_status = identity_sub.add_parser("status", help="Print the declared wiki id.")
+    identity_status = identity_sub.add_parser(
+        "status", help="Print the declared wiki id (or, with --hub, the hub id and each topic's)."
+    )
     identity_status.add_argument("--json", action="store_true", help="Print a JSON report.")
     identity_assign = identity_sub.add_parser(
-        "assign", help="Declare a wiki id in config.md if the wiki has none."
+        "assign", help="Declare a wiki id in config.md (or, with --hub, a hub id) if there is none."
+    )
+    identity_fork = identity_sub.add_parser(
+        "fork",
+        help="Replace a declared id with a new one and record the old one (independent copies).",
     )
     # Accept the resolution flags on either side of the subcommand, as `schema` does.
-    for identity_parser in (identity_status, identity_assign):
+    for identity_parser in (identity_status, identity_assign, identity_fork):
         identity_parser.add_argument("path", nargs="?", default=argparse.SUPPRESS, help="Wiki root path.")
         identity_parser.add_argument("--local", action="store_true", default=argparse.SUPPRESS, help="Target .wiki/ in the current directory.")
         identity_parser.add_argument("--wiki", default=argparse.SUPPRESS, help="Named wiki from the hub registry.")
-        identity_parser.add_argument("--hub", default=argparse.SUPPRESS, help="Override hub path for --wiki resolution.")
+        identity_parser.add_argument(
+            "--hub",
+            nargs="?",
+            const="",
+            default=argparse.SUPPRESS,
+            metavar="HUB",
+            help="Target the hub itself (path optional: the resolved hub); with --wiki, override the hub path.",
+        )
         identity_parser.add_argument("--private", action="store_true", default=argparse.SUPPRESS, help=f"Resolve --wiki <slug> to <slug>{PRIVATE_SUFFIX}.")
         identity_parser.add_argument("--public", action="store_true", default=argparse.SUPPRESS, help=f"Resolve --wiki <slug>{PRIVATE_SUFFIX} to <slug>.")
         identity_parser.add_argument("--include-archived", action="store_true", default=argparse.SUPPRESS, help="Allow targeting an archived wiki.")
     identity_assign.add_argument("--id", help="Use this id instead of generating one.")
     identity_assign.add_argument(
+        "--dry-run", action="store_true", help="Report what would happen without writing."
+    )
+    identity_fork.add_argument("--id", help="Use this new id instead of generating one.")
+    identity_fork.add_argument(
         "--dry-run", action="store_true", help="Report what would happen without writing."
     )
     identity.set_defaults(func=_identity.run_identity)

@@ -15,7 +15,7 @@ if [[ -n "${KNOWMADE_SYNC_OUT:-}" ]]; then
 else
   OUT="$ROOT"
 fi
-SOURCE="$ROOT/claude-plugin/skills/wiki-manager/references/query-lite.md"
+SOURCE="$ROOT/claude-plugin/skills/knowmade/references/query-lite.md"
 TARGET="$OUT/profiles/query-lite/SKILL.md"
 
 if [[ ! -f "$SOURCE" ]]; then

@@ -28,7 +28,7 @@ Claude Code, or `scripts/llm-wiki-session` in a source checkout, and call it
 - `list [--unpromoted] [--type correction|preference|approval|decision|manual] [--min-confidence low|medium|high]`: show captured candidates.
 - `show <candidate-id>`: display one candidate with its distilled lesson and redacted user-feedback preview.
 - `capture --text "..." [--session-id <id>]`: manually add a feedback candidate.
-- `promote <candidate-id> --topic <slug> [--allow-public]`: write the candidate into the target topic's `raw/notes/` layer and append the topic log. A target slug that does not end in `-PRIVATE` is refused unless `--allow-public` is passed; with it, the CWD and git remote rows are dropped from the note. Promotion writes `raw/notes/` without an `inbox/` item: that is the session-distillate exception in `skills/wiki-manager/references/knowmade-profile.md` (Inbox-First Source Lifecycle), and the write-guard still applies.
+- `promote <candidate-id> --topic <slug> [--allow-public]`: write the candidate into the target topic's `raw/notes/` layer and append the topic log. A target slug that does not end in `-PRIVATE` is refused unless `--allow-public` is passed; with it, the CWD and git remote rows are dropped from the note. Promotion writes `raw/notes/` without an `inbox/` item: that is the session-distillate exception in `skills/knowmade/references/knowmade-profile.md` (Inbox-First Source Lifecycle), and the write-guard still applies.
 
 ### Policy
 
@@ -55,4 +55,4 @@ promoting into a topic wiki.
 Write-guard on promote: when `--topic <slug>` is a public, non-`-PRIVATE`
 topic, the promoted note and log entry must not carry a `-PRIVATE` path
 string, a private goal, or a lesson derived from private material; drop those
-parts or promote into `<slug>-PRIVATE` instead; see `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+parts or promote into `<slug>-PRIVATE` instead; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.

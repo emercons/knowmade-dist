@@ -53,7 +53,7 @@ public/private boundaries, inbox-first intake, or migration rules.
 
 ### Collection Ingestion
 See [references/ingestion-collections.md](ingestion-collections.md).
-Flow: structured upstream collection (Git repo, BIP-style proposal set, MediaWiki dump/API) → upstream item inventory → write a `raw/repos/` manifest plus immutable child sources → rebuild raw indexes → optionally compile synthesized clusters. Use `/wiki:ingest-collection` for bulk imports; never recursively crawl HTML.
+Flow: structured upstream collection (Git repo, BIP-style proposal set, MediaWiki dump/API) → upstream item inventory → write a `raw/repos/` manifest plus immutable child sources → rebuild raw indexes → optionally compile synthesized clusters. Use `/knowmade:ingest-collection` for bulk imports; never recursively crawl HTML.
 
 ### Private Adapters
 See [references/adapters.md](adapters.md).
@@ -74,8 +74,8 @@ Flow: maintain user-owned instruction-only `SKILL.md` methods under
 stable names per active topic → select zero to three by task features, normally
 one → give selected methods the same bounded evidence packet → verify and
 synthesize by evidence strength → record name, version, and content hash. Use
-`/wiki:specialist suggest` for an index-first candidate scan and
-`/wiki:specialist apply` for a bounded review. Do not treat titles such as CFO,
+`/knowmade:specialist suggest` for an index-first candidate scan and
+`/knowmade:specialist apply` for a bounded review. Do not treat titles such as CFO,
 doctor, MBA, or PhD as credentials or capability upgrades.
 
 ### Inventory
@@ -220,7 +220,7 @@ When answering queries, note confidence levels. When linting, flag `low` confide
 
 ## Compilation Nudge
 
-Track uncompiled sources by comparing `raw/_index.md` ingestion dates against the last compile date in `_index.md`. If 5+ uncompiled sources exist after an ingestion, suggest: "You have N uncompiled sources. Run `/wiki:compile` to integrate them."
+Track uncompiled sources by comparing `raw/_index.md` ingestion dates against the last compile date in `_index.md`. If 5+ uncompiled sources exist after an ingestion, suggest: "You have N uncompiled sources. Run `/knowmade:compile` to integrate them."
 
 ## Structural Guardian
 
@@ -235,7 +235,7 @@ Automatically run a quick structural check when any of these triggers occur:
 
 ### Quick Structure Check (lightweight, runs inline — not a full lint)
 
-1. **Hub integrity**: The hub (HUB) should contain `wikis.json`, `_index.md`, `log.md`, `topics/`, optional `.sessions/`, optional `inbox/` for global intake, and optional `.skills/`. Validate `.skills/` against the instruction-only package and active-topic allowlist contract. If `raw/`, `wiki/`, `inventory/`, `datasets/`, `output/`, or `config.md` exist at the hub level → **warn, do not delete**. These may hold user data from an older wiki layout. Suggest `/wiki:lint --fix`, which will move contents to the appropriate topic wiki, repair archive registry drift, or quarantine to a topic `inbox/.unknown/` per C11/C12/C16/C17/C19 in `references/linting.md`.
+1. **Hub integrity**: The hub (HUB) should contain `wikis.json`, `_index.md`, `log.md`, `topics/`, optional `.sessions/`, optional `inbox/` for global intake, and optional `.skills/`. Validate `.skills/` against the instruction-only package and active-topic allowlist contract. If `raw/`, `wiki/`, `inventory/`, `datasets/`, `output/`, or `config.md` exist at the hub level → **warn, do not delete**. These may hold user data from an older wiki layout. Suggest `/knowmade:lint --fix`, which will move contents to the appropriate topic wiki, repair archive registry drift, or quarantine to a topic `inbox/.unknown/` per C11/C12/C16/C17/C19 in `references/linting.md`.
 
 2. **Index freshness**: For the active topic wiki, compare actual file counts in `raw/`, `wiki/`, `inventory/`, and `datasets/` subdirectories against the rows in their `_index.md`. Ignore maintenance/report areas such as `.librarian/` and `.audit/`. If mismatched → auto-fix by regenerating the affected directory index from frontmatter and removing dead entries.
 
@@ -255,7 +255,7 @@ Automatically run a quick structural check when any of these triggers occur:
 
 - **Silent when clean** — don't report anything if everything checks out
 - **Auto-fix trivial issues** — missing indexes, unregistered wikis, orphan files. Just fix and note in log.
-- **Warn on structural problems** — content in wrong place, missing directories, stale indexes. Tell the user what's wrong and suggest `/wiki:lint --fix`.
+- **Warn on structural problems** — content in wrong place, missing directories, stale indexes. Tell the user what's wrong and suggest `/knowmade:lint --fix`.
 - **Never block the user's request** — run the check, fix what you can, report issues, then continue with what the user actually asked for.
 
 ## Concurrency
@@ -283,10 +283,10 @@ The session registry files are ephemeral crash-recovery state. The event log and
 checkpoint are the durable provenance trail.
 
 **Structural Guardian behavior**:
-- If a session file exists with `status: "in_progress"` and `start_time` > 7 days ago → warn: "Stale research session found. Clean up with `/wiki:research` or delete manually."
+- If a session file exists with `status: "in_progress"` and `start_time` > 7 days ago → warn: "Stale research session found. Clean up with `/knowmade:research` or delete manually."
 - Session files are ephemeral — never included in structural health checks or index counts
 - Session files should NOT be committed to git
-- `.session-events.jsonl` and `.session-checkpoint.json` should normally be preserved after completion so `/wiki:audit` can classify provenance as `replayable` instead of `partial`
+- `.session-events.jsonl` and `.session-checkpoint.json` should normally be preserved after completion so `/knowmade:audit` can classify provenance as `replayable` instead of `partial`
 
 ### Harness Session Capture
 

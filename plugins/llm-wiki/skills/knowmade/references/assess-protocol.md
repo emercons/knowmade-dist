@@ -1,12 +1,12 @@
 # Assess Protocol
 
-The `/wiki:assess` (`wiki assess`) workflow, moved verbatim out of `commands/assess.md` so every
+The `/knowmade:assess` (`wiki assess`) workflow, moved verbatim out of `commands/assess.md` so every
 runtime ships it. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
 `$ARGUMENTS` is the user's request: free text plus the flags listed under
 Parse $ARGUMENTS.
 
-4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/wiki init <topic>` first."
+4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/knowmade:wiki init <topic>` first."
 
 Compare a local repository against the wiki's knowledge base and the broader market. Produce a comprehensive gap analysis.
 
@@ -68,7 +68,7 @@ Compare repo features against wiki knowledge:
 
 **A. Repo implements, wiki covers** — alignment. Note where the repo's implementation matches or differs from what the research says is best practice.
 
-**B. Repo implements, wiki silent** — blind spots in research. The repo does things the wiki hasn't researched yet. These are candidates for `/wiki:research` to fill the gap.
+**B. Repo implements, wiki silent** — blind spots in research. The repo does things the wiki hasn't researched yet. These are candidates for `/knowmade:research` to fill the gap.
 
 **C. Wiki covers, repo doesn't implement** — opportunities. The research suggests capabilities the repo hasn't built yet. These are feature candidates.
 
@@ -139,7 +139,7 @@ generated: YYYY-MM-DD
 [What's coming that both the repo and wiki should prepare for]
 
 ## Recommended Actions
-1. **Research**: `/wiki:research "topic"` commands to fill wiki gaps
+1. **Research**: `/knowmade:research "topic"` commands to fill wiki gaps
 2. **Build**: Feature candidates ranked by impact and feasibility
 3. **Monitor**: Things to watch in the market
 
@@ -155,4 +155,4 @@ generated: YYYY-MM-DD
 4. Append to topic `log.md`: `## [YYYY-MM-DD] assess | {repo-name} → N alignments, N research gaps, N opportunities, N market gaps`
 5. Append to hub `HUB/log.md`
 
-6. Optionally suggest: specific `/wiki:research` commands for each gap found
+6. Optionally suggest: specific `/knowmade:research` commands for each gap found

@@ -131,7 +131,7 @@ def file_bytes(path: Path) -> int:
 
 
 # A command names a reference as `references/<name>.md`, usually prefixed with
-# `skills/wiki-manager/`. `wiki/references/` is a topic wiki's own directory,
+# `skills/knowmade/`. `wiki/references/` is a topic wiki's own directory,
 # not a protocol file, so a match preceded by `wiki/` does not count.
 REFERENCE_MENTION = re.compile(r"(?<!wiki/)references/([A-Za-z0-9_-]+\.md)")
 READ_LINE = re.compile(r"\bread\b", re.IGNORECASE)
@@ -148,7 +148,7 @@ def command_first_read_metrics(root: Path) -> dict[str, int]:
     reference names in turn.
     """
     commands = root / "claude-plugin/commands"
-    references = root / "claude-plugin/skills/wiki-manager/references"
+    references = root / "claude-plugin/skills/knowmade/references"
     metrics: dict[str, int] = {}
     for command in sorted(commands.glob("*.md")):
         text = command.read_text(encoding="utf-8")
@@ -171,7 +171,7 @@ def command_first_read_metrics(root: Path) -> dict[str, int]:
 
 
 def collect_static_metrics(root: Path) -> dict[str, int]:
-    claude_skill = root / "claude-plugin/skills/wiki-manager/SKILL.md"
+    claude_skill = root / "claude-plugin/skills/knowmade/SKILL.md"
     claude_manifest = root / "claude-plugin/.claude-plugin/plugin.json"
     claude_manifest_data = json.loads(claude_manifest.read_text(encoding="utf-8"))
     claude_commands = root / "claude-plugin/commands"
@@ -179,15 +179,15 @@ def collect_static_metrics(root: Path) -> dict[str, int]:
     agents_metadata = root / "plugins/llm-wiki/skills/knowmade/agents/openai.yaml"
     references = root / "plugins/llm-wiki/skills/knowmade/references"
     query_lite_reference = (
-        root / "claude-plugin/skills/wiki-manager/references/query-lite.md"
+        root / "claude-plugin/skills/knowmade/references/query-lite.md"
     )
     query_lite_profile = root / "profiles/query-lite/SKILL.md"
     codex_query_skill = root / "plugins/llm-wiki/skills/knowmade-query/SKILL.md"
     codex_query_metadata = (
         root / "plugins/llm-wiki/skills/knowmade-query/agents/openai.yaml"
     )
-    opencode_skill = root / "plugins/llm-wiki-opencode/skills/wiki-manager/SKILL.md"
-    opencode_query_skill = root / "plugins/llm-wiki-opencode/skills/wiki-query/SKILL.md"
+    opencode_skill = root / "plugins/llm-wiki-opencode/skills/knowmade/SKILL.md"
+    opencode_query_skill = root / "plugins/llm-wiki-opencode/skills/knowmade-query/SKILL.md"
     ds4_query_extension = root / "profiles/ds4/pi-query-tools.ts"
     pi_query_launcher = root / "scripts/pi-wiki-query"
     ds4_query_launcher = root / "scripts/pi-ds4-wiki-query"
@@ -768,7 +768,7 @@ def parse_claude_stream(
             if event.get("permissionMode"):
                 permission_modes.add(event["permissionMode"])
             wiki_plugin_loaded = any(
-                plugin.get("name") == "wiki" for plugin in event.get("plugins", [])
+                plugin.get("name") == "knowmade" for plugin in event.get("plugins", [])
             )
         if event.get("type") == "assistant":
             for block in event.get("message", {}).get("content", []):
@@ -1576,7 +1576,7 @@ def parse_common_claude(parser: argparse.ArgumentParser) -> None:
         "--route",
         choices=("skill", "command"),
         default="skill",
-        help="benchmark natural skill activation or the real /wiki:query command",
+        help="benchmark natural skill activation or the real /knowmade:query command",
     )
     parser.add_argument("--repeats", type=int, default=1, help="fresh Claude runs per case")
     parser.add_argument(
@@ -1703,7 +1703,7 @@ def build_parser() -> argparse.ArgumentParser:
     ds4_pair.add_argument("--output-dir", required=True)
     ds4_pair.add_argument(
         "--baseline-instruction",
-        default="plugins/llm-wiki-opencode/skills/wiki-manager/SKILL.md",
+        default="plugins/llm-wiki-opencode/skills/knowmade/SKILL.md",
     )
     ds4_pair.add_argument(
         "--candidate-instruction",

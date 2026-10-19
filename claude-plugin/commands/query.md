@@ -6,7 +6,7 @@ allowed-tools: Read, Glob, Grep
 
 # Read-Only Wiki Query
 
-Read `skills/wiki-manager/references/query-lite.md`, then answer `$ARGUMENTS`
+Read `skills/knowmade/references/query-lite.md`, then answer `$ARGUMENTS`
 from the selected wiki. This command is always read-only: do not update indexes
 or append to `log.md`.
 
@@ -23,7 +23,7 @@ or append to `log.md`.
 - `--tag` and `--category`: constrain candidate selection.
 - `--with <wiki>`: use an active supplementary wiki as secondary context.
   A `--with` or auto-selected `-PRIVATE` topic may be read; see
-  `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+  `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
 - `--wiki <name>` and `--local`: select the primary wiki.
 
 ## Depth

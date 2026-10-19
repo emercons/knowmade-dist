@@ -7,14 +7,14 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 ## Your task
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
-4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic <name>` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic <name>` to create one, or run `/wiki init` first."
+4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic <name>` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic <name>` to create one, or run `/knowmade:wiki init` first."
 
-Read the ingestion protocol at `skills/wiki-manager/references/ingestion.md`, the file formats at `skills/wiki-manager/references/wiki-format.md` (`_index.md`, `log.md`, raw source, naming and tag formats), and from the Knowmade profile at `skills/wiki-manager/references/knowmade-profile.md` only § Private Data Boundary: Read Freely, Write-Guard and § Inbox-First Source Lifecycle (including its exception). Read the directory layout at `skills/wiki-manager/references/wiki-structure.md` only when `--new-topic` creates a wiki, and `skills/wiki-manager/references/source-lifecycle.md` only for the original-source retention path below. Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
+Read the ingestion protocol at `skills/knowmade/references/ingestion.md`, the file formats at `skills/knowmade/references/wiki-format.md` (`_index.md`, `log.md`, raw source, naming and tag formats), and from the Knowmade profile at `skills/knowmade/references/knowmade-profile.md` only § Private Data Boundary: Read Freely, Write-Guard and § Inbox-First Source Lifecycle (including its exception). Read the directory layout at `skills/knowmade/references/wiki-structure.md` only when `--new-topic` creates a wiki, and `skills/knowmade/references/source-lifecycle.md` only for the original-source retention path below. Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
 
 ### Original-source retention (CLI)
 
@@ -25,13 +25,13 @@ deterministic source commands before writing `raw/`: `llm-wiki source receive`,
 flags (`--local`, `--wiki <name>`, `--path <wiki-root>`, `--hub <path>`). Locate
 the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` or, in a source checkout,
 `scripts/llm-wiki`. The exact invocations are in
-`skills/wiki-manager/references/source-lifecycle.md`. If the
+`skills/knowmade/references/source-lifecycle.md`. If the
 CLI fails, report its message and stop; do not retain originals by hand.
 
 ### Collection handoff
 
 If the user is trying to import a bounded upstream corpus rather than one source
-item, stop and hand off to `/wiki:ingest-collection` with the same wiki flags.
+item, stop and hand off to `/knowmade:ingest-collection` with the same wiki flags.
 Signals include: "import wiki", "mirror wiki", "bulk ingest", "ingest
 collection", "ingest repo", "import repo", "split CSV into messages", "Wayback
 snapshots", MediaWiki dumps (`.xml`, `.xml.bz2`, `.xml.gz`), MediaWiki
@@ -46,12 +46,12 @@ page/spec/proposal.
 
 If the user asks to "track", "watch", "keep inventory", "candidate", "queue",
 or "decide later" instead of ingesting now, stop and hand off to
-`/wiki:inventory`. A durable candidate record is better than ingesting a source
+`/knowmade:inventory`. A durable candidate record is better than ingesting a source
 the user has not accepted.
 
 If the source is a large dataset, archive, compressed dump, database, or
-query-oriented corpus, stop and hand off to `/wiki:dataset` or
-`/wiki:ingest-collection` as appropriate. Do not squeeze large data into
+query-oriented corpus, stop and hand off to `/knowmade:dataset` or
+`/knowmade:ingest-collection` as appropriate. Do not squeeze large data into
 `raw/data/` because it is technically readable.
 
 After a successful ingest, check active inventory records by title/source when
@@ -63,7 +63,7 @@ leaving the tracking state stale.
 
 Do not ingest into archived topic wikis by default. If `--wiki <name>` resolves
 to `status: archived` or a path under `topics/.archive/`, stop and ask the user
-to restore it with `/wiki:archive restore <name>` or rerun with
+to restore it with `/knowmade:archive restore <name>` or rerun with
 `--include-archived`. If the user explicitly includes archived content, write
 only inside that archived topic path and keep the topic archived.
 
@@ -80,7 +80,7 @@ When `--new-topic` is set, override the standard resolution:
 
 **--project <slug>**: Tag the processed raw artifact with `project: <slug>` frontmatter. The intake item still starts in `inbox/`, and the processed artifact lands in the normal `raw/<type>/` location (sources are shared across projects by design). The project tagging propagates later when sources are compiled into wiki articles. See `references/projects.md`.
 
-If `--project <slug>` is set, verify the project exists at `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail early: `Project "<slug>" does not exist. Create it first with /wiki:project new <slug> "goal".`
+If `--project <slug>` is set, verify the project exists at `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail early: `Project "<slug>" does not exist. Create it first with /knowmade:project new <slug> "goal".`
 
 There is no ambient project focus — pass `--project` explicitly when you want project scope. The focus-session mechanism (`.wiki-session.json`) was removed in the v0.2 projects simplification; see `references/projects.md` § "Focus" for the rationale.
 
@@ -148,7 +148,7 @@ Follow the inbox processing protocol from `references/ingestion.md`:
    write a metadata stub with `extraction_status: ocr-needed`.
 4. For structured data (.json, .csv), describe schema + sample for a single
    data source. If the user wants per-message markdown, hand off to
-   `/wiki:ingest-collection --adapter csv-messages`.
+   `/knowmade:ingest-collection --adapter csv-messages`.
 
 ### If quoted text source
 
@@ -225,4 +225,4 @@ When `--inbox` is set and no `--wiki` was provided, classify items as a batch:
 5. Move or copy the intake item to `inbox/.processed/` and preserve the link between the inbox item and raw artifact when cheap
 6. Append to `log.md`: `## [YYYY-MM-DD] ingest | Title (raw/type/slug.md)`
 7. Report: what was staged, what processed artifact was saved, and detected tags
-8. Check uncompiled source count. If 5+, suggest `/wiki:compile`
+8. Check uncompiled source count. If 5+, suggest `/knowmade:compile`

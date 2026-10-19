@@ -31,7 +31,7 @@ sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = Path("claude-plugin")
-TEMPLATE_SOURCE = PLUGIN / "skills" / "wiki-manager" / "references" / "hub-resolution.md"
+TEMPLATE_SOURCE = PLUGIN / "skills" / "knowmade" / "references" / "hub-resolution.md"
 COMMANDS = PLUGIN / "commands"
 
 TEMPLATE_START = "<!-- hub-prelude-template:start -->"

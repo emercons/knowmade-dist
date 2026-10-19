@@ -12,7 +12,7 @@ if [ -n "${KNOWMADE_SYNC_OUT:-}" ]; then
 else
   OUT="$ROOT"
 fi
-SOURCE_SKILL="$ROOT/claude-plugin/skills/wiki-manager"
+SOURCE_SKILL="$ROOT/claude-plugin/skills/knowmade"
 QUERY_SOURCE="$SOURCE_SKILL/references/query-lite.md"
 TARGET_PLUGIN="$OUT/plugins/llm-wiki"
 # The plugin is knowmade@knowmade, so the full skill is knowmade:knowmade
@@ -77,8 +77,8 @@ cp "$LOCAL_HELPER" "$TARGET_PLUGIN/bin/llm-wiki"
 chmod 0755 "$CLAUDE_BIN/llm-wiki" "$TARGET_PLUGIN/bin/llm-wiki"
 
 # The Claude plugin ships the session script as a plain command-driven helper,
-# with no hooks (emercons/knowmade#50): /wiki:session, /wiki:ll and
-# /wiki:feedback call it explicitly. The Codex mirror carries the same script
+# with no hooks (emercons/knowmade#50): /knowmade:session, /knowmade:ll and
+# /knowmade:feedback call it explicitly. The Codex mirror carries the same script
 # as hooks/llm_wiki_session.py below, where it is wired to Codex hooks.
 cp "$SESSION_HELPER" "$CLAUDE_BIN/llm-wiki-session"
 chmod 0755 "$CLAUDE_BIN/llm-wiki-session"
@@ -99,7 +99,7 @@ mkdir -p "$TARGET_PLUGIN/skills"
 # The Codex marketplace caches plugin contents eagerly, so references/ must be
 # copied into the generated tree rather than left as a symlink. agents/ is
 # Codex-only metadata and is recreated below.
-rm -rf "$TARGET_PLUGIN/skills/wiki-manager"
+rm -rf "$TARGET_PLUGIN/skills/knowmade"
 for legacy in $LEGACY_SKILLS; do
   rm -rf "${TARGET_PLUGIN:?}/skills/$legacy"
 done
@@ -342,7 +342,7 @@ text = frontmatter + text[end + 5 :]
 replacements = [
     (
         "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. The\nactive agent is both compiler and query engine; Obsidian is an optional viewer.\n",
-        "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. Codex\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## Codex Plugin Notes\n\nCodex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/wiki:*` commands. Treat any `/wiki`, `/wiki:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.\n",
+        "You manage a Knowmade practical knowledge base. Source material is staged in a\ntopic `inbox/`, or first in `HUB/inbox/` when it is not classified yet. After\nextraction and provenance capture, processed immutable artifacts are written to\n`raw/` and incrementally compiled into interconnected markdown articles. Codex\nis both compiler and query engine; Obsidian is an optional viewer.\n\n## Codex Plugin Notes\n\nCodex plugins package skills, MCP servers, apps, and metadata. They do not register Claude-style custom `/knowmade:*` commands. Treat any `/wiki`, `/knowmade:*`, or command-flag examples in this skill and its references as shorthand for the same workflow expressed in natural language, or via explicit `@knowmade` invocation.\n",
     ),
     # The Dual-linking principle moved to references/principles.md
     # (emercons/knowmade#81); references are shared verbatim and say "agent".
@@ -351,7 +351,7 @@ replacements = [
         "When this skill activates outside of an explicit `@knowmade` invocation or `/wiki`-style shorthand:",
     ),
     (
-        '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki with `/wiki:ingest`"',
+        '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki with `/knowmade:ingest`"',
         '4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@knowmade` to ingest it."',
     ),
     # Anchors for the Compilation Nudge, Structural Guardian, Concurrency and
@@ -482,7 +482,7 @@ text = replace_section(
 
 skill_path.write_text(text, encoding="utf-8", newline="\n")
 
-# references/ is a copied mirror of claude-plugin/skills/wiki-manager/references
+# references/ is a copied mirror of claude-plugin/skills/knowmade/references
 # and is shared verbatim — no per-file replacements needed. Source references
 # use runtime-neutral wording ("the agent") so they read correctly under both.
 

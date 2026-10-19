@@ -7,10 +7,10 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(mkdir
 ## Your task
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` if found. Variant: **wiki-neutral** — `wiki.md` is the router, init, and config command, so "wiki missing" is not always an error; the init subcommand creates the wiki, status shows an empty hub gracefully, and the natural-language router explains how to create one.
 
@@ -67,7 +67,7 @@ Initialize a new wiki. Parse arguments:
    - `wiki/`, `wiki/concepts/`, `wiki/topics/`, `wiki/references/`, `wiki/theses/`
    - `output/`
    - Do not create `inventory/` or `datasets/` during init. Those layers are
-     created lazily by `/wiki:inventory`, `/wiki:dataset`, or lint when a
+     created lazily by `/knowmade:inventory`, `/knowmade:dataset`, or lint when a
      partially existing layer needs repair.
    - For local wikis (`--local`): ignore `.wiki/` in a git project (see "Local Wiki" in `wiki-structure.md`).
 
@@ -124,32 +124,32 @@ Initialize a new wiki. Parse arguments:
 7. Before registering, check both `HUB/topics/<slug>/` and
    `HUB/topics/.archive/<slug>/`, plus any `wikis.json` entry with that slug.
    If an archived topic already exists, stop and ask whether to restore it with
-   `/wiki:archive restore <slug>` or choose a different slug. Do not silently
+   `/knowmade:archive restore <slug>` or choose a different slug. Do not silently
    create a new active topic over an archived topic boundary.
 
 8. Register in `HUB/wikis.json` with a portable relative path (`topics/<slug>`) and update hub `_index.md` topic wiki table. For a local wiki outside the hub, run `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" identity assign <wiki-root>` first (`scripts/llm-wiki` in a source checkout), then add a `local_wikis` entry with its `id` (the `wiki_id`) and a path relative to HUB (`../<project>/.wiki`). Never write a path with a drive letter, `/home/...` or `/Users/...` into a tracked `wikis.json`: it points into one checkout on one machine and discloses its layout. If no relative path reaches the wiki, ask the user instead of recording an absolute one.
 
 9. Report what was created and suggest:
-   - `/wiki:research "topic" --sources 10` — auto-research to bootstrap
-   - `/wiki:ingest <url|file|text>` — add source material
-   - `/wiki:ingest-collection <repo|wiki-dump>` — bulk import a bounded upstream collection
-   - `/wiki:adapter list` — inspect explicitly registered local private adapters
-   - `/wiki:collect "<things>"` — find, dedupe, and catalog examples, artifacts, tools, memes, or source candidates
-   - `/wiki:idea new "<seed>"` — capture a proposal for research and shaping before Project commitment
-   - `/wiki:inventory add ingest-candidate "title"` — track a candidate, corpus, entity, or next action
-   - `/wiki:dataset add "title" --location <path-or-url>` — index a large/external dataset
-   - `/wiki:compile` — compile sources into wiki articles
-   - `/wiki:query <question>` — ask questions
+   - `/knowmade:research "topic" --sources 10` — auto-research to bootstrap
+   - `/knowmade:ingest <url|file|text>` — add source material
+   - `/knowmade:ingest-collection <repo|wiki-dump>` — bulk import a bounded upstream collection
+   - `/knowmade:adapter list` — inspect explicitly registered local private adapters
+   - `/knowmade:collect "<things>"` — find, dedupe, and catalog examples, artifacts, tools, memes, or source candidates
+   - `/knowmade:idea new "<seed>"` — capture a proposal for research and shaping before Project commitment
+   - `/knowmade:inventory add ingest-candidate "title"` — track a candidate, corpus, entity, or next action
+   - `/knowmade:dataset add "title" --location <path-or-url>` — index a large/external dataset
+   - `/knowmade:compile` — compile sources into wiki articles
+   - `/knowmade:query <question>` — ask questions
 
 ---
 
 ### If $ARGUMENTS is freeform text (not "init", "config", or empty) and a wiki exists
 
 The user typed something that isn't a known keyword. Read
-`skills/wiki-manager/references/router.md` and follow it: it holds the single
+`skills/knowmade/references/router.md` and follow it: it holds the single
 routing table (first match wins), the precedence rules, the confidence and
 ambiguity handling, and the negative controls. Invoke the matched `wiki x`
-row as `Skill: wiki:x` with the user's text as arguments (the Hub Inbox
+row as `Skill: knowmade:x` with the user's text as arguments (the Hub Inbox
 Dispatch row points at `references/ingestion.md`). Do not route from memory or
 from any other table.
 
@@ -172,7 +172,7 @@ Show wiki status. Before reading any `_index.md`, stale-check it: count `.md` fi
    - Count archived topics from registry entries with `status: archived` or
      paths under `topics/.archive/`
    - Show a summary table: wiki name, description, source count, article count
-   - Show `Archived topics: N` and suggest `/wiki:archive list --archived` when
+   - Show `Archived topics: N` and suggest `/knowmade:archive list --archived` when
      N > 0
    - Show global log (last 5 entries)
 
@@ -187,7 +187,7 @@ Show wiki status. Before reading any `_index.md`, stale-check it: count `.md` fi
      For established wikis with roughly 10+ compiled articles and no recent
      `output/schema-proposal-*.md` or `.librarian/REPORT.md` covering schema
      advice:
-     `Optional topic guide missing. Run /wiki:librarian scan --passes staleness,quality,conventions for a proposal, then apply the useful parts to schema.md.`
+     `Optional topic guide missing. Run /knowmade:librarian scan --passes staleness,quality,conventions for a proposal, then apply the useful parts to schema.md.`
    - Do not block normal status/query/compile/ingest on this nudge. Do not
      auto-create `schema.md`, proposal outputs, or dismissal files from status.
      Suppress the nudge when a schema or recent schema proposal already exists.
@@ -224,19 +224,19 @@ The user is new or hasn't initialized a wiki yet. Instead of dumping a command l
 > What would you like to do first?
 >
 > 1. **Research** — I'll search the web and build your knowledge base automatically
->    → Just say: `/wiki:research "<your topic>" --wiki <slug>`
+>    → Just say: `/knowmade:research "<your topic>" --wiki <slug>`
 >
 > 2. **Add a specific source** — paste a URL or file path
->    → Just say: `/wiki:ingest <url>`
+>    → Just say: `/knowmade:ingest <url>`
 >
 > 3. **Import existing notes** — drop files into `HUB/topics/<slug>/inbox/`
->    → Then run: `/wiki:ingest --inbox`
+>    → Then run: `/knowmade:ingest --inbox`
 >
 > 4. **Import an existing wiki/repo** — ingest a Git docs repo or MediaWiki dump
->    → Just say: `/wiki:ingest-collection <url-or-path>`
+>    → Just say: `/knowmade:ingest-collection <url-or-path>`
 >
 > 5. **Collect examples or artifacts** — find many things, dedupe them, and save a provenance-rich catalog
->    → Just say: `/wiki:collect "<things to collect>"`
+>    → Just say: `/knowmade:collect "<things to collect>"`
 >
 > 6. **Capture an Idea** — save a rough proposal, research it, and shape it before committing to a Project
 >    → Just say: `I have an idea for ...`

@@ -18,15 +18,15 @@ context pages into `raw/` through the inbox-first ingest flow, synthesize stable
 durable tracking records in `inventory/`, or index large media/data collections
 in `datasets/`.
 
-Collect is not the same as `/wiki:research` or `/wiki:ingest-collection`:
+Collect is not the same as `/knowmade:research` or `/knowmade:ingest-collection`:
 
-- Use `/wiki:research` when the user wants an answer, explanation, thesis, or
+- Use `/knowmade:research` when the user wants an answer, explanation, thesis, or
   synthesized wiki articles.
-- Use `/wiki:ingest-collection` when the input is a structured upstream corpus
+- Use `/knowmade:ingest-collection` when the input is a structured upstream corpus
   such as a Git repo, MediaWiki dump/API, message archive, or Wayback CDX set.
-- Use `/wiki:inventory` directly when the user already knows the records to
+- Use `/knowmade:inventory` directly when the user already knows the records to
   track and no discovery/catalog pass is needed.
-- Use `/wiki:collect` when the user says "find", "collect", "catalog",
+- Use `/knowmade:collect` when the user says "find", "collect", "catalog",
   "curate", "gather", "make a list of", or "inventory all the examples of X."
 
 Always be clear about boundedness. "All" means "all discovered within the
@@ -35,23 +35,23 @@ stated search strategy, quality threshold, and limit", not the entire internet.
 ## Resolve the wiki
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` to verify. If missing, stop with "No wiki found. Run
-   `/wiki init` first."
+   `/knowmade:wiki init` first."
 
 Archive rule: collect operates on active topic wikis by default. If a named
 target is archived, stop and ask the user to restore it or rerun with
 `--include-archived`. When explicitly included, write only inside that archived
 topic and label the result as archived.
 
-Read `skills/wiki-manager/references/inventory.md` before writing. Use
+Read `skills/knowmade/references/inventory.md` before writing. Use
 inventory as tracking state, not evidence. If `--ingest-sources` is set, also read
-`skills/wiki-manager/references/ingestion.md` (single-source ingestion only; bulk
-imports go through `/wiki:ingest-collection`).
+`skills/knowmade/references/ingestion.md` (single-source ingestion only; bulk
+imports go through `/knowmade:ingest-collection`).
 
 ## Parse arguments
 
@@ -307,7 +307,7 @@ artifact inside that broader topic.
 
 11. **Optional raw ingestion**
     If `--ingest-sources` is set, ingest only source pages whose text materially
-    supports the wiki, using the same inbox-first flow as `/wiki:ingest` (stage
+    supports the wiki, using the same inbox-first flow as `/knowmade:ingest` (stage
     the page in `inbox/`, process it into `raw/`, move the capture to
     `inbox/.processed/`). Do not ingest every candidate row by default, and do
     not copy binary assets into raw sources.

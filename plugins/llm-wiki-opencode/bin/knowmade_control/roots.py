@@ -348,6 +348,11 @@ def hub_config_path(home: Path | None = None) -> Path:
     return (home or home_directory()) / ".config" / "llm-wiki" / "config.json"
 
 
+def federation_registry_path(home: Path | None = None) -> Path:
+    """The machine-local federation registry, next to ``config.json`` (``federation.py``)."""
+    return (home or home_directory()) / ".config" / "llm-wiki" / "registry.json"
+
+
 def resolve_hub_selection(
     explicit_hub: str | Path | None = None,
     *,
@@ -539,8 +544,9 @@ def resolve_wiki_identity(
     return RootIdentity(hub_path, "hub", hub_path)
 
 
-def resolve_wiki_root_args(args: Any) -> Path:
-    identity = resolve_wiki_identity(
+def resolve_wiki_identity_args(args: Any) -> RootIdentity:
+    """:func:`resolve_wiki_identity` over parsed scope arguments."""
+    return resolve_wiki_identity(
         path=getattr(args, "path", None),
         local=bool(getattr(args, "local", False)),
         wiki=getattr(args, "wiki", None),
@@ -549,7 +555,10 @@ def resolve_wiki_root_args(args: Any) -> Path:
         public=bool(getattr(args, "public", False)),
         include_archived=bool(getattr(args, "include_archived", False)),
     )
-    return identity.path
+
+
+def resolve_wiki_root_args(args: Any) -> Path:
+    return resolve_wiki_identity_args(args).path
 
 
 def resolve_project_wiki_roots(

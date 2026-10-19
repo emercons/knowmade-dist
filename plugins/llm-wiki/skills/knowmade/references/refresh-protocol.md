@@ -1,13 +1,13 @@
 # Refresh Protocol
 
-The `/wiki:refresh` (`wiki refresh`) workflow, moved verbatim out of `commands/refresh.md` so every
+The `/knowmade:refresh` (`wiki refresh`) workflow, moved verbatim out of `commands/refresh.md` so every
 runtime ships it. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
 `$ARGUMENTS` is the user's request: free text plus the flags listed under
 Parse $ARGUMENTS.
 
 4. `--wiki all` (this command only) → HUB with an `ALL_TOPICS` flag for step 6, instead of one wiki.
-5. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/wiki init` first."
+5. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/knowmade:wiki init` first."
 6. **Hub-level detection**: Refresh operates on articles inside a single topic wiki. The HUB has no `wiki/` subdirectory. If `ALL_TOPICS` is set from `--wiki all`, read registered topic wikis from `HUB/wikis.json` (excluding the synthetic `hub` entry) and iterate refresh against each topic wiki sequentially. If the resolved wiki is the HUB (detected by the presence of `wikis.json` and the absence of a `wiki/` subdir) AND the user did not pass `--wiki <name>`, do NOT iterate against an empty topic surface. Instead, present a numbered list of registered topic wikis from `HUB/wikis.json` and ask the user to pick one. Re-resolve the wiki path with the selected name (`HUB/topics/<name>/`) and continue.
 
 Check whether wiki articles are still current by re-examining their sources. This is NOT automatic recompilation — it's a human-gated assessment of what may have changed.
@@ -28,7 +28,7 @@ inventory for durable watch items and blocked actions.
 When `--wiki all` is used, iterate active registered topic wikis only unless
 `--include-archived` is present. If a single `--wiki <name>` target is archived,
 ask for `--include-archived` or restoration before refreshing. `-PRIVATE`
-topics are iterated too; see `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+topics are iterated too; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
 
 Write-guard: an article update, `sources:` change, or `log.md` entry written
 into a public topic during refresh must not carry material, paths, or source
@@ -84,8 +84,8 @@ Recommendation: update sources 2, retract source 3
 On user selection:
 - **skip**: No changes. Update `verified` date to today (human confirmed it's still accurate).
 - **update**: Re-ingest the changed source (overwrite the raw file with new content, preserve frontmatter), then recompile the article following the standard compilation protocol.
-- **flag**: Degrade the article's `confidence` by one level (high→medium, medium→low). Add a note to the article body: `> ⚠️ Some sources for this article may have changed since last verification. Run /wiki:refresh to update.`
-- **retract**: Route to `/wiki:retract` for the unreachable source.
+- **flag**: Degrade the article's `confidence` by one level (high→medium, medium→low). Add a note to the article body: `> ⚠️ Some sources for this article may have changed since last verification. Run /knowmade:refresh to update.`
+- **retract**: Route to `/knowmade:retract` for the unreachable source.
 
 After all actions, update the article's `verified` date to today.
 
@@ -117,7 +117,7 @@ After refreshing:
 For recurring freshness checks, use Claude Code's `/loop` command:
 
 ```
-/loop 1d /wiki:refresh --due --wiki <name>
+/loop 1d /knowmade:refresh --due --wiki <name>
 ```
 
 This checks overdue articles once daily while your session is open. The loop persists across `/resume` and expires after 7 days (re-create as needed).

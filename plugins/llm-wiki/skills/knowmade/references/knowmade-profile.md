@@ -16,7 +16,7 @@ They are planning context, not factual evidence.
 ## Command Notation
 
 References name workflows as `wiki x` (for example `wiki ingest`, `wiki init`).
-`wiki x` is `/wiki:x` in Claude Code and `$knowmade x` in Codex (or an `@knowmade`
+`wiki x` is `/knowmade:x` in Claude Code and `$knowmade x` in Codex (or an `@knowmade`
 request); in any other runtime it is the equivalent natural-language request.
 
 ## Upstream Relationship

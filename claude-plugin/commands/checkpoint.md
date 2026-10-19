@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(git:*), Bash(ls:*), Bash(mkdi
 Manage the Project Knowledge Checkpoints Export: a portable, comprehensive
 project handoff synthesized from relevant compiled knowledge across topic wikis,
 with mandatory privacy checks. Read
-`skills/wiki-manager/references/checkpoints.md` before acting.
+`skills/knowmade/references/checkpoints.md` before acting.
 
 This is not a topic export, raw/session dump, or Git publication command.
 `create` and `refresh` are dry-run by default. `--apply` authorizes only the
@@ -17,7 +17,7 @@ previewed file write—not commit, push, publication, release, or import.
 
 ## Resolve and parse
 
-1. Resolve HUB by `skills/wiki-manager/references/hub-resolution.md`; read `HUB/_index.md` and `HUB/wikis.json`.
+1. Resolve HUB by `skills/knowmade/references/hub-resolution.md`; read `HUB/_index.md` and `HUB/wikis.json`.
 2. Parse `create`, `refresh`, `verify`, or `import`; natural “checkpoint/dump
    this project's wiki knowledge into the repo” means `create`.
 3. For create, resolve `--repo` or `git rev-parse --show-toplevel`, symlinks,
@@ -75,7 +75,7 @@ Write-guard for `team` and `public` audiences: inputs may be read from a
 `-PRIVATE` topic, but nothing derived from one enters the bundle unless it is
 re-sourced from public material, and no bundle file contains a `-PRIVATE`
 path string; `seal` flags `-PRIVATE` path segments deterministically
-(`private-topic-path`). See `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+(`private-topic-path`). See `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
 
 ### Preview
 

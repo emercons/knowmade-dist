@@ -21,6 +21,7 @@ __all__ = [
     "common",
     "datasets",
     "engine",
+    "federation",
     "freshness",
     "frontmatter",
     "fsio",

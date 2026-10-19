@@ -7,14 +7,14 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 ## Your task
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
-4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/wiki init` first."
+4. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/knowmade:wiki init` first."
 
-Read the compilation protocol at `skills/wiki-manager/references/compilation.md` and the indexing protocol at `skills/wiki-manager/references/indexing.md`. Then compile raw sources into wiki articles.
+Read the compilation protocol at `skills/knowmade/references/compilation.md` and the indexing protocol at `skills/knowmade/references/indexing.md`. Then compile raw sources into wiki articles.
 
 Inventory awareness: compile consumes `raw/` and writes `wiki/`; it does not
 compile inventory records into articles. Read `inventory/_index.md` only to
@@ -60,7 +60,7 @@ raw sources to update active articles.
    - Updated articles: use Edit to integrate new information, update frontmatter dates
    - Every article must link to at least one other via See Also
 
-5.4. **Write-guard (public topics)**: When the wiki being compiled is a public, non-`-PRIVATE` topic, apply `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard to every article touched in step 5: no fact or citation traced to a `-PRIVATE` sibling, `goals.md`, or private inventory enters the article; `sources:` and See Also links resolve inside this topic; the file contains no `-PRIVATE` path string. Material that fails moves to the private sibling or is dropped, and if private context shaped the compile, say so in the Report and log it in the private sibling's `log.md`, not here.
+5.4. **Write-guard (public topics)**: When the wiki being compiled is a public, non-`-PRIVATE` topic, apply `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard to every article touched in step 5: no fact or citation traced to a `-PRIVATE` sibling, `goals.md`, or private inventory enters the article; `sources:` and See Also links resolve inside this topic; the file contains no `-PRIVATE` path string. Material that fails moves to the private sibling or is dropped, and if private context shaped the compile, say so in the Report and log it in the private sibling's `log.md`, not here.
 
 5.5. **Self-validation pass**: For every article touched in step 5 (new or updated), re-read the frontmatter and verify:
    - `sources:` is a non-empty list resolving to existing raw files, OR `compiled-from: conversation` is set
@@ -82,4 +82,4 @@ raw sources to update active articles.
    - Existing articles updated: list with paths
    - New cross-references added: count
    - Volatility set: count of `hot`, `warm`, `cold` articles touched. If any are `hot`, append a one-line note pointing at `references/wiki-articles.md § Volatility Classification` so the author can confirm the rubric matched their intent.
-   - Suggest: `/wiki:lint` to verify consistency
+   - Suggest: `/knowmade:lint` to verify consistency

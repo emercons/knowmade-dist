@@ -489,12 +489,12 @@ def scripted_contract(case: dict[str, Any]) -> list[dict[str, Any]]:
 
 def run_contract(root: Path, cases: list[dict[str, Any]]) -> int:
     checks: list[dict[str, Any]] = []
-    canonical = (root / "claude-plugin/skills/wiki-manager/SKILL.md").read_text(encoding="utf-8")
+    canonical = (root / "claude-plugin/skills/knowmade/SKILL.md").read_text(encoding="utf-8")
     codex = (root / "plugins/llm-wiki/skills/knowmade/SKILL.md").read_text(encoding="utf-8")
-    profile = (root / "claude-plugin/skills/wiki-manager/references/knowmade-profile.md").read_text(encoding="utf-8")
-    migration = (root / "claude-plugin/skills/wiki-manager/references/migration.md").read_text(encoding="utf-8")
+    profile = (root / "claude-plugin/skills/knowmade/references/knowmade-profile.md").read_text(encoding="utf-8")
+    migration = (root / "claude-plugin/skills/knowmade/references/migration.md").read_text(encoding="utf-8")
     surface_requirements = {
-        "canonical-explicit-skill-surface": (canonical, ["name: wiki-manager", "references/knowmade-profile.md", "ingest/import"]),
+        "canonical-explicit-skill-surface": (canonical, ["name: knowmade", "references/knowmade-profile.md", "ingest/import"]),
         "codex-explicit-skill-surface": (codex, ["name: knowmade", "references/knowmade-profile.md", "ingest/import"]),
         "brownfield-profile-protocol": (profile, ["## Brownfield Projects", "llm-wiki adopt scan", "llm-wiki adopt claim", "llm-wiki adopt verify"]),
         "migration-state-machine-protocol": (migration, ["llm-wiki adopt scan", "llm-wiki adopt apply", "llm-wiki adopt claim", "llm-wiki adopt complete", "llm-wiki adopt verify"]),

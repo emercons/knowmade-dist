@@ -7,14 +7,14 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 ## Your task
 
 <!-- hub-prelude:start -->
-**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/wiki-manager/references/hub-resolution.md`.
+**Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/wiki-manager/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
-4. Read `<wiki>/_index.md` to verify. If missing -> stop with "No wiki found. Run `/wiki init` first."
+4. Read `<wiki>/_index.md` to verify. If missing -> stop with "No wiki found. Run `/knowmade:wiki init` first."
 
-Read the audit reference at `skills/wiki-manager/references/audit.md`. If you need a fresh wiki-only pass, also read `commands/librarian.md` and reuse its scan protocol rather than inventing a parallel one.
+Read the audit reference at `skills/knowmade/references/audit.md`. If you need a fresh wiki-only pass, also read `commands/librarian.md` and reuse its scan protocol rather than inventing a parallel one.
 
 Inventory awareness: audit findings that require future action should be
 offered as inventory candidates, not only buried in `.audit/REPORT.md`. Examples
@@ -89,7 +89,7 @@ Skip this pass only when `--wiki-only` is set.
 
 #### 3. Truth escalation pass
 
-This is the defining behavior of `/wiki:audit`. Do not stop at "it looks stale" if the truth can be resolved with more investigation.
+This is the defining behavior of `/knowmade:audit`. Do not stop at "it looks stale" if the truth can be resolved with more investigation.
 
 Escalate when:
 - the user explicitly asks whether they can trust an artifact
@@ -158,14 +158,14 @@ Your summary should answer:
 4. What should the user do next?
 
 Use concrete next-step commands when helpful:
-- `/wiki:librarian` for focused wiki maintenance
-- `/wiki:refresh <path>` for stale wiki articles
-- `/wiki:research ...` when the audit found a real knowledge gap
+- `/knowmade:librarian` for focused wiki maintenance
+- `/knowmade:refresh <path>` for stale wiki articles
+- `/knowmade:research ...` when the audit found a real knowledge gap
 
 ### Report subcommand
 
 When the user runs `report`:
 
-1. If `.audit/REPORT.md` does not exist, respond: "No audit report found. Run `/wiki:audit` first."
+1. If `.audit/REPORT.md` does not exist, respond: "No audit report found. Run `/knowmade:audit` first."
 2. Read and display `.audit/REPORT.md`.
 3. Mention when the audit ran and whether it reused or refreshed the librarian pass.

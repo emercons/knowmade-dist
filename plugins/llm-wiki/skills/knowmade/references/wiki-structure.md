@@ -195,6 +195,7 @@ selection happens at the topic slug, not by choosing another hub. Then resolve:
 
 ```json
 {
+  "hub_id": "hb-<16 hex>",
   "default": "<HUB>",
   "wikis": {
     "hub": { "path": "<HUB>", "description": "Global knowledge base" },
@@ -227,6 +228,21 @@ Mac with a different home directory.
 External `local_wikis` entries follow the same rule: a path relative to HUB
 plus the wiki's `id` (`wiki_id` from its `config.md`, created by
 `identity assign`), so a moved or replaced wiki is detected instead of trusted.
+`hub_id` (optional, top-level, `hb-` plus 16 lowercase hex) is the hub's own
+identity and travels with `wikis.json`; `identity assign --hub` declares it.
+`identity status` on a hub root (or with `--hub`) reports `kind: hub` with the
+hub id and each topic's `wiki_id` and any registry mismatch, and shows
+`hub_forked_from` / `wiki_forked_from` when set; on a topic, `identity status` also shows the enclosing `hub_id`.
+`assign` never replaces a declared id. A copy meant as independent work is
+re-identified explicitly with `identity fork` (`--wiki <slug>`, `--local`, a
+path, or `--hub`): it declares a new id and records the old one as
+`wiki_forked_from` (`config.md`) or `hub_forked_from` (`wikis.json`); a second
+fork overwrites that field, the chain is not kept. Forking a topic that
+a registry row names by that same `id` rewrites the row's `id` in the same
+operation (`--dry-run` says `would also update registry entry <slug>`). Forking
+a hub does not touch its topics' `wiki_id`s, so a hub copy stays a replica of those wikis until each
+is forked. Missing ids and the fork keys are never lint findings.
+
 Never commit a drive-letter, `/home/...` or `/Users/...` path to a tracked
 `wikis.json`; the checkpoint privacy scan flags it. Put it in
 `HUB/wikis.local.json` ([hub-resolution.md](hub-resolution.md#registry-path-resolution)). Until logical references

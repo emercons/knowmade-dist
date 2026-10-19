@@ -6,5 +6,5 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 
 ## Your task
 
-Read `skills/wiki-manager/references/retract-protocol.md` and follow it with
+Read `skills/knowmade/references/retract-protocol.md` and follow it with
 $ARGUMENTS. It holds the whole workflow; do not act from this file alone.

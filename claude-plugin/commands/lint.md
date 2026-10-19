@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 Lint is CLI-first: `llm-wiki lint --json` runs every structural, schema, link,
 provenance and registry check. Work from its JSON report and spend judgment
 only on the semantic passes. Never re-implement a CLI check by hand.
-Read `skills/wiki-manager/references/linting.md` for the rules table, fix
+Read `skills/knowmade/references/linting.md` for the rules table, fix
 review and report format; `<cli> lint --help` has the exact flags.
 
 ### 1. Locate the CLI
@@ -40,7 +40,7 @@ structural checks only. `<cli> lint --all --json` lints every hub root.
 
 Non-zero with JSON means findings met `--fail-on`: read the report. Non-zero
 without JSON is a failure: show the CLI message and stop ("No wiki found. Run
-`/wiki init` first." when no wiki resolves). Match findings by `check` and
+`/knowmade:wiki init` first." when no wiki resolves). Match findings by `check` and
 `path`, never by message; group them, never paraphrase them away.
 
 ### 4. `--fix`
