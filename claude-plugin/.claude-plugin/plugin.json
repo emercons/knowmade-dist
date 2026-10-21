@@ -1,7 +1,7 @@
 {
   "name": "knowmade",
   "description": "Knowmade practical knowledge base derived from upstream llm-wiki, with goal-directed private work, public/private topic pairs, hub inbox dispatch, fuzzy Concept-to-Idea-to-Project workflows, Project Knowledge Checkpoints Export, explicitly trusted private adapters, personal specialist skills, token-efficient queries, collector catalogs, inventory, datasets, source ingestion, audits, topic guides, session memory, research, and artifact generation.",
-  "version": "0.12.0.25.1",
+  "version": "0.13.0.25.1",
   "author": {
     "name": "emercons"
   },

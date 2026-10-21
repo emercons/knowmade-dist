@@ -276,6 +276,45 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.13.0.25.1 — Sprint N: the command context diet and the lazy CLI
+
+- Agent spec only, no CLI or corpus change: the rare `wiki` branches (the
+  `init` manual fallback, the first-run welcome flow, the `config`
+  procedures) live in the new `references/wiki-setup.md`, read only when one
+  of them is taken; `wiki.md` keeps `status`, free-text routing and the
+  `init` CLI call inline. The token gate now measures a command's first read
+  (its file plus the references named before its first `## If` / `### If`
+  branch heading) and its worst single path (that plus the largest one
+  branch's references) as `command_first_read_tokens.<cmd>` and the new
+  `command_worst_path_tokens.<cmd>`, which replaces
+  `command_read_lines_tokens.<cmd>` (nothing consumed it). Baselines
+  regenerated with `--rebaseline`; ceilings unchanged.
+- Agent spec only, no CLI or corpus change: the rare branches of `project`,
+  `feedback`, `research` and `ingest` became `### If ...` sections that point
+  at a reference read only when the branch is taken. New references:
+  `project-setup.md` (manual `new`/`list`/`add` fallbacks, archive layers),
+  `research-setup.md` (`--project`, archived topics, private goals) and
+  `ingest-setup.md` (topic routing, handoffs, archive, `--project`);
+  `feedback`'s reads (`feedback.md`, `knowmade-profile.md`, `hub-resolution.md`,
+  `sessions.md`) sit behind its `promote`, hub and helper branches, and
+  `research-modes.md` behind its `--min-time`, question, thesis and `--plan`
+  branches. `--new-topic` runs `llm-wiki init --topic` (with `--hub <path>`
+  when no hub is configured) first and falls back to `wiki-setup.md`. First
+  read / worst path (tokens, gate ceilings unchanged):
+  `project` 11,781 / 11,781 to 7,468 / 9,764; `feedback` 11,372 / 11,372 to
+  899 / 4,997; `research` 22,591 / 22,591 to 11,815 / 16,302; `ingest` 21,831 /
+  21,831 to 11,998 / 14,163. The gate no longer treats `#` lines inside fenced
+  code blocks as headings (`split_command`), so a fenced `### If` example or
+  shell comment cannot start or end a branch; fixtures added to
+  `test-token-benchmarks.sh`. Baselines regenerated with `--rebaseline`.
+- CLI, development tooling only; no corpus, protocol or packaging change:
+  `cli.NAMESPACES` entries are module and attribute strings, and a namespace
+  module is imported only when that namespace runs (`build_parser(only=name)`;
+  an unrecognized argument is reported by the full parser). The launcher skips
+  the `legacy_cli` star import under `__main__`. Output and exit codes are
+  identical on every argv shape, error paths included. Per-call cost on
+  Windows falls from about 170 to 110-130 ms.
+
 ### v0.12.0.25.1 — Sprint M: C13 alias tables, the wiki command diet and the parallel lane
 
 - C13 alias tables filled (owner decision 2026-10-21; `knowmade#83`). Corpus

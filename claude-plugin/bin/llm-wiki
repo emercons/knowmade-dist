@@ -5,8 +5,11 @@ A thin launcher: it puts its own directory on ``sys.path`` so the
 ``knowmade_control`` package beside it is the one imported (a source checkout's
 ``scripts/`` or a packaged ``bin/``), then runs ``knowmade_control.cli``, whose
 ``NAMESPACES`` list registers every namespace on the one parser so ``--help``
-advertises all of them. The star import keeps the compatibility names of
-``knowmade_control.legacy_cli`` in this module's namespace for runpy callers.
+advertises all of them and a namespace call imports only that namespace. The
+star import keeps the compatibility names of ``knowmade_control.legacy_cli`` in
+this module's namespace for ``runpy.run_path`` callers; it is skipped when the
+file runs as the command (``__name__ == "__main__"``), because it would import
+the modules the lazy namespaces exist to avoid.
 """
 
 from __future__ import annotations
@@ -19,7 +22,9 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from knowmade_control import cli as _cli
-from knowmade_control.legacy_cli import *  # noqa: F401,F403 - compatibility re-export
+
+if __name__ != "__main__":
+    from knowmade_control.legacy_cli import *  # noqa: F401,F403 - compatibility re-export
 
 
 def main(argv: list[str] | None = None) -> int:

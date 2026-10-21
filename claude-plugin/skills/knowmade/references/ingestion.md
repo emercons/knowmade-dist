@@ -148,8 +148,9 @@ content should become one raw markdown source.
 
 1. User provides quoted text as the argument
 2. Stage it as an inbox markdown capture with the text and any title/context
-3. If `--title` not provided, derive a title from the first sentence or ask
-4. Auto-tag based on content keywords
+3. Use the text as-is for extraction. Type: notes (unless overridden)
+4. If `--title` not provided, derive a title from the first sentence or ask
+5. Auto-tag based on content keywords
 
 ## Inbox Processing
 
@@ -159,7 +160,7 @@ processed artifacts to `raw/`.
 
 ### Processing `--inbox`:
 
-1. Scan `inbox/` for all files (exclude `.processed/` subdirectory and hidden files)
+1. Scan `inbox/` for all files (exclude `.processed/` subdirectory and hidden files). If empty, report: "Inbox is empty. Drop files into `<wiki-path>/inbox/` and run again."
 2. For each file:
    - `.url` or `.webloc` files → extract the URL, then follow URL ingestion flow
    - `.md` or `.txt` files → ingest as notes or articles (auto-detect)

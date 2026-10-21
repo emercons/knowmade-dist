@@ -19,9 +19,7 @@ from pathlib import Path
 
 from . import engine as _engine
 from . import fsio as _fsio
-from . import hub_index as _hub_index
 from . import identity as _identity
-from . import privacy as _privacy
 from . import rule_lint as _rule_lint
 from . import rules as _rules
 from .common import PRIVATE_SUFFIX, is_under, write_registry
@@ -43,7 +41,6 @@ from .roots import (
     is_hub,
     resolve_registry_path,
 )
-from .specialists import collect_specialist_issues, specialist_library_path
 
 
 PRIVATE_IGNORE_PROBE_SLUG = f"knowmade-ignore-probe{PRIVATE_SUFFIX}"
@@ -332,6 +329,8 @@ def check_hub_index(ctx: LintContext) -> None:
         return
     if "wikis" in data and not isinstance(data["wikis"], dict):
         return
+    from . import hub_index as _hub_index  # deferred: only a hub's registry check needs it
+
     for problem in _hub_index.index_drift(ctx.root, data):
         _rule_lint.issue_versioned(
             ctx,
@@ -369,6 +368,8 @@ def check_tracked_private(ctx: LintContext) -> None:
     """
     if not is_hub(ctx.root) or not is_inside_git_work_tree(ctx.root):
         return
+    from . import privacy as _privacy  # deferred: only a hub inside a git work tree needs it
+
     tracked = _privacy.tracked_private_paths(ctx.root, _private_anchors(ctx.root))
     if tracked is None:
         ctx.issue(
@@ -537,6 +538,8 @@ def check_engine_contract(ctx: LintContext, strict: bool = False) -> None:
 
 
 def check_specialist_library(ctx: LintContext) -> None:
+    from .specialists import collect_specialist_issues, specialist_library_path  # deferred: rarely present
+
     if not specialist_library_path(ctx.root).exists():
         return
     for issue in collect_specialist_issues(ctx.root):

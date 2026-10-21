@@ -1,6 +1,8 @@
 # Original Source Lifecycle
 
-Read this only when the original bytes of a source are being kept.
+Read this only when the original bytes of a source are being kept: the user
+wants them kept (PDFs, binaries, anything outside the Markdown `raw/` layer), or
+the wiki declares a `source_store`. Call the source commands before writing `raw/`.
 
 When a project needs to retain binary/large originals outside the wiki's
 immutable Markdown `raw/` layer, run the deterministic source subsystem before
@@ -65,7 +67,8 @@ only the required keys.
 
 After `extract`, the agent writes the processed `raw/` markdown from the
 extracted representation with `source note`. A failed `receive` or `verify` stops the
-ingest and is reported verbatim.
+ingest and is reported verbatim: if the CLI fails, report its message and stop;
+do not retain originals by hand.
 
 The `source_store` mapping in project-local `config.md` configures the
 filesystem backend, persistence declaration, local/tracked/derived/pointer/

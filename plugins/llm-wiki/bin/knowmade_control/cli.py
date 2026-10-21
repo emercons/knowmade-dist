@@ -1,11 +1,15 @@
 """The one ``llm-wiki`` parser: namespace registration and dispatch.
 
 ``NAMESPACES`` is the single registration point of the deterministic CLI. Each
-entry names one top-level namespace and the function that registers it:
-``register_parser(subparsers)`` adds the ``name`` subparser with its arguments,
-binds ``func`` (via ``set_defaults``) to the namespace's entry point, and
-returns the subparser. ``build_parser`` adds them in list order, which is the
-order ``llm-wiki --help`` lists them; ``main`` dispatches to ``args.func``.
+entry names one top-level namespace and, as strings, the module and the
+function that register it: ``register_parser(subparsers)`` adds the ``name``
+subparser with its arguments, binds ``func`` (via ``set_defaults``) to the
+namespace's entry point, and returns the subparser. The module is imported
+only when its namespace is registered. ``build_parser()`` registers every
+namespace in list order, which is the order ``llm-wiki --help`` lists them;
+``build_parser(only=name)`` registers just that one, and ``main`` uses it when
+the first argument is a namespace name, so a call pays for one namespace and
+not for all of them. ``main`` dispatches to ``args.func``.
 
 Adding a namespace is one entry here plus its module. Run
 ``scripts/generate-cli-reference.py`` afterwards: the lane checks the generated
@@ -15,102 +19,97 @@ Adding a namespace is one entry here plus its module. Run
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
-from collections.abc import Callable
 from typing import Any, NamedTuple
 
-from . import adapters as _adapters
-from . import adopt_cli as _adopt_cli
-from . import checkpoints as _checkpoints
-from . import compile_plan as _compile_plan
-from . import datasets as _datasets
-from . import federation as _federation
-from . import freshness as _freshness
-from . import hub as _hub
-from . import hub_index as _hub_index
-from . import inbox as _inbox
-from . import index_cli as _index_cli
-from . import init_cli as _init_cli
-from . import lint as _lint
-from . import links as _links
-from . import log_cli as _log_cli
-from . import pins as _pins
-from . import privacy as _privacy
-from . import projects as _projects
-from . import raw_note as _raw_note
-from . import retract as _retract
 from . import roots as _roots
-from . import rules as _rules
-from . import source_lifecycle as _source_lifecycle
-from . import specialists as _specialists
-from . import status as _status
-from . import xref as _xref
 from .fsio import permission_denied_message
 from .stdio import configure_utf8_stdio
 
 
 class Namespace(NamedTuple):
-    """One top-level ``llm-wiki`` namespace and the function that registers it."""
+    """One top-level ``llm-wiki`` namespace and where its registration lives."""
 
     name: str
-    register_parser: Callable[[Any], argparse.ArgumentParser]
+    module: str  # module of this package, imported only when the namespace registers
+    attribute: str  # function in ``module``: ``attribute(subparsers)`` returns the subparser
+
+    def register_parser(self, subparsers: Any) -> argparse.ArgumentParser:
+        module = importlib.import_module(f"{__package__}.{self.module}")
+        return getattr(module, self.attribute)(subparsers)
 
 
 def _register_source(subparsers: Any) -> argparse.ArgumentParser:
     # Late-bound so the shared roots resolver is looked up when a command runs.
-    return _source_lifecycle.register_parser(
+    from . import raw_note, roots, source_lifecycle
+
+    return source_lifecycle.register_parser(
         subparsers,
-        resolve_wiki_root=lambda args: _roots.resolve_wiki_root_args(args),
-        extensions=(_raw_note.register_note,),
+        resolve_wiki_root=lambda args: roots.resolve_wiki_root_args(args),
+        extensions=(raw_note.register_note,),
     )
 
 
 NAMESPACES: tuple[Namespace, ...] = (
-    Namespace("lint", _lint.register_parser),
-    Namespace("archive", _hub.register_archive_parser),
-    Namespace("schema", _hub.register_schema_parser),
-    Namespace("identity", _hub.register_identity_parser),
-    Namespace("hub", _hub_index.register_parser),
-    Namespace("inbox", _inbox.register_parser),
-    Namespace("registry", _federation.register_parser),
-    Namespace("ref", _xref.register_parser),
-    Namespace("retract", _retract.register_parser),
-    Namespace("specialist", _specialists.register_parser),
-    Namespace("adapter", _adapters.register_parser),
-    Namespace("checkpoint", _checkpoints.register_parser),
-    Namespace("privacy", _privacy.register_parser),
-    Namespace("links", _links.register_parser),
-    Namespace("index", _index_cli.register_parser),
-    Namespace("log", _log_cli.register_parser),
-    Namespace("dataset", _datasets.register_parser),
-    Namespace("rules", _rules.register_parser),
-    Namespace("engine", _pins.register_engine_parser),
-    Namespace("pin", _pins.register_pin_parser),
-    Namespace("freshness", _freshness.register_parser),
-    Namespace("project", _projects.register_parser),
-    Namespace("adopt", _adopt_cli.register_parser),
-    Namespace("source", _register_source),
-    Namespace("status", _status.register_parser),
-    Namespace("compile", _compile_plan.register_parser),
-    Namespace("init", _init_cli.register_parser),
+    Namespace("lint", "lint", "register_parser"),
+    Namespace("archive", "hub", "register_archive_parser"),
+    Namespace("schema", "hub", "register_schema_parser"),
+    Namespace("identity", "hub", "register_identity_parser"),
+    Namespace("hub", "hub_index", "register_parser"),
+    Namespace("inbox", "inbox", "register_parser"),
+    Namespace("registry", "federation", "register_parser"),
+    Namespace("ref", "xref", "register_parser"),
+    Namespace("retract", "retract", "register_parser"),
+    Namespace("specialist", "specialists", "register_parser"),
+    Namespace("adapter", "adapters", "register_parser"),
+    Namespace("checkpoint", "checkpoints", "register_parser"),
+    Namespace("privacy", "privacy", "register_parser"),
+    Namespace("links", "links", "register_parser"),
+    Namespace("index", "index_cli", "register_parser"),
+    Namespace("log", "log_cli", "register_parser"),
+    Namespace("dataset", "datasets", "register_parser"),
+    Namespace("rules", "rules", "register_parser"),
+    Namespace("engine", "pins", "register_engine_parser"),
+    Namespace("pin", "pins", "register_pin_parser"),
+    Namespace("freshness", "freshness", "register_parser"),
+    Namespace("project", "projects", "register_parser"),
+    Namespace("adopt", "adopt_cli", "register_parser"),
+    Namespace("source", "cli", "_register_source"),
+    Namespace("status", "status", "register_parser"),
+    Namespace("compile", "compile_plan", "register_parser"),
+    Namespace("init", "init_cli", "register_parser"),
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(only: str | None = None) -> argparse.ArgumentParser:
+    """The full parser, or with ``only=<namespace>`` one that registers just that namespace."""
     parser = argparse.ArgumentParser(
         prog="llm-wiki",
         description="Local deterministic helpers for Knowmade.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for namespace in NAMESPACES:
-        namespace.register_parser(subparsers)
+        if only is None or namespace.name == only:
+            namespace.register_parser(subparsers)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    # The top-level parser has no option but -h, so a first argument that names
+    # a namespace selects it; anything else (no arguments, -h, a typo) gets the
+    # full parser and so the full help and "invalid choice" listing.
+    values = list(sys.argv[1:] if argv is None else argv)
+    only = values[0] if values and values[0] in {n.name for n in NAMESPACES} else None
+    if only is None:
+        args = build_parser().parse_args(values)
+    else:
+        args, extras = build_parser(only).parse_known_args(values)
+        if extras:
+            # An argument the namespace does not know is reported by the full
+            # parser, so its usage line lists every namespace as it always did.
+            args = build_parser().parse_args(values)
     try:
         return int(args.func(args))
     except _roots.WikiNotResolved as exc:

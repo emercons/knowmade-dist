@@ -13,7 +13,6 @@ import shutil
 import subprocess
 import sys
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import unescape
@@ -322,7 +321,9 @@ def _copy_stream(source: str, destination: Path, limit: int) -> tuple[int, str |
     total = 0
     try:
         if parsed.scheme in {"http", "https"}:
-            stream = urllib.request.urlopen(urllib.request.Request(source, headers={"User-Agent": "llm-wiki-source/1"}), timeout=30)  # noqa: S310
+            from urllib.request import Request, urlopen  # deferred: pulls in ssl and http.client
+
+            stream = urlopen(Request(source, headers={"User-Agent": "llm-wiki-source/1"}), timeout=30)  # noqa: S310
             content_type = stream.headers.get_content_type()
         else:
             stream = Path(source).expanduser().resolve().open("rb")

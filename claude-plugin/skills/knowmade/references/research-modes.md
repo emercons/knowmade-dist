@@ -7,6 +7,8 @@ The phases they modify are in [`research-protocol.md`](research-protocol.md); wh
 
 ### Minimum Time Research (`--min-time`)
 
+**--min-time <duration>**: Minimum research time. Keep running research rounds until this duration is reached. Formats: `30m`, `1h`, `2h`, `4h`. Default: single round (no minimum).
+
 #### Multi-Round Session State
 
 When `--min-time` is set, create and maintain:
@@ -121,6 +123,8 @@ In `--retardmax` mode: add rabbit-hole agents + skip decomposition confirmation.
 
 #### Thesis Research Mode (`--mode thesis`)
 
+**--mode thesis "<claim>"**: Activate thesis mode. The claim is the scope constraint — sources that don't relate to it are skipped. Agents evaluate evidence for/against. A verdict is rendered at the end.
+
 **Why this exists as a mode, not a separate command**: thesis research is 70% the same pipeline as topic/question research (agent dispatch, credibility scoring, session registry, multi-round --min-time, compilation, ingestion). The 30% that's different is: scope filtering by claim, for/against agent framing, evidence strength classification, and verdict rendering. Those differences are described below as modifications to the standard phases. Previously this was a separate `/knowmade:thesis` command (224 lines) which duplicated all the shared infrastructure.
 
 **Phase 0: Decompose the thesis.** Before any research, break the claim into:
@@ -210,6 +214,8 @@ Update frontmatter: `status: completed`, `verdict: <result>`, `confidence: <leve
 Session state uses `.thesis-session.json` instead of `.research-session.json`, tracking evidence for/against counts and current verdict direction per round. Keep the same provenance pattern: the thesis session file is ephemeral, while `.session-events.jsonl` and `.session-checkpoint.json` persist across normal completion. Resume detection: "Found interrupted thesis session (Round N, current leaning: X). Continue?"
 
 ### Plan Mode (`--plan`)
+
+**--plan**: Decompose the topic into 3-5 independent research paths, present the plan for confirmation, then execute all paths in parallel. Each path gets its own agent group (5 agents standard, 8 with `--deep`). Ingest runs in parallel across paths (each path stages unique inbox captures and writes unique raw files); compilation runs once after all paths complete (single pass sees all sources for better cross-referencing). Without `--plan`, research runs a single path as before.
 
 When `--plan` is set, insert a planning phase between Phase 1 and Phase 2. Plan mode works with topic, question, AND thesis input — it decomposes any of them into parallel paths. It is independent of `--min-time` (which controls multi-round iteration within a single path or after plan execution).
 

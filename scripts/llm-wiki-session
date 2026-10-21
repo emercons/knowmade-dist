@@ -459,6 +459,8 @@ def atomic_write_bytes(path: Path, data: bytes, mode: int | None = None) -> None
     path = Path(path)
     if mode is None:
         mode = _default_mode(path)
+    import tempfile  # deferred: pulls in shutil and random, and only a write needs it
+
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp = Path(tmp_name)
     try:

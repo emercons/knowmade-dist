@@ -85,7 +85,18 @@ and guidance. Its `source:` is the `<HUB>/`-relative path of `candidates.jsonl`.
 It does not copy the raw transcript. A target slug that does not end in
 `-PRIVATE` is refused unless `--allow-public` is passed; with it, the CWD and
 git remote rows are dropped from the metadata table. Append the topic `log.md`
-with a `feedback` entry.
+with a `feedback` entry. Report absolute paths for every promoted note.
+
+Promotion writes `raw/notes/` without an `inbox/` item: that is the
+session-distillate exception in [`knowmade-profile.md`](knowmade-profile.md)
+(Inbox-First Source Lifecycle), and the write-guard still applies.
+
+Write-guard on promote: when `--topic <slug>` is a public, non-`-PRIVATE`
+topic, the promoted note and log entry must not carry a `-PRIVATE` path
+string, a private goal, or a lesson derived from private material; drop those
+parts or promote into `<slug>-PRIVATE` instead; see
+[`knowmade-profile.md`](knowmade-profile.md) § Private Data Boundary: Read
+Freely, Write-Guard.
 
 ## Relationship to Lessons Learned
 

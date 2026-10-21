@@ -16,34 +16,15 @@ Manage projects — folders inside a topic wiki's `output/projects/` directory t
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` if found. Variant: **wiki-neutral** — see deviation below for the step-4 fallback.
 
-Archive rule: topic archive and project archive are different layers. Project
-commands operate on active topic wikis by default. If `--wiki <name>` resolves
-to a topic under `topics/.archive/`, stop and ask the user to restore the topic
-or rerun with `--include-archived`; explicit archived operations must stay
-inside that archived topic path. The project subcommand `archive <slug>` only
-moves `output/projects/<slug>` inside the selected topic wiki.
+Deviation: step 4's fallback to HUB becomes **ask the user which topic wiki, or fail if no topic wikis exist** (an empty hub has nothing to operate on). All project paths below are relative to the resolved wiki root (`<wiki-root>/output/projects/<slug>/`).
 
-Read the projects architecture at `skills/knowmade/references/projects.md` for the full rationale — particularly *why* `WHY.md` is the only required file (it holds the precious, non-derivable rationale) and *why* everything else is derived from filesystem state.
+### If --include-archived is given or the wiki resolves to an archived topic
 
-Idea awareness: if the user says "turn this Idea into a Project," "approve the
-brief," or equivalent, route to the Idea promotion workflow in
-`skills/knowmade/references/ideas.md`. Promotion freezes `BRIEF.md` and
-cross-links the records. Keep `project new` available for direct Projects that
-do not originate as Ideas.
-
-Inventory awareness: projects group outputs around a goal; inventory tracks
-durable items with status, priority, and next action. If the user asks for a
-project backlog, source queue, watch list, or task list, suggest inventory
-records or a saved inventory view linked from the project instead of putting
-tracking state directly in `WHY.md`.
-
-### Deviation: wiki resolution step 4
-
-The standard prelude's step 4 (fallback to HUB) becomes: **ask the user which topic wiki, or fail if no topic wikis exist.** Project operations against an empty hub have nothing to operate on. All project paths below are relative to the resolved wiki root (`<wiki-root>/output/projects/<slug>/`).
+Stop and ask the user to restore the topic or rerun with `--include-archived`; with the flag, stay inside that archived topic path. The layer rules (topic archive vs project archive, `list --archived`) are in `skills/knowmade/references/project-setup.md` § Archive layers.
 
 ### Parse $ARGUMENTS
 
-The first word is the subcommand. Subsequent words are args.
+The first word is the subcommand; the rest are its args.
 
 | Subcommand | Args | Purpose |
 |------------|------|---------|
@@ -55,84 +36,15 @@ The first word is the subcommand. Subsequent words are args.
 
 If `$ARGUMENTS` is empty, show help (list subcommands with examples) and exit.
 
-Flag:
-- **--include-archived**: Explicitly allow the selected topic wiki itself to be
-  archived. This is separate from `list --archived`, which includes archived
-  projects inside an active topic wiki.
-
-**Removed in v0.2 simplification**: `focus`, `unfocus`, `retract`, `rename`. See `references/projects.md` § "Focus" for the rationale on dropping focus (pass `--project <slug>` explicitly instead). Rename and retract are rare and better done via direct filesystem ops (`mv`, `rm -rf`) than wrapped subcommands.
-
----
+**Removed in v0.2**: `focus`, `unfocus`, `retract`, `rename` (pass `--project <slug>` explicitly instead of focus; rename and retract are rare and better done with `mv` and `rm -rf` than wrapped subcommands). The rationale is in the projects-model branch below.
 
 ### Subcommand: `new <slug> "goal"`
 
-Create a new project.
-
-CLI first: `llm-wiki project new <slug> --goal "<goal>" [--title <t>] [--dry-run] [--json]` (`--wiki <slug>`, `--local` or `--path` pick the wiki). It validates the slug (exit 2 with a suggestion), refuses an existing project (exit 1), writes `WHY.md`, adds the `output/_index.md` entry and appends the `log.md` line, and refuses a public wiki's goal that names a `-PRIVATE` path. Do the steps below only if the CLI is unavailable.
-
-**Validate slug**:
-- Lowercase only
-- Hyphen-separated
-- Max 40 characters
-- No spaces, no uppercase, no special chars except `-`
-- If invalid, suggest a corrected version and exit: `Invalid slug "Foo Bar" — use "foo-bar" instead.`
-
-**Validate goal**: Mandatory. If missing, prompt: `Goal is required. What is this project trying to accomplish?`
-
-**Check collision**: If `<wiki-root>/output/projects/<slug>/` already exists (active or archived), fail: `Project "<slug>" already exists at <path>. Use a different slug.`
-
-**Create**:
-1. `mkdir -p <wiki-root>/output/projects/<slug>/`
-2. Write `<wiki-root>/output/projects/<slug>/WHY.md` using the template below
-3. Report: `Created project "<slug>" at <path>.`
-
-**`WHY.md` template**:
-```markdown
-# <Title>
-
-<goal>
-
-## Context
-
-<!-- Why this project exists, what triggered it, who cares. Delete this section if you don't need it. -->
-
-## Current state
-
-<!-- Where things stand, what's next, outstanding questions. Delete this section if you don't need it. -->
-```
-
-Derive the title from the slug: `bitcoin-quantum-risk` → `Bitcoin Quantum Risk`. Capitalize each hyphen-separated token. Drop the `<!-- ... -->` placeholders if the user gave a goal rich enough to stand alone.
-
-**No frontmatter.** `WHY.md` is plain markdown. The convention is "first `#` heading = title, body = rationale." That's it. Don't add `type:`, `status:`, `created:`, `updated:` — filesystem state is the state.
-
----
+`llm-wiki project new <slug> --goal "<goal>" [--title <t>] [--dry-run] [--json]`. A slug is lowercase, hyphen-separated, at most 40 characters; the goal is mandatory. The CLI validates both, refuses an existing project (active or archived), writes `WHY.md` (plain markdown, no frontmatter), adds the `output/_index.md` entry, appends the `log.md` line, and refuses a public wiki's goal that names a `-PRIVATE` path.
 
 ### Subcommand: `list [--archived]`
 
-List projects in the resolved wiki.
-
-CLI first: `llm-wiki project list [--archived] --json` returns title, goal, member count, last update and the `legacy_manifest` and `stale` flags. Manual steps only if the CLI is unavailable.
-
-1. Glob `<wiki-root>/output/projects/*/WHY.md` (active projects)
-2. If `--archived` is set, also glob `<wiki-root>/output/projects/.archive/*/WHY.md`
-3. For each, read the first `#` heading (the title) and the first non-heading paragraph (the goal, first 120 chars)
-4. Count members: `ls <wiki-root>/output/projects/<slug>/` minus `WHY.md`, recursively counting files at max 3 levels
-5. Render a table:
-
-```
-Active projects (N)
-
-| Slug | Title | Goal | Members |
-|------|-------|------|---------|
-| bitcoin-quantum-risk | Bitcoin Quantum Risk | Ship a migration plan for Bitcoin's quantum transition | 4 |
-| llm-wiki-roadmap | llm-wiki Roadmap | v0.1 features | 2 |
-```
-
-With `--archived`, render a second "Archived projects" table below.
-
-If no projects exist, report: `No projects in <wiki>. Create one with /knowmade:project new <slug> "goal".`
-
----
+`llm-wiki project list [--archived] --json` returns title, goal, member count, last update and the `legacy_manifest` and `stale` flags. Render a table (Slug, Title, Goal, Members), plus an "Archived projects" table with `--archived`.
 
 ### Subcommand: `show <slug>`
 
@@ -148,25 +60,9 @@ Show a project's goal and members.
 
 No derived cache, no regeneration step — `show` always reflects current filesystem state.
 
----
-
 ### Subcommand: `add <slug> <path>`
 
-Move an existing file into a project.
-
-CLI first: `llm-wiki project add <slug> <path>... [--dry-run] [--json]` moves files from `output/` (refusing anything else, exit 1, nothing moved), drops their `output/_index.md` rows, logs once and lists files that still link the old path. Idempotent. Manual steps only if the CLI is unavailable.
-
-1. Verify the project exists: `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail: `Project "<slug>" does not exist. Create it first with /knowmade:project new <slug> "goal".`
-2. Resolve the source path (absolute or relative to wiki root)
-3. Verify the file exists
-4. `mv <source> <wiki-root>/output/projects/<slug>/<basename>`
-5. Report: `Added <basename> to project "<slug>".`
-
-**Warning**: If the source file is referenced by other articles (grep for its old path in `wiki/` and `output/`), print those references and warn the user they may be broken. Do not auto-fix — the user decides whether to update the links manually or run lint.
-
-**Frontmatter note**: This command does **not** add `project: <slug>` to the moved file's frontmatter. Folder position is authoritative; frontmatter duplication is a drift trap. If the user wants Obsidian-style project tagging for search, they can add it manually — it's not required.
-
----
+`llm-wiki project add <slug> <path>... [--dry-run] [--json]` moves files from `output/` (refusing anything else, exit 1, nothing moved), drops their `output/_index.md` rows, logs once and lists files that still link the old path. Idempotent. It adds no `project:` frontmatter: folder position is authoritative. Print the listed links as a warning; the user decides whether to fix them or run lint.
 
 ### Subcommand: `archive <slug>`
 
@@ -179,9 +75,23 @@ Move a project to `.archive/`.
 
 This is the entire archive operation. No frontmatter updates, no status flags, no linked-file cleanup. Filesystem state is the state.
 
-**Broken links**: Files elsewhere in the wiki that linked to the archived project will now have broken links. Lint check C4 will catch these on the next run. This is an intentional tradeoff — the simpler archive model is worth the broken-link cost because archiving is rare and lint already handles broken links for every other reason.
+**Broken links**: files elsewhere that linked to the archived project now have broken links; lint check C4 catches them on the next run (an intentional tradeoff; see the projects-model branch).
 
----
+### If the CLI cannot run (`new`, `list` or `add`)
+
+Do the manual steps of `skills/knowmade/references/project-setup.md` § Manual fallback for the subcommand in hand (slug and goal validation, collision check, `WHY.md` template, member listing, move and link warning).
+
+### If the user turns an Idea into a Project ("approve the brief", or equivalent)
+
+Route to the Idea promotion workflow in `skills/knowmade/references/ideas.md` (§ Promotion): it freezes `BRIEF.md` and cross-links the records. `project new` stays for direct Projects that do not originate as Ideas.
+
+### If the user asks for a project backlog, source queue, watch list or task list
+
+Suggest inventory records or a saved inventory view linked from the project (`/knowmade:inventory`) instead of putting tracking state in `WHY.md`: projects group outputs around a goal; inventory tracks durable items with status, priority and next action.
+
+### If the request asks why projects work as they do, or proposes changing the model
+
+Read the projects architecture at `skills/knowmade/references/projects.md`: why `WHY.md` is the only required file (it holds the precious, non-derivable rationale), why everything else is derived from filesystem state, and § Focus for why focus was dropped.
 
 ## Report
 

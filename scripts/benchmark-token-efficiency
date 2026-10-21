@@ -134,39 +134,107 @@ def file_bytes(path: Path) -> int:
 # `skills/knowmade/`. `wiki/references/` is a topic wiki's own directory,
 # not a protocol file, so a match preceded by `wiki/` does not count.
 REFERENCE_MENTION = re.compile(r"(?<!wiki/)references/([A-Za-z0-9_-]+\.md)")
-READ_LINE = re.compile(r"\bread\b", re.IGNORECASE)
+
+# A branch heading opens a part of a command that runs only when its condition
+# holds: `## If ...` or `### If ...`. Everything before the first one is read
+# on every invocation.
+BRANCH_HEADING = re.compile(r"^(##|###) If ")
+HEADING = re.compile(r"^(#{1,6}) ")
+# A fenced code block (``` or ~~~, three or more, indented at most three
+# spaces) is opaque to `split_command`: a `#` line inside it is a shell or
+# Markdown comment or a literal example, never a heading.
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def split_command(text: str) -> tuple[str, list[str]]:
+    """Split a command into (unconditional text, [branch text, ...]).
+
+    The unconditional part is everything before the first branch heading,
+    plus any text that follows a branch but belongs to a heading that is not a
+    branch (a shared "For all sources" section after the `### If ...` ones).
+    A branch is one branch heading and its body up to the next heading of the
+    same or a higher level; deeper headings (`####`) belong to the branch.
+    Lines inside a fenced code block are never headings (see `FENCE`): they
+    stay in whichever part the fence opened in.
+    """
+    unconditional: list[str] = []
+    branches: list[list[str]] = []
+    level = 0  # heading level of the branch being read; 0 = not in a branch
+    fence = ""  # the opening fence marker while inside a fenced block
+    for line in text.splitlines(keepends=True):
+        opened = FENCE.match(line)
+        if fence:
+            # A closing fence repeats the character, at least as long, and
+            # carries nothing else on its line.
+            if (
+                opened
+                and opened.group(1)[0] == fence[0]
+                and len(opened.group(1)) >= len(fence)
+                and not line.strip().strip(fence[0])
+            ):
+                fence = ""
+            (branches[-1] if level else unconditional).append(line)
+            continue
+        if opened:
+            fence = opened.group(1)
+            (branches[-1] if level else unconditional).append(line)
+            continue
+        heading = HEADING.match(line)
+        if BRANCH_HEADING.match(line):
+            level = len(heading.group(1))
+            branches.append([line])
+            continue
+        if heading and level and len(heading.group(1)) <= level:
+            level = 0
+        (branches[-1] if level else unconditional).append(line)
+    return "".join(unconditional), ["".join(branch) for branch in branches]
+
+
+def named_references(text: str) -> set[str]:
+    return set(REFERENCE_MENTION.findall(text))
 
 
 def command_first_read_metrics(root: Path) -> dict[str, int]:
-    """Per-command first-read context in tokens (bytes/4, rounded up).
+    """Per-command context in tokens (bytes/4, rounded up), by path.
+
+    A command file has an unconditional part (everything before its first
+    `## If` / `### If` heading, see `split_command`) and branches that run only
+    when taken.
 
     `command_first_read_tokens.<command>` is the command file plus every
-    reference it names anywhere: an upper bound on what an agent reads before
-    it starts. `command_read_lines_tokens.<command>` counts only references
-    named on a line that says "read". Neither includes SKILL.md, which every
-    command shares (see `claude_skill_bytes`), nor references that a named
-    reference names in turn.
+    reference named in the unconditional part: what an agent reads before it
+    knows which branch it is in.
+    `command_worst_path_tokens.<command>` adds, to that, the references named
+    in the one branch that adds the most (a reference already counted as
+    unconditional is not counted again; a reference named in several branches
+    is counted in each, so the worst branch wins, not their sum). A command
+    without branches has the same value for both.
+
+    Neither includes SKILL.md, which every command shares (see
+    `claude_skill_bytes`), nor references that a named reference names in turn.
     """
     commands = root / "claude-plugin/commands"
     references = root / "claude-plugin/skills/knowmade/references"
     metrics: dict[str, int] = {}
     for command in sorted(commands.glob("*.md")):
         text = command.read_text(encoding="utf-8")
-        named: set[str] = set()
-        read: set[str] = set()
-        for line in text.splitlines():
-            names = set(REFERENCE_MENTION.findall(line))
-            named |= names
-            if READ_LINE.search(line):
-                read |= names
-        missing = sorted(name for name in named if not (references / name).is_file())
+        unconditional, branches = split_command(text)
+        always = named_references(unconditional)
+        branch_sets = [named_references(branch) - always for branch in branches]
+        missing = sorted(
+            name
+            for name in always.union(*branch_sets)
+            if not (references / name).is_file()
+        )
         if missing:
             raise ValueError(f"{display_path(command, root)} names missing references: {missing}")
-        base = file_bytes(command)
-        first = base + sum(file_bytes(references / name) for name in named)
-        lines = base + sum(file_bytes(references / name) for name in read)
-        metrics[f"command_first_read_tokens.{command.stem}"] = -(-first // 4)
-        metrics[f"command_read_lines_tokens.{command.stem}"] = -(-lines // 4)
+        base = file_bytes(command) + sum(file_bytes(references / name) for name in always)
+        extra = max(
+            (sum(file_bytes(references / name) for name in names) for names in branch_sets),
+            default=0,
+        )
+        metrics[f"command_first_read_tokens.{command.stem}"] = -(-base // 4)
+        metrics[f"command_worst_path_tokens.{command.stem}"] = -(-(base + extra) // 4)
     return metrics
 
 

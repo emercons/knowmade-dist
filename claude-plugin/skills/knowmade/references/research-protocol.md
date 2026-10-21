@@ -62,6 +62,11 @@ primary sources and named qualified-human review.
 3. Identify gaps — what specific aspects, subtopics, and questions are NOT covered?
 4. Generate a list of 5-8 specific search angles based on the gaps
 
+**Inventory awareness.** Also read inventory indexes when cheap. Active `p0`/`p1` items,
+candidates, corpora, questions, and watch items can seed research paths or
+explain why a topic matters. Do not treat inventory records as evidence; they
+are operational state.
+
 #### Phase 2: Web Research — Parallel Agent Swarm
 
 Launch agents IN PARALLEL (single message, multiple Agent tool calls) to maximize coverage and speed.
@@ -135,7 +140,7 @@ In **retardmax mode**: lower the rejection threshold (accept Medium and above wi
 
 #### Phase 3: Stage and Ingest (inbox-first)
 
-Research reuses the `/knowmade:ingest` protocol: a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-staging.md`.
+Research is inbox-first, like every other Knowmade intake path, and reuses the `/knowmade:ingest` protocol (`references/ingestion.md` § Inbox Processing; `references/knowmade-profile.md` § Inbox-First Source Lifecycle): a source is staged in `inbox/` first, then processed into `raw/`, then the intake item moves to `inbox/.processed/`. The only research-specific differences are that many agents stage in parallel, one coordinator processes the batch, and the captures carry research metadata (query, agent, credibility) that is copied into the raw artifact. The capture schema is in `references/research-staging.md`.
 
 **Stage (each search agent, during Phase 2 — parallel-safe)**
 
@@ -207,6 +212,11 @@ Never write to `raw/` from a capture that does not exist in `inbox/` first. If a
    - **Progress score**: 0-100 per `references/research-rounds.md` § Formula, with its interpretation
    - **Cumulative progress** (if --min-time): total across all rounds, round-over-round delta
    - **Termination recommendation**: per `references/research-rounds.md` § Termination Decision Tree
+
+4. Inventory follow-ups: propose inventory records only for durable follow-ups:
+   important unresolved gaps, item/part decisions, candidate sources/corpora to
+   revisit, watch items, or blocked tasks. Do not create a backlog for every minor search tangent. For larger
+   pivots, show a 1-3 row sample of proposed records and ask before writing.
 
 #### Gap-Closing Offer
 

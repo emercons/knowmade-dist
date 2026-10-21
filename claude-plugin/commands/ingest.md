@@ -12,229 +12,85 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
 <!-- hub-prelude:end -->
-4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic <name>` is set → create the topic wiki (see below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic <name>` to create one, or run `/knowmade:wiki init` first."
+4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic <name>` is set → create the topic wiki (branch below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic <name>` to create one, or run `/knowmade:wiki init` first."
 
-Read the ingestion protocol at `skills/knowmade/references/ingestion.md`, the file formats at `skills/knowmade/references/wiki-format.md` (`_index.md`, `log.md`, raw source, naming and tag formats), and from the Knowmade profile at `skills/knowmade/references/knowmade-profile.md` only § Private Data Boundary: Read Freely, Write-Guard and § Inbox-First Source Lifecycle (including its exception). Read the directory layout at `skills/knowmade/references/wiki-structure.md` only when `--new-topic` creates a wiki, and `skills/knowmade/references/source-lifecycle.md` only for the original-source retention path below. Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
-
-### Original-source retention (CLI)
-
-When the user wants the original bytes kept (PDFs, binaries, anything outside
-the Markdown `raw/` layer), or the wiki declares a `source_store`, call the
-deterministic source commands before writing `raw/`: `llm-wiki source receive`,
-`extract`, `decide --retain local|git`, then `verify`, each with the wiki scope
-flags (`--local`, `--wiki <name>`, `--path <wiki-root>`, `--hub <path>`). Locate
-the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` or, in a source checkout,
-`scripts/llm-wiki`. The exact invocations are in
-`skills/knowmade/references/source-lifecycle.md`. If the
-CLI fails, report its message and stop; do not retain originals by hand.
+Read the ingestion protocol at `skills/knowmade/references/ingestion.md` (source types, URL, file, PDF and text ingestion, inbox processing, slugs, index updates), and from the Knowmade profile only § Private Data Boundary: Read Freely, Write-Guard and § Inbox-First Source Lifecycle (including its exception). Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
 
 ### Writing `raw/` (CLI)
 
 Write each processed raw artifact with `llm-wiki source note --type <type>
 --title "..." --source <url|path|MANUAL> --summary "..." --tags a,b` (optional flags:
 `--slug`, `--project`, `--extra`, `--help`), the body on stdin or `--body-file`, plus
-the wiki scope flags. It derives the slug (`-2`, `-3` on a collision), writes
+the wiki scope flags. Locate the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` or, in a source checkout,
+`scripts/llm-wiki`. It derives the slug (`-2`, `-3` on a collision), writes
 the frontmatter lint requires, refuses private material in a public wiki (exit
 2, nothing written), then rebuilds the indexes and appends the `ingest` log
 entry. The master `_index.md` statistics and the move to `inbox/.processed/`
-stay with you. Write the file by hand per `wiki-format.md` only if the CLI is
-unavailable.
-
-### Collection handoff
-
-If the user is trying to import a bounded upstream corpus rather than one source
-item, stop and hand off to `/knowmade:ingest-collection` with the same wiki flags.
-Signals include: "import wiki", "mirror wiki", "bulk ingest", "ingest
-collection", "ingest repo", "import repo", "split CSV into messages", "Wayback
-snapshots", MediaWiki dumps (`.xml`, `.xml.bz2`, `.xml.gz`), MediaWiki
-`api.php`, CDX API URLs, or a GitHub/GitLab repo plus words like "all", "docs",
-"BIPs", "wiki", or "collection".
-
-Do not reduce a collection to the repository README or one fetched web page.
-Collection imports need a manifest plus one raw child source per upstream
-page/spec/proposal.
-
-### Inventory and dataset awareness
-
-If the user asks to "track", "watch", "keep inventory", "candidate", "queue",
-or "decide later" instead of ingesting now, stop and hand off to
-`/knowmade:inventory`. A durable candidate record is better than ingesting a source
-the user has not accepted.
-
-If the source is a large dataset, archive, compressed dump, database, or
-query-oriented corpus, stop and hand off to `/knowmade:dataset` or
-`/knowmade:ingest-collection` as appropriate. Do not squeeze large data into
-`raw/data/` because it is technically readable.
-
-After a successful ingest, check active inventory records by title/source when
-cheap. If a matching record exists, report the suggested linkage and status
-change (`sources:` add raw path, maybe status `ingested`) instead of silently
-leaving the tracking state stale.
-
-### Archive awareness
-
-Do not ingest into archived topic wikis by default. If `--wiki <name>` resolves
-to `status: archived` or a path under `topics/.archive/`, stop and ask the user
-to restore it with `/knowmade:archive restore <name>` or rerun with
-`--include-archived`. If the user explicitly includes archived content, write
-only inside that archived topic path and keep the topic archived.
-
-### `--new-topic` branch
-
-When `--new-topic` is set, override the standard resolution:
-1. Derive a slug from the topic name: lowercase, hyphens, no special chars, max 40 chars
-2. If HUB doesn't exist, create it (wikis.json + _index.md + log.md + topics/)
-3. Create the new topic wiki at `HUB/topics/<slug>/` following the full init protocol (directory structure, .obsidian/, empty _index.md files, config.md, log.md)
-4. Register in `HUB/wikis.json` using a portable relative path (`topics/<slug>`) and update hub `_index.md`
-5. Target this new wiki for ingestion
-
-### `--project <slug>` flag
-
-**--project <slug>**: Tag the processed raw artifact with `project: <slug>` frontmatter. The intake item still starts in `inbox/`, and the processed artifact lands in the normal `raw/<type>/` location (sources are shared across projects by design). The project tagging propagates later when sources are compiled into wiki articles. See `references/projects.md`.
-
-If `--project <slug>` is set, verify the project exists at `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail early: `Project "<slug>" does not exist. Create it first with /knowmade:project new <slug> "goal".`
-
-There is no ambient project focus — pass `--project` explicitly when you want project scope. The focus-session mechanism (`.wiki-session.json`) was removed in the v0.2 projects simplification; see `references/projects.md` § "Focus" for the rationale.
+stay with you.
 
 ### Parse $ARGUMENTS
 
-- **--new-topic <name>**: Create a new topic wiki and ingest the source into it. Works from any directory. Derives the wiki slug from the name (e.g., "knives" → `knives`, "machine learning" → `machine-learning`).
+- **--new-topic <name>**: Create a new topic wiki and ingest the source into it. Works from any directory (branch below).
 - **--inbox**: Process all files in the wiki's `inbox/` directory
 - **--keep**: When processing inbox, keep originals (move to .processed/ instead of deleting)
 - **--type**: Force source type (articles, papers, repos, notes, data). Default: auto-detect.
 - **--title**: Override extracted title
 - **--auto-classify**: For single items, classify into the best-matching topic wiki instead of requiring `--wiki`. Always active for `--inbox` when no `--wiki` is set.
-- **--include-archived**: Explicitly allow ingestion into an archived target
-  wiki. Not used for auto-classification.
+- **--project <slug>**: Tag the processed raw artifact with `project: <slug>` (branch below).
+- **--include-archived**: Explicitly allow ingestion into an archived target wiki (branch below). Not used for auto-classification.
 - **Source**: Everything else — URL (starts with http), file path (contains / or .), or quoted freeform text
 
 ### If --inbox
 
-Follow the inbox processing protocol from `references/ingestion.md`:
-
-1. Scan `inbox/` for files (exclude `.processed/` and hidden files)
-2. If empty, report: "Inbox is empty. Drop files into `<wiki-path>/inbox/` and run again."
-3. Process each file according to its type
-4. Move processed files to `inbox/.processed/` (unless `--keep`, then copy)
-5. Update all indexes
-6. Report summary
-7. If 5+ items processed, suggest compilation
+Follow `skills/knowmade/references/ingestion.md` § Inbox Processing: scan `inbox/` (excluding `.processed/` and hidden files), process each file by its type, move it to `inbox/.processed/` (copy with `--keep`), update all indexes and report a summary. If 5+ items were processed, suggest compilation.
 
 ### If URL source
 
-0. Stage the URL in `inbox/` as a `.url` or small markdown capture before
-   extraction. This creates a visible intake trace even when the user did not
-   drop a file manually.
-
-1. Detect X.com/Twitter URLs (`x.com/*/status/*` or `twitter.com/*/status/*`):
-   - **Grok MCP** (preferred): Check for `mcp__grok__*` tools. If available, use to fetch tweet. (a locally installed Grok MCP server, if any).
-   - **FxTwitter**: Rewrite URL → `https://api.fxtwitter.com/user/status/ID`, WebFetch for JSON.
-   - **VxTwitter**: Rewrite URL → `https://api.vxtwitter.com/user/status/ID`, WebFetch for JSON.
-   - **Direct WebFetch**: Last resort, often blocked by login wall.
-   - Full fallback chain details in `references/ingestion.md`.
-   - Type: notes (unless overridden)
-
-2. Detect GitHub URLs (`github.com/*`):
-   - Use WebFetch with repo-specific extraction prompt
-   - Type: repos (unless overridden)
-
-3. Detect PDF URLs (`.pdf` extension or PDF content type):
-   - Download to a temporary file
-   - Extract to markdown with the PDF file ingestion flow in `references/ingestion.md`
-   - Type: papers by default, unless overridden or clearly a legal/regulatory article
-
-4. All other URLs:
-   - Use WebFetch to extract article content
-   - Auto-detect type from URL patterns (arxiv → papers, etc.)
+Stage the URL in `inbox/` as a `.url` or small markdown capture before extraction (a visible intake trace even when the user did not drop a file), then follow `skills/knowmade/references/ingestion.md` § URL Ingestion: X/Twitter status URLs (`x.com/*/status/*`, `twitter.com/*/status/*`) through the fallback chain, GitHub URLs, PDF URLs (`.pdf` or PDF content type), and all other URLs through WebFetch, each with its default type.
 
 ### If file path source
 
-0. If the file is not already inside `inbox/`, copy or move it into the wiki's
-   `inbox/` before extraction. Do not place user-supplied files directly in
-   `raw/`.
-1. Read the inbox file
-2. Auto-detect type from extension and content
-3. For `.pdf`, extract to markdown. Try `pdftotext -layout` only if it works;
-   otherwise create a temporary Python venv and use a PDF library such as
-   `pypdf` or `pymupdf`. If the PDF is image-only and no OCR path is available,
-   write a metadata stub with `extraction_status: ocr-needed`.
-4. For structured data (.json, .csv), describe schema + sample for a single
-   data source. If the user wants per-message markdown, hand off to
-   `/knowmade:ingest-collection --adapter csv-messages`.
+If the file is not already inside `inbox/`, copy or move it there before extraction; never place user-supplied files directly in `raw/`. Then follow `skills/knowmade/references/ingestion.md` § File Ingestion and § PDF Ingestion (type auto-detected from extension and content; structured data is described by schema plus sample, or handed off to `/knowmade:ingest-collection --adapter csv-messages` for per-message markdown).
 
 ### If quoted text source
 
-1. Stage the text as a markdown capture in `inbox/`
-2. Use the text as-is for extraction
-3. Type: notes (unless overridden)
-4. Derive title from first sentence if --title not provided
+Stage the text as a markdown capture in `inbox/`, then follow `skills/knowmade/references/ingestion.md` § Freeform Text Ingestion.
 
-### Topic Wiki Routing (when no --wiki specified)
+### If no --wiki or --local was given and the wiki resolved to the hub
 
-When the wiki resolved to the hub (HUB) and no `--wiki` flag was provided, route content to the right topic wiki AFTER fetching the source content (title, summary, tags are now known).
+Route the content to a topic wiki after fetching it (title, summary and tags are then known); skip this entirely when `--wiki` or `--local` was given. The single-item choice and the `--inbox` batch classification table are in `skills/knowmade/references/ingest-setup.md` § Topic wiki routing.
 
-**Skip this step entirely if** `--wiki` or `--local` was explicitly provided.
+### If the request is a bounded corpus, a track/queue/decide-later request, or a large dataset
 
-#### Single item (no --inbox)
+Stop and hand off to `/knowmade:ingest-collection`, `/knowmade:inventory` or `/knowmade:dataset` as the signals in `skills/knowmade/references/ingest-setup.md` § Handoffs say; never reduce a collection to its README or squeeze large data into `raw/data/`.
 
-If `--auto-classify` is set, or the user didn't specify `--wiki`:
+### If --include-archived is given or the target wiki is archived
 
-1. Read `HUB/wikis.json` to list topic wikis
-2. For each active topic wiki with a `config.md`, read the description/scope (first 5 lines is enough). Skip archived topics.
-3. Match the source's title + summary + tags against wiki scopes
-4. Present a simple numbered choice:
-   ```
-   Route to:
-   1) ai-security — "AI security, agent safety, prompt injection..."
-   2) geo — "GEO & AI Search Optimization..."
-   3) New wiki
-   4) Skip (leave in hub inbox for later)
-   ```
-5. User picks a number. Use that wiki as target for the rest of the flow.
+Stop and ask the user to restore it with `/knowmade:archive restore <name>` or rerun with `--include-archived`; with the flag, write only inside that archived topic path and keep it archived (`skills/knowmade/references/ingest-setup.md` § Archive awareness).
 
-If only one topic wiki exists, still ask (don't assume). If zero topic wikis exist, ask whether to create one or ingest to hub raw/.
+### If --new-topic <name>
 
-#### Batch mode (--inbox)
+Derive a slug from the name (lowercase, hyphens, no special characters, at most 40 characters; "machine learning" → `machine-learning`) and run `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" init --topic <slug> --description "<name>"` (`scripts/llm-wiki` in a source checkout) (it registers the portable path `topics/<slug>`; pass `--hub <path>` when no hub is configured, and ask the user where to create it rather than assuming `~/wiki`). If the CLI cannot run, follow `skills/knowmade/references/wiki-setup.md` § Init manual fallback. Target the new wiki for this ingestion.
 
-When `--inbox` is set and no `--wiki` was provided, classify items as a batch:
+### If --project <slug>
 
-1. Scan inbox, fetch/read each item to get title + summary
-2. For each item, match against topic wiki scopes
-3. Present a classification table:
-   ```
-   Inbox routing:
-   | # | Title | → Wiki | Match |
-   |---|-------|--------|-------|
-   | 1 | Attention Is All You Need | ai-basics | strong |
-   | 2 | Agent Auth IETF Draft | ai-security | strong |
-   | 3 | K8s RBAC Guide | (new: cloud-infra) | weak |
-   | 4 | Random cooking blog | (skip) | none |
-   ```
-4. User confirms: `y` (process all), `edit` (reassign items), `abort`
-5. Process items grouped by target wiki — all ai-security items together, etc.
-6. Items marked "skip" stay in inbox untouched
-7. Items routed to a "new" wiki trigger the init flow first, then ingest
+Verify the project exists and fail early otherwise; the tagging rule, the failure message and the no-ambient-focus note are in `skills/knowmade/references/ingest-setup.md` § Project scope.
 
-**Performance note**: Fetch all items first (parallel if possible), classify in one pass, then process. Don't fetch-classify-ingest one at a time — that's fragile if interrupted mid-batch.
+### If the original bytes are to be kept (PDFs, binaries, or the wiki declares a source_store)
+
+Call `llm-wiki source receive`, `extract`, `decide --retain local|git`, then `verify` (with the wiki scope flags) before writing `raw/`, as `skills/knowmade/references/source-lifecycle.md` says. If the CLI fails, report its message and stop; do not retain originals by hand.
+
+### If the llm-wiki CLI cannot run
+
+Write the raw file by hand per `skills/knowmade/references/wiki-format.md` (raw source, log and index formats; slug per the ingestion protocol), update `raw/{type}/_index.md`, `raw/_index.md` and the master `_index.md` best-effort per `skills/knowmade/references/indexing.md` § Derived Index Protocol (the next read rebuilds a skipped index), and append `## [YYYY-MM-DD] ingest | Title (raw/type/slug.md)` to `log.md`.
 
 ### For all sources
 
 1. Ensure there is an intake item under `inbox/` unless this command is already
    processing `--inbox`
-2. Generate slug: `YYYY-MM-DD-descriptive-slug.md`
-3. Write the processed extraction artifact to `raw/{type}/` with proper frontmatter:
-   ```
-   ---
-   title: "Title"
-   source: "URL or filepath or MANUAL"
-   type: articles|papers|repos|notes|data
-   ingested: YYYY-MM-DD
-   tags: [auto-generated relevant tags]
-   summary: "2-3 sentence summary"
-   ---
-   ```
-4. Run `<cli> index rebuild --wiki <slug>` (<cli> is `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` (`scripts/llm-wiki` in a source checkout)) for `raw/{type}/_index.md` and `raw/_index.md`; update the master `_index.md` by hand. Only if the CLI is unavailable, update `raw/{type}/_index.md`, `raw/_index.md`, and master `_index.md` by hand (best-effort — if skipped or interrupted, the next read will rebuild from file frontmatter. See `references/indexing.md` Derived Index Protocol.)
-5. Move or copy the intake item to `inbox/.processed/` and preserve the link between the inbox item and raw artifact when cheap
-6. `<cli> log append --wiki <slug> --kind ingest "Title (raw/type/slug.md)"` (by hand, only if the CLI is unavailable: append to `log.md`: `## [YYYY-MM-DD] ingest | Title (raw/type/slug.md)`)
-7. Report: what was staged, what processed artifact was saved, and detected tags
-8. Check uncompiled source count. If 5+, suggest `/knowmade:compile`
+2. Write the processed extraction artifact to `raw/{type}/` with `source note` (slug `YYYY-MM-DD-descriptive-slug.md`, indexes rebuilt and `ingest` log entry appended by the CLI)
+3. Update the master `_index.md` by hand (statistics, Recent Changes; `skills/knowmade/references/indexing.md` § Master Index Statistics)
+4. Move or copy the intake item to `inbox/.processed/` and preserve the link between the inbox item and raw artifact when cheap
+5. Report: what was staged, what processed artifact was saved, and detected tags
+6. Check active inventory records by title/source when cheap. If a matching record exists, report the suggested linkage and status change (`sources:` add raw path, maybe status `ingested`) instead of silently leaving the tracking state stale
+7. Check uncompiled source count. If 5+, suggest `/knowmade:compile`

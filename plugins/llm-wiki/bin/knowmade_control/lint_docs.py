@@ -26,10 +26,8 @@ import urllib.parse
 from pathlib import Path
 
 from . import frontmatter as _frontmatter
-from . import projects as _projects
 from . import rule_lint as _rule_lint
 from . import rules as _rules
-from . import source_lifecycle as _source_lifecycle
 from .common import (
     PRIVATE_SUFFIX,
     as_string_list,
@@ -753,6 +751,8 @@ def check_unknown_files(ctx: LintContext) -> None:
         root_allowed = root_allowed | GIT_ROOT_META_ALLOWED
     root_allowed = root_allowed | configured_root_allowlist(ctx.root)
     if not hub_root and (ctx.root / "config.md").is_file():
+        from . import source_lifecycle as _source_lifecycle  # deferred: heavy, and only wikis with a config need it
+
         # A hub topic keeps its source store inside the topic (knowmade#89):
         # `.wiki-local/` and `sources/` there are lifecycle data, not strays.
         try:
@@ -1510,6 +1510,8 @@ def agent_pass_issue(ctx: LintContext, message: str, path: Path | None, *, check
 
 
 def check_projects(ctx: LintContext) -> None:
+    from . import projects as _projects  # deferred: pulls in the log, hub and privacy modules
+
     # ``output/projects/.archive`` holds archived projects; it is not a project.
     for project in _projects.project_folders(ctx.root):
         has_why = _projects.has_why(project)
@@ -1533,6 +1535,8 @@ def check_projects(ctx: LintContext) -> None:
 
 def check_project_staleness(ctx: LintContext, project: Path) -> None:
     """C8b: a member whose ``sources:`` include a raw source ingested after the member's ``updated:``."""
+    from . import projects as _projects
+
     for member in markdown_files(project):
         if member.name in {_projects.WHY, _projects.LEGACY, "_index.md"}:
             continue
@@ -1659,6 +1663,8 @@ def _candidate_words(path: Path) -> set[str]:
 
 def check_migration_candidates(ctx: LintContext) -> None:
     """C16/C17: outputs whose name or title says they are inventory or a dataset description."""
+    from . import projects as _projects
+
     output = ctx.root / "output"
     for path in markdown_files(output):
         rel = path.relative_to(output).parts
@@ -1804,6 +1810,8 @@ def check_source_lifecycle_pointers(ctx: LintContext) -> None:
     """Validate portable pointers without requiring local originals in a clone."""
     if is_hub(ctx.root) or not (ctx.root / "config.md").is_file():
         return
+    from . import source_lifecycle as _source_lifecycle
+
     try:
         config = _source_lifecycle.load_config(ctx.root)
     except _source_lifecycle.LifecycleError as exc:
