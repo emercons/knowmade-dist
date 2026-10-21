@@ -17,7 +17,7 @@ The mirror-sync tests compare this file with the COMMIT line filtered out, so
 everything except COMMIT is deterministic for a given checkout.
 """
 
-VERSION = "0.11.0.25.1"
-COMMIT = "97df1c9"
+VERSION = "0.12.0.25.1"
+COMMIT = "fa972d1"
 RULE_SET = 3
 GENERATED_BY = "scripts/sync-codex-plugin.sh, scripts/sync-opencode-plugin.sh"

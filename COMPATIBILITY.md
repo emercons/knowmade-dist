@@ -52,6 +52,26 @@ mirrored as one line in `KNOWMADE_VS_LLM_WIKI.md`.
   the intermediates are for authors who chose them. Proposed upstream as
   UPS-F005, [nvk/llm-wiki#94](https://github.com/nvk/llm-wiki/issues/94)
   (`UPSTREAM_CONTRIBUTIONS.md`).
+- **C13 alias tables carry two entries** (knowmade#83, owner decision
+  2026-10-21). `KEY_ALIASES` is `compiled_from -> compiled-from` and
+  `VALUE_ALIASES` is `category: references -> reference`. Upstream's lint
+  (`scripts/llm-wiki` at `upstream/master` 95a042c, v0.25.1 line) has no alias
+  tables or C13 pass at all (`references/linting.md` there documents C13 as an
+  empty table), reads only `compiled-from`, and checks `category` against
+  `concept|topic|reference`. Classification: a severity change under the
+  policy above, no rule-set bump. A file upstream accepts, one with a
+  `compiled_from` key, gains one C13 warning here, and plain `lint` fails on
+  any finding by default (`--fail-on suggestion`, as upstream's does), so its
+  exit code goes from 0 to 1 for an affected corpus; `--fail-on critical` and
+  `scripts/ci-lint` (default `critical`) are unaffected. A file upstream
+  rejects, one with `category: references`, gets the same C2 critical from both
+  checkers plus a C13 warning here. Migration: run `llm-wiki lint --fix` once
+  (or `--fix-only frontmatter`); `--preflight` shows the plan and writes
+  nothing. After the key rename its `compiled-from` value takes part in the
+  conversation freshness rule. A document with both a legacy key and its
+  canonical key gets the "merge by hand" warning and is rewritten in no part.
+  Value aliases apply to wiki articles only. Not proposed upstream: the variant
+  was seen in one hub only.
 - **`category: thesis` is not a divergence.** Knowmade accepted it for a time
   (UPS-F004, `8e375f2`) and reverted it: theses are marked `type: thesis`, which
   stock upstream already routes to `wiki/theses/` and exempts from `category`,
@@ -255,6 +275,54 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.12.0.25.1 — Sprint M: C13 alias tables, the wiki command diet and the parallel lane
+
+- C13 alias tables filled (owner decision 2026-10-21; `knowmade#83`). Corpus
+  surface: the rule set stays `rules/3`; no check is added, the existing C13
+  `warning` now has entries. `KEY_ALIASES` is `compiled_from -> compiled-from`
+  and `VALUE_ALIASES` is `category: references -> reference`
+  (`lint_docs.py`, `references/linting.md` § Alias tables, append-only).
+  `lint` now reports a `compiled_from` key (previously nothing) and a
+  `category: references` value (previously only the C2 critical "Invalid
+  category", which stays until the value is fixed) as C13 warnings, fixable in
+  the `frontmatter` fix class; `lint --fix` rewrites them (step "frontmatter
+  aliases") and `--preflight` plans them without writing. Value aliases are
+  scoped to `wiki/` (`VALUE_ALIAS_LAYERS`; an inventory item's `category` is
+  free-form); key aliases apply in every checked layer. A document carrying both
+  a legacy key and its canonical key is reported ("merge them by hand") and
+  rewritten in no part, key or value. Severity change under section 1: plain
+  `lint` defaults to `--fail-on suggestion`, so one `compiled_from` warning
+  flips its default exit code from 0 to 1 for an affected corpus;
+  `--fail-on critical` and `scripts/ci-lint` (default `critical`) are
+  unaffected, and a `category: references` file already failed on the C2
+  critical. Migration: `lint --fix` (or `--fix-only frontmatter`) once. The
+  upstream comparison is the divergence bullet in section 1. CLI-protocol
+  surface: unchanged. Tests: defect fixture `legacy-alias-keys` and
+  shipped-table `--fix` round trips in `tests/test-local-cli-lint-fix.sh`.
+- Agent spec: context diet for the `wiki` command; no CLI or corpus change.
+  `command_first_read_tokens.wiki` goes from 23,997 to 16,876 tokens
+  (`command_read_lines_tokens.wiki` 7,026 to 6,582; ceilings untouched). The
+  command no longer carries the stamped hub prelude (so `knowmade-profile.md`
+  is not pulled in), no longer names `ingestion.md` or `indexing.md`, and runs
+  `llm-wiki status` / `init` / `hub where` / `hub index` / `index check|rebuild`
+  where it used to restate their steps. Rules moved: HUB and wiki resolution to
+  the CLI plus a trimmed unstamped paragraph in `wiki.md` that points at
+  `references/hub-resolution.md`; the wikis.local.json overlay and stale-path
+  fallback to `status --wiki <slug>` per topic (a private placeholder is listed
+  as unavailable on this machine); the init fallback keeps its unique rules
+  inline and points at `wiki-structure.md`, `wiki-format.md` and
+  `wiki-articles.md` for layouts and formats. `hub-resolution.md` intro and
+  variant C now say `wiki` init/status/config (like `lint` and `archive`)
+  resolve through the CLI and carry no stamped block, and
+  `tests/test-plugin-validate.sh` asserts exactly 16 stamped commands instead of
+  "at least 15".
+- Development tooling (no corpus, CLI or packaging change):
+  `scripts/run-checks --jobs N` (default `min(CPUs, 4)`) runs independent lane
+  steps in parallel; the mirror syncs form a serial group, a bytecode warm-up
+  runs first, the Codex smoke test starts first, and an abort kills the whole
+  step process tree. The full lane on Windows takes about 5 to 7 minutes
+  instead of 12 to 21 (PR #199).
 
 ### v0.11.0.25.1 — Sprint L: compile plan, the runtime capability matrix and the hub dispatch evals
 

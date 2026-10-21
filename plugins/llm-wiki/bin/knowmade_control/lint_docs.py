@@ -462,22 +462,33 @@ def check_frontmatter_schema(ctx: LintContext) -> None:
 
 # --- C13: legacy frontmatter aliases -----------------------------------------
 # The alias tables of references/linting.md ("Alias tables (C13)"): append-only,
-# never remove an entry. Both are empty today, so the check below is a no-op
-# until an entry lands here and in that reference together.
+# never remove an entry. An entry lands here and in that reference together.
 #   KEY_ALIASES    old_key -> canonical_key
 #   VALUE_ALIASES  canonical_key -> {old_value: canonical_value}
-KEY_ALIASES: dict[str, str] = {}
-VALUE_ALIASES: dict[str, dict[str, str]] = {}
+#   VALUE_ALIAS_LAYERS  canonical_key -> the top-level directories its value
+#                  aliases apply to. Every value alias names its layers; a field
+#                  of VALUE_ALIASES with no entry here applies nowhere and lint
+#                  reports it once as a critical engine problem. `category` is a
+#                  wiki article field, but inventory items carry a free-form
+#                  `category` of their own, so it is scoped to wiki/.
+KEY_ALIASES: dict[str, str] = {"compiled_from": "compiled-from"}
+VALUE_ALIASES: dict[str, dict[str, str]] = {"category": {"references": "reference"}}
+VALUE_ALIAS_LAYERS: dict[str, frozenset[str]] = {"category": frozenset({"wiki"})}
 
 
-def alias_plan(fields: dict[str, object]) -> tuple[dict[str, str], dict[str, tuple[str, str]], list[str]]:
+def alias_plan(
+    fields: dict[str, object], layer: str | None = None
+) -> tuple[dict[str, str], dict[str, tuple[str, str]], list[str]]:
     """What the C13 tables rewrite in one frontmatter: ``(keys, values, conflicts)``.
 
     ``keys`` maps each legacy key present to its canonical key; ``values`` maps
     a canonical key to the ``(old, new)`` value pair its scalar carries.
     ``conflicts`` names a legacy key whose canonical key is also present: two
     values would collide, which only a human can settle, so it is reported and
-    never rewritten.
+    nothing in that frontmatter is rewritten, keys and values alike.
+    ``layer`` is the document's top-level directory; a value alias applies only
+    in the layers ``VALUE_ALIAS_LAYERS`` names for its field, nowhere when the
+    field has no entry.
     """
     keys: dict[str, str] = {}
     values: dict[str, tuple[str, str]] = {}
@@ -490,8 +501,12 @@ def alias_plan(fields: dict[str, object]) -> tuple[dict[str, str], dict[str, tup
                 continue
             keys[key] = canonical
         table = VALUE_ALIASES.get(canonical)
+        if layer not in VALUE_ALIAS_LAYERS.get(canonical, frozenset()):
+            continue
         if table and isinstance(value, str) and value in table:
             values[canonical] = (value, table[value])
+    if conflicts:
+        return {}, {}, conflicts
     return keys, values, conflicts
 
 
@@ -518,9 +533,16 @@ def fix_frontmatter_aliases(ctx: LintContext) -> None:
     """Apply the C13 alias tables to ``raw/``, ``wiki/``, ``inventory/`` and ``datasets/``."""
     if not KEY_ALIASES and not VALUE_ALIASES:
         return
+    for field in sorted(set(VALUE_ALIASES) - set(VALUE_ALIAS_LAYERS)):
+        ctx.issue(
+            "critical",
+            f"Engine problem: VALUE_ALIASES has an entry for {field} but VALUE_ALIAS_LAYERS names no layer "
+            "for it, so its value aliases apply nowhere.",
+            check="C13",
+        )
     changed = False
     for doc in sorted(ctx.documents.values(), key=lambda item: str(item.path)):
-        keys, values, conflicts = alias_plan(doc.frontmatter)
+        keys, values, conflicts = alias_plan(doc.frontmatter, ctx.rel(doc.path).split("/")[0])
         for key in conflicts:
             ctx.issue(
                 "warning",

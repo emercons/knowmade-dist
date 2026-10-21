@@ -70,7 +70,7 @@ report only. **Agent** = judgment or a check the CLI does not implement yet.
 | C9 Project candidates | Info (rules/3) | Non-markdown file in `output/` root (`output-loose-binary`); a subdirectory other than `projects/`, `assets/` with files (`output-loose-directory`); 3 or more loose outputs sharing a prefix, slug proposed (`project-candidate`) | - | Turn a candidate into a ready-to-paste `wiki project new` + `add` block. Never auto-move |
 | C11 Placement | Crit | `raw/`, `wiki/`, `inventory/` files whose directory disagrees with frontmatter; destination collision (stays critical); dataset directory versus `dataset_id` | `mv` to the canonical path; skip on collision | Hub-level content directories: warn, never delete |
 | C12 Unknown files | Warn | Anything outside the allowlist at hub, topic root, `raw/`, `wiki/`, `inventory/`, `datasets/`. Topic roots allow `AGENTS.md`, `CLAUDE.md` and `PRIVATE_BOUNDARY.md`; git-root metadata (including `scripts/`, `docs/`, `tools/`, `.githooks/`, `.github/`) is allowed only at a repository root; `config.md` may widen the root level with `lint_allow_root: [name, ...]` (plain names only, never `raw`/`wiki`/`inventory` or a `*-PRIVATE` name). OS metadata (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`) is ignored everywhere and never moved | Files move to `inbox/.unknown/`; directories warn only | - |
-| C13 Aliases | Warn | A frontmatter key or value of the alias tables below (`lint_docs.KEY_ALIASES`, `VALUE_ALIASES`; empty today, so nothing fires); a legacy key beside its canonical key (reported, never rewritten) | Rewrite the legacy key or value to canonical (class `frontmatter`) | Warn on unknown keys |
+| C13 Aliases | Warn | A frontmatter key or value of the alias tables below (`lint_docs.KEY_ALIASES`, `VALUE_ALIASES`); a legacy key beside its canonical key (reported, never rewritten) | Rewrite the legacy key or value to canonical (class `frontmatter`) | Warn on unknown keys |
 | C14 Freshness | Warn/Info | Article older than its volatility window since `verified`/`updated` (hot 30, warm 180, cold 365 days unless configured: `wiki-articles.md` § Lint Windows And Snapshots); missing or invalid date | - | Rank with `llm-wiki freshness score --json` (composite 0-100 against `freshness_threshold`); narrative; suggest `wiki refresh` |
 | C15 Volatility | Info | Article without `volatility` | Add `volatility: warm` | - |
 | C16 Inventory | Sugg | Indexes and frontmatter of an existing `inventory/` layer; an output whose name or title has an `inventory.md` § Discovery word (`inventory-migration-candidate`, info) | Missing indexes of existing layers; never create the tree | Judge each candidate's fit before suggesting its `migrate-output --dry-run`; never convert |
@@ -106,8 +106,17 @@ A file with both `category` and `type` is an article. Not placed:
 ## Alias tables (C13)
 
 Append-only; never remove an entry. `llm-wiki lint` applies them (`--fix`
-rewrites; `lint_docs.KEY_ALIASES` and `VALUE_ALIASES` hold the same entries),
-but they are empty today, so alias rewriting is a no-op. Form: `old_key -> canonical_key`, `old_value -> canonical_value (for field: F)`.
+rewrites; `lint_docs.KEY_ALIASES` and `VALUE_ALIASES` hold the same entries).
+Form: `old_key -> canonical_key`, `old_value -> canonical_value (for field: F)`.
+
+- `compiled_from -> compiled-from`
+- `references -> reference` (for field: `category`)
+
+Key aliases apply in every checked layer. Every value alias names the layers it
+applies to (`lint_docs.VALUE_ALIAS_LAYERS`); undeclared means nowhere, and lint
+reports the gap as a critical engine problem. `category` is declared for `wiki/`
+only (an inventory item's `category` is free-form). A document with a
+legacy key beside its canonical key is rewritten in no part, key or value.
 
 Canonical optional raw keys (not unknown): `collection`, `adapter`,
 `upstream_id`, `upstream_type`, `revision`, `sha`, `canonical_url`,

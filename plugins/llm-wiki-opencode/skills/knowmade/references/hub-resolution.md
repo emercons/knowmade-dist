@@ -3,7 +3,9 @@
 This is the one hub/wiki resolution protocol. Every other copy is either a
 pointer to this file or the stamped command prelude below, which is generated
 from it. Change the protocol here and in the template; never edit a stamped
-block by hand.
+block by hand. Commands that delegate resolution to the `llm-wiki` CLI (`lint`,
+`archive`, and `wiki` init/status/config) carry no block; the CLI implements this
+protocol, and these steps are their CLI-unavailable fallback.
 
 ## Command prelude template
 
@@ -157,7 +159,7 @@ prelude block.
   `--new-topic <name>` and create the topic wiki with the init protocol. Without
   the flag and without a wiki, stop with "No wiki found. Use `--new-topic
   <name>` to create one, or run `wiki init` first."
-- **C, wiki-neutral** (`project`, `wiki` status/router/init/config): resolve
+- **C, wiki-neutral** (`project`, and `wiki` status/router/init/config, which has no stamped block and resolves through the CLI): resolve
   HUB and the wiki location, then handle missing state inline with
   command-specific messaging.
 - **D, hub lifecycle** (`archive`): resolves HUB, not an active topic wiki; it

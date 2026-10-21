@@ -11,12 +11,40 @@
 #   scripts/run-checks --fast       # omit the steps that need an external runtime (see FAST_SKIP)
 #   scripts/run-checks --list       # print the step list and exit
 #   scripts/run-checks --step NAME  # run one step by name (repeatable)
+#   scripts/run-checks --jobs N     # run up to N independent steps at once (default: CPUs, at most 4; 1 = one at a time)
 #   KNOWMADE_STRICT=1 scripts/run-checks   # a step that reports SKIP counts as a failure
 #
 # A step that cannot run its real checks on this machine prints a line
 # `SKIP: <reason>` and exits 0; it is reported as SKIP, never as PASS.
 # Exit status is 0 only when every executed step passed (or, without
 # KNOWMADE_STRICT=1, skipped with a reason).
+#
+# Parallelism (--jobs N, N > 1). Every step is a separate process tree with
+# its own scratch directories (tests/lib/common.sh with_tmpdir), so steps that
+# only read the checkout can overlap. The output is unchanged by it: each
+# step's output is captured, and PASS/FAIL/SKIP lines are printed in the order
+# of the list below, as soon as the step and every step before it have
+# finished; the summary line and the exit status are the same as with
+# --jobs 1.
+#
+# THE SERIAL GROUP. A step marked `serial` (third column of the list) runs
+# alone, after every other step has finished, never beside another step. The
+# rule for membership: a step belongs there if it writes into the checkout, or
+# if its verdict depends on the checkout staying exactly as it is while it
+# runs. Today that is the generated-mirror family: the Codex, OpenCode and
+# query-lite sync tests regenerate the mirror IN PLACE when they find drift
+# (the self-healing hint in their failure text) and then assert that `git
+# status` of the generated paths is clean, and the control-plane sync test
+# compares the same generated paths against a scratch regeneration. Run
+# beside the suites that read plugins/ and claude-plugin/bin/, a failure there
+# would hand those suites a half-rewritten tree and report a second, bogus
+# failure. A new step that regenerates files in the checkout, or asserts the
+# checkout is clean, must be marked `serial`. Scratch space does not count: a
+# step may create uniquely named directories under the git-ignored <repo>/.tmp
+# (test-codex-runtime and test-token-benchmarks do) because no step reads them.
+# (tests/test-run-checks.sh pins the group's membership and its exclusivity.)
+# With --jobs 1 nothing overlaps
+# and the group has no effect: steps run in list order, as they always did.
 set -uo pipefail
 
 # A hook or `git rebase --exec` exports these; a step's own git calls must
@@ -26,8 +54,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# name<TAB>command. Order matters: cheap structural checks first, so an obvious
-# breakage is reported in seconds rather than minutes.
+# name<TAB>command[<TAB>serial]. Order matters: cheap structural checks first,
+# so an obvious breakage is reported in seconds rather than minutes.
 #
 # The steps down to "Query-lite generated profile sync" are the lane the GitHub
 # workflow used to run, under its own step names so old and new runs stay
@@ -48,7 +76,7 @@ Package entry points and schema domain	./tests/test-control-plane-schema.sh
 Brownfield adoption behavior	./tests/test-local-cli-adopt.sh
 Brownfield batch resume state machine	./tests/test-local-cli-adopt-batch.sh
 Unified adoption compatibility surface	./tests/test-unified-adopt.sh
-Deterministic package sync	./tests/test-control-plane-sync.sh
+Deterministic package sync	./tests/test-control-plane-sync.sh	serial
 Codex adoption behavioral contract	./tests/test-codex-adoption-eval.sh
 Structural fixtures	./tests/test-structure.sh
 Lint rejects every defect fixture	./tests/test-lint-defects.sh
@@ -67,9 +95,9 @@ Status overview	./tests/test-local-cli-status.sh
 Project list, new and add	./tests/test-local-cli-project.sh
 Compile plan source survey	./tests/test-local-cli-compile-plan.sh
 Source original lifecycle	./tests/test-source-lifecycle.sh
-Codex generated mirror sync	./tests/test-codex-sync.sh
-OpenCode generated mirror sync	./tests/test-opencode-sync.sh
-Query-lite generated profile sync	./tests/test-query-lite-sync.sh
+Codex generated mirror sync	./tests/test-codex-sync.sh	serial
+OpenCode generated mirror sync	./tests/test-opencode-sync.sh	serial
+Query-lite generated profile sync	./tests/test-query-lite-sync.sh	serial
 Static token-efficiency gate	./scripts/benchmark-token-efficiency static --check
 Retract and privacy-log removal	./tests/test-local-cli-retract.sh
 Private adapter registry and boundary	./tests/test-local-cli-adapters.sh
@@ -89,8 +117,36 @@ LIST
 FAST_SKIP="Codex adoption behavioral contract
 Codex runtime smoke test"
 
+# Scheduling hint for --jobs N > 1: these start first, so the longest steps do
+# not begin last and stretch the tail of the run. It affects only the order in
+# which steps are started, never the order they are reported, and a stale
+# entry costs a little wall time, nothing else. Measured on Windows (the
+# slowest platform), longest first.
+LONG_FIRST="CLI subcommand smoke
+Codex runtime smoke test
+Engine contract and wiki identity
+Federation registry and locate
+Main deterministic lint suite
+Wiki init scaffold
+Lint rejects every defect fixture
+Source original lifecycle"
+
+# The default job count: the CPU count, at most 4. The lane is dominated by
+# process spawns, so more than a few jobs mostly contend for the same
+# antivirus and filesystem filter drivers.
+default_jobs() {
+  local n
+  n="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+  case "$n" in '' | *[!0-9]* | 0) n=2 ;; esac
+  [ "$n" -gt 4 ] && n=4
+  echo "$n"
+}
+
 selected=""
 fast=0
+jobs=""
+jobs_given=0
+custom_steps=0
 strict="${KNOWMADE_STRICT:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,15 +161,23 @@ while [ $# -gt 0 ]; do
       selected="$selected$1
 "
       ;;
+    --jobs | -j)
+      shift
+      [ $# -gt 0 ] || { echo "--jobs needs a number" >&2; exit 2; }
+      jobs="$1"
+      jobs_given=1
+      ;;
+    --jobs=*) jobs="${1#--jobs=}"; jobs_given=1 ;;
     --steps-file)
       # Replace the built-in list; tests/test-run-checks.sh drives the runner
       # with fake steps through this.
       shift
       [ $# -gt 0 ] && [ -f "$1" ] || { echo "--steps-file needs a readable file" >&2; exit 2; }
       STEPS="$(cat "$1")"
+      custom_steps=1
       ;;
     -h|--help)
-      sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -123,6 +187,16 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$jobs_given" -eq 0 ]; then
+  jobs="$(default_jobs)"
+fi
+case "$jobs" in
+  '' | *[!0-9]* | 0)
+    echo "--jobs needs a positive number, got: $jobs" >&2
+    exit 2
+    ;;
+esac
 
 # A mistyped --step name must not look like a clean run.
 if [ -n "$selected" ]; then
@@ -136,6 +210,133 @@ if [ -n "$selected" ]; then
   done <<<"$selected"
 fi
 
+# --- the plan ----------------------------------------------------------------
+
+names=()
+cmds=()
+serials=()
+while IFS=$'\t' read -r name command group; do
+  [ -n "${name:-}" ] || continue
+  names+=("$name")
+  cmds+=("$command")
+  serials+=("${group:-}")
+done <<<"$STEPS"
+total=${#names[@]}
+
+# Per step: "skip-fast" (reported, never run), "run", or the empty string
+# (not selected, silent).
+plan=()
+i=0
+while [ "$i" -lt "$total" ]; do
+  plan[i]="run"
+  if [ -n "$selected" ] && ! grep -Fxq "${names[i]}" <<<"$selected"; then
+    plan[i]=""
+  elif [ "$fast" -eq 1 ] && [ -z "$selected" ] && grep -Fxq "${names[i]}" <<<"$FAST_SKIP"; then
+    plan[i]="skip-fast"
+  fi
+  i=$((i + 1))
+done
+
+# The order steps are started in. --jobs 1: list order, as it always was.
+# Otherwise: the long steps first, then the rest, then the serial group alone.
+queue=()
+if [ "$jobs" -eq 1 ]; then
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    [ "${plan[i]}" = "run" ] && queue+=("$i")
+    i=$((i + 1))
+  done
+else
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    if [ "${plan[i]}" = "run" ] && [ -z "${serials[i]}" ] && grep -Fxq "${names[i]}" <<<"$LONG_FIRST"; then
+      queue+=("$i")
+    fi
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    if [ "${plan[i]}" = "run" ] && [ -z "${serials[i]}" ] && ! grep -Fxq "${names[i]}" <<<"$LONG_FIRST"; then
+      queue+=("$i")
+    fi
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    [ "${plan[i]}" = "run" ] && [ -n "${serials[i]}" ] && queue+=("$i")
+    i=$((i + 1))
+  done
+fi
+
+# --- running -----------------------------------------------------------------
+
+# Warm the bytecode cache of the control plane once, before any step starts.
+# Almost every suite starts scripts/llm-wiki hundreds of times; without cached
+# bytecode (a fresh clone or worktree, or PYTHONDONTWRITEBYTECODE=1 in the
+# environment) each of those starts re-compiles ~60 modules and costs about
+# 1.7x as much on Windows (~340 ms against ~200 ms). The cache is git-ignored,
+# validated by the source's mtime and size, and never read by a mirror
+# comparison. Skipped for the fake step lists of tests/test-run-checks.sh.
+if [ "$custom_steps" -eq 0 ] && [ "${#queue[@]}" -gt 0 ]; then
+  "${PYTHON:-python3}" -m compileall -q scripts/knowmade_control >/dev/null 2>&1 || true
+fi
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/run-checks.XXXXXX")"
+
+# descendants <pid>: every process below <pid>. Plain `ps -ef` (UID PID PPID
+# ...) is the one listing Windows Git Bash, Linux and macOS share; pgrep, pkill
+# and setsid are not available on Git Bash.
+descendants() {
+  ps -ef 2>/dev/null | awk -v root="$1" '
+    NR > 1 { n++; pid[n] = $2; ppid[n] = $3 }
+    END {
+      seen[root] = 1
+      do {
+        grew = 0
+        for (k = 1; k <= n; k++) {
+          if (!(pid[k] in seen) && (ppid[k] in seen)) { seen[pid[k]] = 1; grew = 1; print pid[k] }
+        }
+      } while (grew)
+    }'
+}
+
+# cleanup: runs on every exit, including TERM and Ctrl-C. Killing only the
+# backgrounded shells (jobs -p) would leave the step subshells and everything
+# they started alive: after an aborted push, suites (an in-place mirror sync
+# among them) would keep running. So the whole tree below this shell goes.
+cleanup() {
+  local pids round
+  for round in 1 2; do
+    pids="$(descendants $$)"
+    [ -n "$pids" ] || break
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null
+    sleep 0.2
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null
+  done
+  rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# run_step <index>: run one step to completion; leaves <work>/<index>.out (its
+# combined output) and <work>/<index>.rc ("<status> <seconds>", written last
+# and atomically, so its existence means the step is finished). The step list
+# is the caller's stdin; a step must never read it, or it would swallow the
+# remaining lines and end the run early with nothing failed.
+run_step() {
+  local i="$1" step_started status
+  # Background jobs of a non-interactive shell start with SIGINT ignored;
+  # a step must see Ctrl-C like any foreground command.
+  trap - INT
+  step_started="$(date +%s)"
+  (eval "${cmds[i]}") >"$work/$i.out" 2>&1 </dev/null
+  status=$?
+  printf '%s %s\n' "$status" "$(($(date +%s) - step_started))" >"$work/$i.rc.tmp"
+  mv "$work/$i.rc.tmp" "$work/$i.rc"
+}
+
 started="$(date +%s)"
 passed=0
 failed=0
@@ -143,28 +344,20 @@ skipped=0
 failed_names=""
 skipped_names=""
 
-while IFS=$'\t' read -r name command; do
-  [ -n "${name:-}" ] || continue
-
-  if [ -n "$selected" ] && ! grep -Fxq "$name" <<<"$selected"; then
-    continue
-  fi
-  if [ "$fast" -eq 1 ] && [ -z "$selected" ] && grep -Fxq "$name" <<<"$FAST_SKIP"; then
+# report_step <index>: print the step's verdict and update the tallies.
+report_step() {
+  local i="$1" name status elapsed reason
+  name="${names[i]}"
+  if [ "${plan[i]}" = "skip-fast" ]; then
     printf 'SKIP  %-42s     omitted by --fast\n' "$name"
     skipped=$((skipped + 1))
     skipped_names="$skipped_names  $name: omitted by --fast
 "
-    continue
+    return
   fi
+  read -r status elapsed <"$work/$i.rc"
 
-  # The step list is this loop's stdin; a step must never read it, or it would
-  # swallow the remaining lines and end the run early with nothing failed.
-  step_started="$(date +%s)"
-  output="$(eval "$command" 2>&1 </dev/null)"
-  status=$?
-  elapsed="$(($(date +%s) - step_started))"
-
-  if [ "$status" -eq 0 ] && reason="$(printf '%s\n' "$output" | grep -m1 '^SKIP:')"; then
+  if [ "$status" -eq 0 ] && reason="$(grep -m1 '^SKIP:' "$work/$i.out")"; then
     reason="${reason#SKIP:}"
     reason="${reason# }"
     if [ "$strict" = "1" ]; then
@@ -184,12 +377,98 @@ while IFS=$'\t' read -r name command; do
     passed=$((passed + 1))
   else
     printf 'FAIL  %-42s %ss\n' "$name" "$elapsed"
-    printf '%s\n' "$output" | tail -25 | sed 's/^/      /'
+    tail -25 "$work/$i.out" | sed 's/^/      /'
     failed=$((failed + 1))
     failed_names="$failed_names  $name
 "
   fi
-done <<<"$STEPS"
+}
+
+# progress_marker <index>: one stderr line as a step finishes, so a long
+# parallel run (the pre-push hook) is not silent while verdicts wait for the
+# steps before them. The ordered verdict lines on stdout are the record.
+done_count=0
+progress_marker() {
+  local i="$1" status elapsed label
+  read -r status elapsed <"$work/$i.rc"
+  if [ "$status" -ne 0 ]; then
+    label=FAIL
+  elif grep -q '^SKIP:' "$work/$i.out"; then
+    label=SKIP
+    [ "$strict" = "1" ] && label=FAIL
+  else
+    label=PASS
+  fi
+  done_count=$((done_count + 1))
+  printf '[done %d/%d] %s %s %ss\n' "$done_count" "${#queue[@]}" "${names[i]}" "$label" "$elapsed" >&2
+}
+
+if [ "$jobs" -gt 1 ]; then
+  echo "jobs: $jobs (steps marked serial run alone, last; output is reported in list order)"
+fi
+
+next=0       # index into queue of the next step to start
+running=0    # steps started and not yet finished
+cursor=0     # next step (list order) whose verdict is still to be printed
+started_flag=()  # started_flag[i]=1 once step i has been started
+finished=()      # finished[i]=1 once step i's result file exists
+while [ "$cursor" -lt "$total" ]; do
+  progressed=0
+
+  # Start steps while there is a free slot. A serial step waits for an idle
+  # runner and then runs alone: nothing is started while it is in flight.
+  while [ "$next" -lt "${#queue[@]}" ] && [ "$running" -lt "$jobs" ]; do
+    i="${queue[next]}"
+    if [ -n "${serials[i]}" ] && [ "$running" -gt 0 ]; then
+      break
+    fi
+    started_flag[i]=1
+    next=$((next + 1))
+    running=$((running + 1))
+    progressed=1
+    # Always in the background, then waited for: a foreground command would
+    # delay the INT/TERM trap until the step ended.
+    run_step "$i" &
+    if [ "$jobs" -eq 1 ]; then
+      wait $!
+    fi
+    if [ -n "${serials[i]}" ]; then
+      break
+    fi
+  done
+
+  # Collect finished steps.
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    if [ "${started_flag[i]:-}" = "1" ] && [ "${finished[i]:-}" != "1" ] && [ -f "$work/$i.rc" ]; then
+      finished[i]=1
+      running=$((running - 1))
+      progressed=1
+      if [ "$jobs" -gt 1 ]; then
+        progress_marker "$i"
+      fi
+    fi
+    i=$((i + 1))
+  done
+
+  # Print every verdict that is now ready, in list order.
+  while [ "$cursor" -lt "$total" ]; do
+    if [ -z "${plan[cursor]}" ]; then
+      cursor=$((cursor + 1))
+    elif [ "${plan[cursor]}" = "skip-fast" ] || [ "${finished[cursor]:-}" = "1" ]; then
+      report_step "$cursor"
+      cursor=$((cursor + 1))
+      progressed=1
+    else
+      break
+    fi
+  done
+
+  if [ "$progressed" -eq 0 ]; then
+    sleep 0.1
+  fi
+done
+wait
 
 echo
 printf 'checks: %d passed, %d failed, %d skipped in %ss\n' \

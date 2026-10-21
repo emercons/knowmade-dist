@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Loading Knowmade session context"
           }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Checking Knowmade session context"
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Recording Knowmade session event"
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Capturing Knowmade pre-compact session context"
           }
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Capturing Knowmade post-compact session context"
           }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.11.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
+            "command": "python3 -c 'import glob,os,runpy,sys; V=\"0.12.0.25.1\"; p=os.path.join(os.environ.get(\"PLUGIN_ROOT\",\"\"),\"hooks\",\"llm_wiki_session.py\"); h=os.environ.get(\"HOME\") or os.path.expanduser(\"~\"); c=os.path.join(h,\".codex\",\"plugins\",\"cache\"); g=lambda m:glob.glob(os.path.join(c,m,\"knowmade\",\"*\",\"hooks\",\"llm_wiki_session.py\")); xs=[] if os.path.isfile(p) else g(\"knowmade\"); v=lambda x:os.path.basename(os.path.dirname(os.path.dirname(x))); k=lambda x:(v(x)==V,tuple(int(t) for t in v(x).split(\".\") if t.isdigit())); p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); sys.exit(0) if not p else None; sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' hook --harness codex --if-enabled",
             "timeout": 5,
             "statusMessage": "Saving Knowmade session checkpoint"
           }
