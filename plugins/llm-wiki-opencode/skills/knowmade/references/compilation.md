@@ -57,6 +57,8 @@ global compilation rules.
 
 ### Step 1: Survey
 
+The survey is `llm-wiki compile plan` (read-only, CLI-first): it lists every raw source with its status (a source no article cites is `uncompiled` whatever its date; `new` is cited but ingested after the "Last compiled" date), the sources to compile and the existing articles. By hand, only without the CLI:
+
 1. Read `raw/_index.md` to see all sources
 2. Read `wiki/_index.md` to see existing articles
 3. For incremental: identify sources with `ingested` date after last compile date

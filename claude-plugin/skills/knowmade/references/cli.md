@@ -19,7 +19,7 @@ resolution. `--json` prints a machine-readable report where offered. Flags
 listed under a namespace go before its subcommand (`archive --hub H list`);
 `archive`, `schema`, `identity` and `specialist` accept them after it too.
 
-Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `inbox`, `registry`, `ref`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `index`, `log`, `dataset`, `rules`, `engine`, `pin`, `freshness`, `project`, `adopt`, `source`, `status`, `init`.
+Namespaces: `lint`, `archive`, `schema`, `identity`, `hub`, `inbox`, `registry`, `ref`, `retract`, `specialist`, `adapter`, `checkpoint`, `privacy`, `links`, `index`, `log`, `dataset`, `rules`, `engine`, `pin`, `freshness`, `project`, `adopt`, `source`, `status`, `compile`, `init`.
 
 ## `llm-wiki lint`
 
@@ -1307,6 +1307,29 @@ Read-only. Sources per raw type, articles per category, inventory and dataset co
 | `--public` | Resolve --wiki <slug>-PRIVATE to the public sibling <slug>. (not with --private) |
 | `--include-archived` | Allow summarizing an explicitly targeted archived wiki. |
 | `--json` | Print a machine-readable JSON overview. |
+
+## `llm-wiki compile`
+
+Deterministic front over the survey half of /knowmade:compile (no LLM). Works on a topic wiki, never a hub.
+
+Subcommands: `plan`.
+
+### `llm-wiki compile plan`
+
+Read-only. Reports the master index's "Last compiled" date; every raw source with its type, title, ingested date, the articles citing it (the lint C6 resolution) and a status (uncompiled: no article cites it; new: cited but ingested after the last compile; compiled; exempt: a collection manifest); the to_compile list for the chosen mode; the existing articles (category, tags, summary, source count; not lint's coverage backlog); the C11 misplaced files, C12 loose files at the root and C13 legacy-frontmatter findings with what lint does about each (this verb repairs nothing); raw files without readable frontmatter; and whether a topic guide (schema.md) exists and is readable. Exit 0, or 2 when the root is missing, is a hub or a private placeholder, or --source is not a raw source of the wiki.
+
+| Argument | Meaning |
+|---|---|
+| `[path]` | Topic wiki root to survey. |
+| `--local` | Survey .wiki/ in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+| `--private` | Resolve --wiki <slug> to the private sibling <slug>-PRIVATE. (not with --public) |
+| `--public` | Resolve --wiki <slug>-PRIVATE to the public sibling <slug>. (not with --private) |
+| `--include-archived` | Allow surveying an explicitly targeted archived wiki. |
+| `--full` | Plan every source (except collection manifests), not only the uncompiled and new ones. (not with --source) |
+| `--source SOURCE` | Plan only this raw source (a path relative to the wiki root, or an absolute path). (not with --full) |
+| `--json` | Print the full machine-readable plan (carries ok: true). |
 
 ## `llm-wiki init`
 

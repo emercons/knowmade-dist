@@ -65,6 +65,7 @@ Index check/rebuild and log append	./tests/test-local-cli-index-log.sh
 Wiki init scaffold	./tests/test-local-cli-init.sh
 Status overview	./tests/test-local-cli-status.sh
 Project list, new and add	./tests/test-local-cli-project.sh
+Compile plan source survey	./tests/test-local-cli-compile-plan.sh
 Source original lifecycle	./tests/test-source-lifecycle.sh
 Codex generated mirror sync	./tests/test-codex-sync.sh
 OpenCode generated mirror sync	./tests/test-opencode-sync.sh

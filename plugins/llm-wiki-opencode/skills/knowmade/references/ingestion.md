@@ -20,9 +20,10 @@ intake queue for dispatch, not a raw source layer. A dispatcher routes each item
 to the right topic inbox before normal topic-specific ingestion begins.
 
 For URLs and pasted text, create a small inbox capture first (`.url` or `.md`)
-when there is no existing file. For local files, copy or move the user-provided
-file into `inbox/` before extraction unless it is already there. Once
-processing succeeds, move the inbox item to `inbox/.processed/`.
+when no file exists. For local files, copy or move the file into
+`inbox/` before extraction unless already there. After processing, move the
+item to `inbox/.processed/` and set the raw `inbox_item:` to its
+`inbox/.processed/` path.
 
 ## Global Hub Inbox Dispatch
 

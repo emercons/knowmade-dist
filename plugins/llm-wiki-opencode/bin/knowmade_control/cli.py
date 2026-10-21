@@ -22,6 +22,7 @@ from typing import Any, NamedTuple
 from . import adapters as _adapters
 from . import adopt_cli as _adopt_cli
 from . import checkpoints as _checkpoints
+from . import compile_plan as _compile_plan
 from . import datasets as _datasets
 from . import federation as _federation
 from . import freshness as _freshness
@@ -90,6 +91,7 @@ NAMESPACES: tuple[Namespace, ...] = (
     Namespace("adopt", _adopt_cli.register_parser),
     Namespace("source", _register_source),
     Namespace("status", _status.register_parser),
+    Namespace("compile", _compile_plan.register_parser),
     Namespace("init", _init_cli.register_parser),
 )
 

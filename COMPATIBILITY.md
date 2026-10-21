@@ -256,6 +256,41 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.11.0.25.1 — Sprint L: compile plan, the runtime capability matrix and the hub dispatch evals
+
+- `llm-wiki compile plan` (`knowmade#83`, the last open candidate "compile
+  --plan"). CLI-protocol surface: additive, a new `compile` namespace with one
+  verb, `plan [--wiki <slug>|<path>|--local] [--include-archived] [--full |
+  --source <raw path>] [--json]` (schema `knowmade/compile-plan/v1`, `ok` key);
+  no existing verb, flag or exit code moves. Read-only: it reports the master
+  index's "Last compiled" date (a list item, bold, or table row, with an
+  optional time), every raw source with its status (`uncompiled`, `new`,
+  `compiled`, `exempt` for a `collection-manifest`) and the articles citing it
+  (lint's own C6 source resolution), the `to_compile` list per mode, raw files
+  without readable frontmatter (`unreadable_sources`), the article map (lint's
+  coverage backlog is not an article), the placement findings (C11 misplaced
+  files in `raw/`, `wiki/` and `inventory/`, C12 files loose at the wiki root,
+  C13 legacy frontmatter) with the action lint takes on each, the narrowed
+  placement command (shell-quoted `fix`/`preview`, and `fix_argv`/`preview_argv`
+  that need no shell), and the topic guide state (`exists`, `readable`).
+  Reported, never repaired. Exit 0, or 2
+  for a hub, a missing root, a private placeholder, an unresolvable or
+  archived `--wiki` without `--include-archived`, or a `--source` that is not a
+  raw source (relative `--source` paths resolve against the wiki root first).
+  Corpus surface: unchanged. Agent spec: `commands/compile.md` step 1 runs the
+  plan with the compile's own target, applies the placement fix it names and
+  re-runs the plan, stops on exit 2, and keeps the by-hand survey for a missing
+  CLI only. New lane step `tests/test-local-cli-compile-plan.sh` ("Compile plan
+  source survey").
+- Agent spec (no CLI or corpus change): `references/ingestion.md` says the raw
+  artifact written from a staged capture carries `inbox_item:` (its
+  `inbox/.processed/` path). README "What each runtime provides" is the one
+  runtime capability matrix (`KM-DOC-005`).
+- Tests only: the hub dispatch (`KM-INBOX-006`) and inbox-first ingest
+  (`KM-INBOX-002`) behavioral evals are authored in `tests/promptfooconfig.yaml`
+  with JS file-system assertions, not yet run (no budgeted model run); the
+  defect manifest pins the finding ids of its info rows (PR #193, PR #194).
+
 ### v0.10.0.25.1 — Sprint K: Phase 5 cross-root references, Phase 6 federation views, inbox dispatch and the #83 CLI follow-ups
 
 - `llm-wiki init` (`knowmade#83`). CLI-protocol surface: additive, a new `init`

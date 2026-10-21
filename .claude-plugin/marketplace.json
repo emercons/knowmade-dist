@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "knowmade",
-  "version": "0.10.0.25.1",
+  "version": "0.11.0.25.1",
   "description": "Knowmade practical knowledge system with goal-directed private work, public/private topic pairs, hub inbox dispatch, Ideas and Projects portfolios, Project Knowledge Checkpoints Export, explicitly trusted private adapters, personal specialist skills, token-efficient queries, sessions, feedback, schemas, collector catalogs, inventory, datasets, audits, research, and artifact generation.",
   "owner": {
     "name": "emercons"
@@ -10,7 +10,7 @@
     {
       "name": "knowmade",
       "description": "Knowmade practical knowledge base with fuzzy Idea capture, goal-directed research, Project promotion, Project Knowledge Checkpoints Export, hub inbox dispatch, private/public topic pairs, explicitly trusted private adapters, personal specialist skills, compact queries, ingest, collect, inventory, datasets, archives, audits, sessions, and outputs.",
-      "version": "0.10.0.25.1",
+      "version": "0.11.0.25.1",
       "author": {
         "name": "emercons"
       },

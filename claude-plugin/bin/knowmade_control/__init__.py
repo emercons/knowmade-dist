@@ -19,6 +19,7 @@ __all__ = [
     "checkpoints",
     "cli",
     "common",
+    "compile_plan",
     "datasets",
     "engine",
     "federation",
