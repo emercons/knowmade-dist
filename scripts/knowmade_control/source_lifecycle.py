@@ -1064,9 +1064,9 @@ def alias_map(config: SourceConfig) -> dict[str, Any]:
 
 def _add_resolution(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--path", help="Wiki root; defaults to normal wiki resolution.")
-    parser.add_argument("--local", action="store_true")
-    parser.add_argument("--wiki")
-    parser.add_argument("--hub")
+    parser.add_argument("--local", action="store_true", help="Target .wiki/ in the current directory.")
+    parser.add_argument("--wiki", help="Named wiki from the hub registry.")
+    parser.add_argument("--hub", help="Override hub path for --wiki resolution.")
     # The output is always JSON; --json is accepted so callers can pass it uniformly.
     parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
 
@@ -1074,46 +1074,46 @@ def _add_resolution(parser: argparse.ArgumentParser) -> None:
 SOURCE_HELP = "Receive, extract, retain, resolve and verify source originals for one wiki."
 
 
-def _add_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_arguments(parser: argparse.ArgumentParser, extensions: tuple[Any, ...] = ()) -> None:
     sub = parser.add_subparsers(dest="action", required=True)
-    p = sub.add_parser("receive")
-    p.add_argument("source")
-    p.add_argument("--quarantine-reason")
+    p = sub.add_parser("receive", help="Copy a file or http(s) URL into the source store and record it.")
+    p.add_argument("source", help="File path or http(s) URL of the bytes to receive.")
+    p.add_argument("--quarantine-reason", help="Hold the bytes in quarantine for this reason instead of the originals store.")
     p.add_argument("--canonical-url", help="Record this http(s) URL as the source's canonical URL (for a file captured from the web earlier).")
     p.add_argument("--retrieved-at", help="ISO 8601 time the bytes were retrieved; recorded with --canonical-url.")
     p.add_argument("--note", help="Free-text note recorded with the source.")
     p.add_argument("--alias", action="append", default=[], metavar="PATH", help="Another name (typically a repository path) of the same bytes; repeatable.")
     _add_resolution(p)
-    p = sub.add_parser("extract")
-    p.add_argument("source_id")
+    p = sub.add_parser("extract", help="Extract text from a received original into a derived artifact.")
+    p.add_argument("source_id", help="Id of a received source.")
     _add_resolution(p)
     p = sub.add_parser("attach-derived", help="Store an externally produced derivative (OCR text) of a received source.")
-    p.add_argument("source_id")
-    p.add_argument("file")
+    p.add_argument("source_id", help="Id of a received source.")
+    p.add_argument("file", help="The derived file to store.")
     p.add_argument("--status", required=True, help="extraction_status slug, such as ocr-text.")
     p.add_argument("--tool", required=True, help="Program that produced the file.")
     _add_resolution(p)
-    p = sub.add_parser("decide")
-    p.add_argument("source_id")
+    p = sub.add_parser("decide", help="Record where the original is retained (local store or git).")
+    p.add_argument("source_id", help="Id of an extracted source.")
     p.add_argument("--retain", choices=("local", "git"), help="Retention decision; defaults to source_store.default_decision when that is local or git.")
     _add_resolution(p)
-    p = sub.add_parser("verify")
+    p = sub.add_parser("verify", help="Check records and pointers against the stored originals.")
     target = p.add_mutually_exclusive_group(required=True)
-    target.add_argument("source_id", nargs="?")
-    target.add_argument("--all", action="store_true")
+    target.add_argument("source_id", nargs="?", help="Verify this one source.")
+    target.add_argument("--all", action="store_true", help="Verify every source.")
     target.add_argument("--pointer-file", metavar="PATH", help="Verify one pointer file anywhere; its paths resolve against the wiki root.")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--portable", action="store_true", help="Model a clone without the local store: skip hash-checking local originals.")
     mode.add_argument("--require-originals", action="store_true", help="Fail when a retention: local pointer's original is missing (it is the only copy).")
     _add_resolution(p)
     p = sub.add_parser("resolve", help="Print the first available original whose bytes match a SHA-256.")
-    p.add_argument("sha256")
+    p.add_argument("sha256", help="SHA-256 of the original to find.")
     p.add_argument("--fallback", action="append", default=[], metavar="PATH", help="Another candidate file, tried after the store; repeatable.")
     _add_resolution(p)
     p = sub.add_parser("paths", help="Print the resolved source_store locations and the ephemeral-CI verdict.")
     _add_resolution(p)
     p = sub.add_parser("import-pointer", help="Validate a v1 or legacy pointer file and place it in the pointers directory.")
-    p.add_argument("file")
+    p.add_argument("file", help="The pointer file to import.")
     p.add_argument("--base", metavar="DIR", help="Directory a legacy pointer's paths are relative to (default: the wiki root's parent).")
     p.add_argument("--vault", metavar="DIR", help="Directory a legacy vault_relative_path is relative to.")
     p.add_argument("--derived-status", default="imported", help="extraction_status for a legacy pointer's derived_text (default: imported).")
@@ -1121,6 +1121,9 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
     _add_resolution(p)
     p = sub.add_parser("map", help="List the aliases records and pointers name, and aliases claimed by two sources.")
     _add_resolution(p)
+    # Verbs of other modules (``raw_note``): each registers its own subparser and sets ``handler``.
+    for register in extensions:
+        register(sub, _add_resolution)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1129,20 +1132,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def register_parser(subparsers: Any, *, resolve_wiki_root: Any = None) -> argparse.ArgumentParser:
+def register_parser(subparsers: Any, *, resolve_wiki_root: Any = None, extensions: tuple[Any, ...] = ()) -> argparse.ArgumentParser:
     """Register ``source`` on a parent ``llm-wiki`` parser; dispatch through :func:`run`.
 
     ``resolve_wiki_root`` is called with the parsed namespace; the parent passes
     a thin wrapper so the resolver it installs after import is the one used.
     """
     parser = subparsers.add_parser("source", help=SOURCE_HELP, description=SOURCE_HELP)
-    _add_arguments(parser)
+    _add_arguments(parser, extensions)
     parser.set_defaults(func=lambda args: run(args, resolve_wiki_root=resolve_wiki_root))
     return parser
 
 
 def run(args: argparse.Namespace, *, resolve_wiki_root: Any = None) -> int:
     """Exit 0 on success, 1 when the JSON says ``ok: false``, 2 on a usage or store error."""
+    handler = getattr(args, "handler", None)
+    if handler is not None:  # a verb registered through ``extensions``
+        return handler(args, resolve_wiki_root)
     try:
         root = Path(resolve_wiki_root(args) if resolve_wiki_root else (args.path or Path.cwd() / ".wiki")).resolve()
         config = load_config(root)

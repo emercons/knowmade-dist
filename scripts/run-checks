@@ -57,8 +57,14 @@ CLI subcommand smoke	python3 ./tests/test_cli_subcommands.py
 Main deterministic lint suite	./tests/test-local-cli-lint.sh
 Whole-tree link checks and lint --all	./tests/test-local-cli-links.sh
 Federation registry and locate	./tests/test-local-cli-registry.sh
+Cross-root references	./tests/test-local-cli-refs.sh
+Hub inbox dispatch	./tests/test-local-cli-inbox.sh
 Lint fix classes and preflight	./tests/test-local-cli-lint-fix.sh
 Lint CI annotations, profiles, dataset verify	./tests/test-local-cli-lint-ci.sh
+Index check/rebuild and log append	./tests/test-local-cli-index-log.sh
+Wiki init scaffold	./tests/test-local-cli-init.sh
+Status overview	./tests/test-local-cli-status.sh
+Project list, new and add	./tests/test-local-cli-project.sh
 Source original lifecycle	./tests/test-source-lifecycle.sh
 Codex generated mirror sync	./tests/test-codex-sync.sh
 OpenCode generated mirror sync	./tests/test-opencode-sync.sh

@@ -20,6 +20,8 @@ This means the agent typically reads 2-3 small index files + 3-8 full articles, 
 
 ### Stale Detection
 
+CLI first: `llm-wiki index check [--wiki <slug>|--local]` lists missing, dead and stale directory-index entries (exit 1 when any) and `llm-wiki index rebuild` applies the index repairs `lint --fix` makes (`--dry-run` previews; `--json` for both). Do the manual steps below only if the CLI is unavailable. The master `_index.md` statistics and dates (`Last compiled`, `Last lint`) stay with the operation that changes them.
+
 Before using any `_index.md`, check staleness:
 
 1. Count `.md` files in the directory (excluding `_index.md`)

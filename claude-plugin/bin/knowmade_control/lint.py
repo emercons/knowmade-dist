@@ -35,6 +35,7 @@ from .lint_docs import (
     check_structure,
     check_tags,
     check_unknown_files,
+    fix_frontmatter_aliases,
     fix_legacy_wiki_frontmatter,
     fix_source_references,
     load_documents,
@@ -75,6 +76,12 @@ PROFILES: dict[str, Step] = {
 # reloads the document set, and every later check sees the repaired tree.
 WIKI_STEPS: tuple[Step, ...] = (
     Step("load documents", load_documents),
+    Step(
+        "frontmatter aliases",
+        fix_frontmatter_aliases,
+        fix="rewrite legacy frontmatter keys and values to canonical (C13 tables); reload",
+        fix_class="frontmatter",
+    ),
     Step(
         "legacy wiki frontmatter",
         fix_legacy_wiki_frontmatter,
@@ -225,6 +232,20 @@ def non_negative_int(value: str) -> int:
     if number < 0:
         raise argparse.ArgumentTypeError(f"expected a non-negative integer, not {value!r}")
     return number
+
+
+def read_only_lint(root: Any, *, strict_engine: bool = False) -> LintContext:
+    """Run every lint step on ``root`` without repairs, plans or a log entry.
+
+    The context allows no ``--fix`` and no ``--preflight``, so ``fix_allowed``
+    is False at every site and nothing is written. For callers that need the
+    findings of a plain ``lint`` in-process (``status``); ``run_lint`` adds the
+    report, the profiles and the exit code.
+    """
+    ctx = LintContext(root)
+    for step in lint_steps(is_hub(ctx.root), strict_engine=strict_engine):
+        step.run(ctx)
+    return ctx
 
 
 def run_lint(args: argparse.Namespace) -> int:

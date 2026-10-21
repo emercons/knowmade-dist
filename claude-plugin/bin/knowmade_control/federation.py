@@ -16,6 +16,10 @@ Writers (``add``, ``refresh``, ``remove``) hold an ``O_EXCL`` lock file next to
 lose an entry; a stale lock (dead holder, or older than 30 s) is reclaimed and a
 lock held past the wait is one line and exit 2.
 
+``inventory`` and ``peek`` (KM-HUB-011, KM-HUB-010) live in ``federation_view``,
+which imports this module and ``xref``; they are registered and dispatched from
+here and change nothing.
+
 Verbs and exit codes (``DESIGN.md`` sections 4, 9 and 12;
 ``references/federation.md``): 0 success, 1 a refusal (undeclared id, duplicate
 alias, ambiguity, nothing available), 2 an unusable input (a corrupt registry
@@ -389,7 +393,8 @@ def status_of(entry: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _detail(status: dict[str, Any]) -> str:
+def status_detail(status: dict[str, Any]) -> str:
+    """The short reason of a computed status (``forked -> ...``, ``declares ...``), or ``""``."""
     if "forked_to" in status:
         return f"forked -> {status['forked_to']}"
     if "declared_id" in status:
@@ -402,7 +407,7 @@ def _with_status(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _entry_line(entry: dict[str, Any]) -> str:
-    detail = _detail(entry)
+    detail = status_detail(entry)
     parts = [f"{entry['status']:<11}", f"{entry['kind']:<4}", entry["id"], entry["alias"] or "-", entry["path"]]
     if detail:
         parts.append(detail)
@@ -412,7 +417,7 @@ def _entry_line(entry: dict[str, Any]) -> str:
 def _describe(entry: dict[str, Any]) -> str:
     """``<status> <path>`` plus the last-seen date and any detail, for messages."""
     text = f"{entry['status']}  {display(expanded(entry['path']))}"
-    extras = [_detail(entry), f"last seen {entry['last_seen']}" if entry.get("last_seen") else ""]
+    extras = [status_detail(entry), f"last seen {entry['last_seen']}" if entry.get("last_seen") else ""]
     extras = [extra for extra in extras if extra]
     return f"{text} ({', '.join(extras)})" if extras else text
 
@@ -721,6 +726,12 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     locate.add_argument("target", help="An id (hb-... / wk-...) or an alias.")
     locate.add_argument("--all", action="store_true", help="List every available replica instead of failing on several.")
     locate.add_argument("--json", action="store_true", help="Print JSON.")
+
+    # inventory and peek read across roots and need the reference resolver, which
+    # imports this module: imported here, after both are loaded.
+    from . import federation_view
+
+    federation_view.register_verbs(sub)
     return registry
 
 
@@ -734,9 +745,14 @@ _VERBS = {
 
 
 def run(args: argparse.Namespace) -> int:
-    """`llm-wiki registry add|list|refresh|remove|locate`."""
+    """`llm-wiki registry add|list|refresh|remove|locate|inventory|peek`."""
     try:
-        return _VERBS[args.registry_command](args)
+        verb = _VERBS.get(args.registry_command)
+        if verb is None:
+            from . import federation_view
+
+            verb = federation_view.VERBS[args.registry_command]
+        return verb(args)
     except RegistryError as exc:
         print(str(exc), file=sys.stderr)
         return exc.code

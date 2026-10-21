@@ -436,7 +436,12 @@ the human can trim it later and opt into strict mode only explicitly.
 
 ### Dispatch
 
-Route unclassified material from `HUB/inbox/` into topic inboxes. Ignore
+Route unclassified material from `HUB/inbox/` into topic inboxes. With the
+`llm-wiki` CLI available, `llm-wiki inbox list` lists the items and
+`llm-wiki inbox route <item> --to <slug>...` does the copies, the `.routed/`
+move and the log entry (`inbox hold --as needs-human|skipped` for the other
+verdicts); choosing the topics stays your judgement, and the manual steps below
+are the fallback. Ignore
 `.routed/`, `.needs-human/`, `.skipped/`, and hidden/system files. Read the
 registry, active topic indexes, and relevant `config.md` scopes; consult private
 goals only when needed to choose a private sibling, and never quote them in

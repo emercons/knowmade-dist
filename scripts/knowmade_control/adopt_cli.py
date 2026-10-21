@@ -48,7 +48,9 @@ def add_gitignore_option(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def ensure_wiki_ignored(project_root: Path, wiki_root: Path, opt_out: bool = False) -> dict[str, Any]:
+def ensure_wiki_ignored(
+    project_root: Path, wiki_root: Path, opt_out: bool = False, *, dry_run: bool = False
+) -> dict[str, Any]:
     """Keep an adopted ``.wiki/`` out of the project's git history (knowmade#95).
 
     The adopted tree holds staged copies of the adopted material and batch
@@ -60,6 +62,7 @@ def ensure_wiki_ignored(project_root: Path, wiki_root: Path, opt_out: bool = Fal
 
     Returns ``{"action": ..., "rule": ...}``; ``action`` is one of ``not-git``,
     ``outside-project``, ``already-ignored``, ``appended`` and ``opted-out``.
+    With ``dry_run`` nothing is written and ``appended`` is ``would-append``.
     """
     try:
         relative = wiki_root.resolve().relative_to(project_root.resolve()).as_posix()
@@ -77,6 +80,8 @@ def ensure_wiki_ignored(project_root: Path, wiki_root: Path, opt_out: bool = Fal
         return {"action": "already-ignored", "rule": rule}
     if opt_out:
         return {"action": "opted-out", "rule": rule}
+    if dry_run:
+        return {"action": "would-append", "rule": rule}
     _hub.append_ignore_block(
         project_root,
         "Knowmade project wiki: staged copies and batch state of adopted material",
@@ -336,19 +341,19 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
 
     status = subs.add_parser("status", help="Show adoption batch state.")
     _add_batch_common(status)
-    status.add_argument("--json", action="store_true")
+    status.add_argument("--json", action="store_true", help="Print the batch state as JSON.")
     status.add_argument("--items", action="store_true", help="Include manifest rows with --json.")
     status.set_defaults(adopt_func=run_batch)
 
     claim = subs.add_parser("claim", help="Claim ready rows for one worker.")
     _add_batch_common(claim)
-    claim.add_argument("--classification", choices=sorted(adoption_batch.OUTCOMES_BY_CLASS))
+    claim.add_argument("--classification", choices=sorted(adoption_batch.OUTCOMES_BY_CLASS), help="Claim only rows with this classification.")
     claim.add_argument("--limit", type=int, default=1)
     claim.add_argument("--worker", default=f"{socket.gethostname()}:{os.getpid()}")
-    claim.add_argument("--retry-errors", action="store_true")
-    claim.add_argument("--force-unlock", action="store_true")
+    claim.add_argument("--retry-errors", action="store_true", help="Also claim rows that failed earlier (state error).")
+    claim.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     claim.add_argument("--allow-interrupted", action="store_true", help="Claim although a move batch was interrupted.")
-    claim.add_argument("--json", action="store_true")
+    claim.add_argument("--json", action="store_true", help="Print the claimed rows as JSON.")
     claim.set_defaults(adopt_func=run_batch)
 
     complete = subs.add_parser("complete", help="Complete a claimed row with a durable outcome.")
@@ -356,30 +361,30 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
     complete.add_argument("--item-id", required=True)
     complete.add_argument("--outcome", required=True, choices=sorted(adoption_batch.TERMINAL_STATES))
     complete.add_argument("--destination", help="Existing path inside wiki_root for durable outcomes.")
-    complete.add_argument("--note")
-    complete.add_argument("--force", action="store_true")
-    complete.add_argument("--force-unlock", action="store_true")
+    complete.add_argument("--note", help="Free-text note recorded on the completed row.")
+    complete.add_argument("--force", action="store_true", help="Complete a row that is not claimed; it counts as an attempt.")
+    complete.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     complete.set_defaults(adopt_func=run_batch)
 
     release = subs.add_parser("release", help="Release a claim back to its resumable state.")
     _add_batch_common(release)
     release.add_argument("--item-id", required=True)
-    release.add_argument("--note")
-    release.add_argument("--force-unlock", action="store_true")
+    release.add_argument("--note", help="Free-text note recorded in the release event.")
+    release.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     release.set_defaults(adopt_func=run_batch)
 
     fail = subs.add_parser("fail", help="Mark a claimed row as retryable error.")
     _add_batch_common(fail)
     fail.add_argument("--item-id", required=True)
-    fail.add_argument("--error", required=True)
-    fail.add_argument("--force", action="store_true")
-    fail.add_argument("--force-unlock", action="store_true")
+    fail.add_argument("--error", required=True, help="Why the row failed; recorded on the row.")
+    fail.add_argument("--force", action="store_true", help="Fail a row that is not claimed.")
+    fail.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     fail.set_defaults(adopt_func=run_batch)
 
     sweep = subs.add_parser("sweep", help="Terminalize deterministic skip/review rows.")
     _add_batch_common(sweep)
-    sweep.add_argument("--apply", action="store_true")
-    sweep.add_argument("--force-unlock", action="store_true")
+    sweep.add_argument("--apply", action="store_true", help="Write the terminal states; without it, only report the count.")
+    sweep.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     sweep.set_defaults(adopt_func=run_batch)
 
     repair = subs.add_parser("repair", help="Finish the staging of an interrupted move batch.")
@@ -388,12 +393,12 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
     repair.add_argument(
         "--project-root", help="Project the batch was adopted from, when the pin in state.json does not resolve."
     )
-    repair.add_argument("--force-unlock", action="store_true")
+    repair.add_argument("--force-unlock", action="store_true", help="Reclaim a stale batch lock left by a dead worker (a live worker's lock is never taken).")
     repair.set_defaults(adopt_func=run_batch)
 
     verify = subs.add_parser("verify", help="Require every row to be terminal and durable.")
     _add_batch_common(verify)
-    verify.add_argument("--json", action="store_true")
+    verify.add_argument("--json", action="store_true", help="Print the verification result as JSON.")
     verify.set_defaults(adopt_func=run_batch)
 
 

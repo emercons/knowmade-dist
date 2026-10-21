@@ -81,7 +81,9 @@ Append-only chronological activity log. Every wiki operation appends an entry. N
 
 Each entry: `## [YYYY-MM-DD] operation | Description`
 
-Operations: `init`, `ingest`, `ingest-collection`, `compile`, `query`, `lint`, `research`, `output`, `refresh`, `librarian`, `audit`, `plan`, `idea`, `project`, `inventory`, `dataset`, `schema`, `archive`, `retract`, `ll`, `assess`
+Write an entry with `llm-wiki log append --wiki <slug> --kind <operation> "<description>"` (`--local` for a project `.wiki/`, `--date` defaults to today). It appends one line, creates `log.md` with the header above when it is absent, and exits 2 writing nothing on a multi-line message or, for a public wiki, one carrying a secret, a machine-local path or a `-PRIVATE` path. Append by hand, in this format, only if the CLI is unavailable.
+
+Operations: `init`, `dispatch`, `ingest`, `ingest-collection`, `compile`, `query`, `lint`, `research`, `output`, `refresh`, `librarian`, `audit`, `plan`, `idea`, `project`, `inventory`, `dataset`, `schema`, `archive`, `retract`, `ll`, `assess`
 
 Useful for: `grep "^## \[" log.md | tail -10` to see recent activity.
 

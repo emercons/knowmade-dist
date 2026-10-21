@@ -1,6 +1,6 @@
 {
   "name": "knowmade",
-  "version": "0.9.0.25.1",
+  "version": "0.10.0.25.1",
   "description": "Knowmade practical knowledge bases for Codex with goal-directed private work, hub inbox dispatch, public/private topic pairs, fuzzy Idea capture, Project promotion, explicitly trusted private adapters, personal specialist skills, Project Knowledge Checkpoints Export, inventory, datasets, ingestion, audits, sessions, and outputs.",
   "author": {
     "name": "emercons",

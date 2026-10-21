@@ -25,6 +25,9 @@ Findings (all warnings, so ``--fail-on critical`` never fails on them):
   is reported whether or not the target exists on this machine, because the
   link breaks on every other one.
 
+A ``knowmade://`` cross-root reference is an external scheme to this check (as it
+is to ``lint``): ``llm-wiki ref check`` (``xref.py``) judges those.
+
 Exit codes: 0 nothing at or above ``--fail-on``, 1 something is, 2 usage or
 configuration error (no root, ``--scope tracked`` outside git, git failing),
 never "clean" on an error.
@@ -378,7 +381,10 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     check = sub.add_parser(
         "check",
         help="Check the links of a whole tree.",
-        description="Exit 0 clean, 1 findings, 2 error.",
+        description=(
+            "Exit 0 clean, 1 findings, 2 error. knowmade:// references are external "
+            "links here and are not followed; check them with `llm-wiki ref check`."
+        ),
     )
     check.add_argument("path", nargs="?", help="Root to check.")
     check.add_argument("--local", action="store_true", help="Check ./.wiki.")

@@ -31,6 +31,19 @@ The human does not need to choose the topic wiki up front. The whole point of
 The dispatcher is a lightweight first pass. It should classify and route; it
 should not compile articles directly from the hub inbox.
 
+The mechanical steps are CLI-first: `llm-wiki inbox list` is step 1,
+`llm-wiki inbox route <item> --to <slug> [--to <slug> ...] [--reason ...]
+[--confidence high|medium|low]` is steps 5, 6 and 8 (copies with provenance,
+the move to `.routed/`, the `dispatch` log entry), and `llm-wiki inbox hold
+<item> --as needs-human|skipped` is step 7's `.needs-human/` and the `skip`
+action. Run `route --dry-run` first to see the plan. The command refuses an
+unknown or archived slug, a different file already at a destination and a
+private item, or a `--reason` naming a private or machine-local path, routed
+to a public topic (exit 1, nothing written); do not work
+around a refusal by copying by hand, fix the routing or rename the item.
+Choosing the slugs (steps 2 to 4) stays your judgement. Flags:
+`references/cli.md`. If the CLI cannot run, do the steps below by hand.
+
 1. Resolve **HUB** and list `HUB/inbox/`, ignoring `.routed/`,
    `.needs-human/`, `.skipped/`, and hidden/system files.
 2. Read `HUB/wikis.json`, active topic `_index.md` files, and relevant

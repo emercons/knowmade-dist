@@ -1,7 +1,7 @@
 ---
 description: "Compile raw sources into wiki articles. Synthesizes, cross-references, and organizes active knowledge."
 argument-hint: "[--full] [--source <path>] [--topic <article-name>] [--include-archived] [--wiki <name>] [--local]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mv:*), Bash(mkdir:*)
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mv:*), Bash(mkdir:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*)
 ---
 
 ## Your task
@@ -72,9 +72,9 @@ raw sources to update active articles.
 
 6. **Bidirectional links**: For every See Also link A→B, ensure B→A exists
 
-7. **Update indexes (best-effort)**: Update `wiki/concepts/_index.md`, `wiki/topics/_index.md`, `wiki/references/_index.md`, `wiki/_index.md`, and master `_index.md` (article count, "Last compiled" date, Recent Changes). If `output/projects/` exists, rebuild `output/_index.md` as a projects-aware listing: scan each `output/projects/*/WHY.md` for its first `#` heading (title) and first non-heading paragraph (goal), list them as a table, then list any remaining loose outputs in `output/` below. If any index update is skipped or interrupted, no data is lost — the next read operation will detect the stale index and rebuild it from file frontmatter. See `references/indexing.md` Derived Index Protocol and `references/compilation.md` Step 7.
+7. **Update indexes (best-effort)**: Run `<cli> index rebuild --wiki <slug>` first (<cli> is `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` (`scripts/llm-wiki` in a source checkout)); it brings every directory index up to date, so only the master `_index.md` (article count, "Last compiled" date, Recent Changes) is left by hand. Only if the CLI is unavailable, update `wiki/concepts/_index.md`, `wiki/topics/_index.md`, `wiki/references/_index.md`, `wiki/_index.md`, and master `_index.md` (article count, "Last compiled" date, Recent Changes). If `output/projects/` exists, rebuild `output/_index.md` as a projects-aware listing: scan each `output/projects/*/WHY.md` for its first `#` heading (title) and first non-heading paragraph (goal), list them as a table, then list any remaining loose outputs in `output/` below. If any index update is skipped or interrupted, no data is lost — the next read operation will detect the stale index and rebuild it from file frontmatter. See `references/indexing.md` Derived Index Protocol and `references/compilation.md` Step 7.
 
-8. **Log**: Append to `log.md`: `## [YYYY-MM-DD] compile | N sources → X new articles, Y updated (list slugs)`
+8. **Log**: `<cli> log append --wiki <slug> --kind compile "N sources → X new articles, Y updated (list slugs)"` (by hand, only if the CLI is unavailable: append to `log.md`: `## [YYYY-MM-DD] compile | N sources → X new articles, Y updated (list slugs)`)
 
 9. **Report**:
    - Sources processed: N

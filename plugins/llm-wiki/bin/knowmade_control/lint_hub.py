@@ -2,7 +2,8 @@
 
 What a hub root is judged by (``HUB_STEPS``): its required files, the
 specialist library, the ``wikis.json`` registry (C19, including the rule-set
-findings of emercons/knowmade#116), the hub ``_index.md`` against it (C24,
+findings of emercons/knowmade#116), a slug filed both active and archived
+(C19), the hub ``_index.md`` against it (C24,
 knowmade#114), the private-topic ignore rules, the git-tracked paths under a
 ``-PRIVATE`` directory (C25, knowmade#112) and the stray topic store (C20). Two checks run on every root because they judge the
 repository and the contract around it, not a file: the engine and rule-set
@@ -199,6 +200,42 @@ def check_hub_registry(ctx: LintContext) -> None:
 
     if changed:
         write_registry(ctx.root, data)
+
+
+# The archive/active collision check is new in rules/3 and walks the ladder
+# (info now, warning in the next rule set).
+ARCHIVE_COLLISION_INTRODUCED_IN = 3
+
+
+def check_archive_collisions(ctx: LintContext) -> None:
+    """Report a topic slug that exists in both ``topics/`` and ``topics/.archive/`` (C19).
+
+    ``archive restore`` refuses an existing ``topics/<slug>`` and ``archive
+    topic`` refuses an existing ``topics/.archive/<slug>``, so a slug filed in
+    both places can be neither restored nor archived again until a human
+    chooses which copy stays. Lint never chooses: there is no repair. The
+    comparison is by directory name on disk, so it also finds a copy the
+    registry does not know. The finding is new in rules/3 (info there,
+    ``rule_lint.issue_versioned``).
+    """
+    archive = ctx.root / "topics" / ".archive"
+    try:
+        archived = sorted(child.name for child in archive.iterdir() if child.is_dir())
+    except OSError:
+        return
+    for slug in archived:
+        live = ctx.root / "topics" / slug
+        if not live.is_dir():
+            continue
+        _rule_lint.issue_versioned(
+            ctx,
+            ARCHIVE_COLLISION_INTRODUCED_IN,
+            f"Topic {slug} exists both in topics/{slug} and in topics/.archive/{slug} "
+            "(archive-active-collision): it can be neither restored nor archived again. "
+            "Compare the two copies and remove or rename one; lint never chooses.",
+            live,
+            check="C19",
+        )
 
 
 PLACEHOLDER_FILES = {"README.md", ".gitkeep"}
@@ -517,6 +554,7 @@ HUB_STEPS: tuple[Step, ...] = (
         fix="rewrite the default, hub and hub-owned topic paths to portable form",
         fix_class="registry",
     ),
+    Step("archive collisions", check_archive_collisions),
     Step("hub index", check_hub_index),
     Step(
         "private-topic ignore rules",

@@ -1,6 +1,7 @@
 """Per-file lint checks on a wiki root, and their ``--fix`` repairs.
 
 Structure (C1), frontmatter schema and the legacy-frontmatter repair (C2),
+the C13 alias tables (``fix_frontmatter_aliases``),
 index consistency and in-place index repair (C3), source provenance and the
 source-reference rewrite (C4b, C18), tags (C5), coverage and its repair (C6),
 projects (C8), placement (C11), unknown files (C12) and source lifecycle
@@ -304,6 +305,49 @@ def ensure_dir_index(ctx: LintContext, directory: Path) -> None:
             )
 
 
+# The directories every wiki carries, each with a generated ``_index.md``.
+REQUIRED_INDEX_DIRECTORIES = (
+    "raw",
+    "raw/articles",
+    "raw/papers",
+    "raw/repos",
+    "raw/notes",
+    "raw/data",
+    "wiki",
+    "wiki/concepts",
+    "wiki/topics",
+    "wiki/references",
+    "wiki/theses",
+    "output",
+)
+
+
+def optional_index_directories(root: Path) -> list[Path]:
+    """The index-carrying directories of the optional layers that exist, in check order.
+
+    ``inventory/`` and its record directories, ``datasets/`` and, per dataset
+    manifest, the dataset directory and its ``samples``, ``profiles`` and
+    ``queries`` directories. Shared by the structure check and ``index``.
+    """
+    found: list[Path] = []
+    if (root / "inventory").exists():
+        found.append(root / "inventory")
+        for name in ("items", "ideas", "candidates", "entities", "corpora", "views"):
+            path = root / "inventory" / name
+            if path.exists():
+                found.append(path)
+    if (root / "datasets").exists():
+        found.append(root / "datasets")
+        for manifest in sorted((root / "datasets").glob("*/MANIFEST.md")):
+            dataset_dir = manifest.parent
+            found.append(dataset_dir)
+            for name in ("samples", "profiles", "queries"):
+                path = dataset_dir / name
+                if path.exists():
+                    found.append(path)
+    return found
+
+
 def check_structure(ctx: LintContext) -> None:
     if not ctx.root.exists():
         ctx.issue("critical", "Wiki root does not exist.", ctx.root, check="C1")
@@ -316,47 +360,10 @@ def check_structure(ctx: LintContext) -> None:
         ctx.issue("critical", "config.md is missing.", ctx.root / "config.md", check="C1")
     ensure_topic_schema(ctx)
 
-    required = [
-        "raw",
-        "raw/articles",
-        "raw/papers",
-        "raw/repos",
-        "raw/notes",
-        "raw/data",
-        "wiki",
-        "wiki/concepts",
-        "wiki/topics",
-        "wiki/references",
-        "wiki/theses",
-        "output",
-    ]
-    for rel in required:
+    for rel in REQUIRED_INDEX_DIRECTORIES:
         ensure_dir_index(ctx, ctx.root / rel)
-
-    if (ctx.root / "inventory").exists():
-        ensure_dir_index(ctx, ctx.root / "inventory")
-        for rel in [
-            "inventory/items",
-            "inventory/ideas",
-            "inventory/candidates",
-            "inventory/entities",
-            "inventory/corpora",
-            "inventory/views",
-        ]:
-            path = ctx.root / rel
-            if path.exists():
-                ensure_dir_index(ctx, path)
-
-    if (ctx.root / "datasets").exists():
-        ensure_dir_index(ctx, ctx.root / "datasets")
-
-        for manifest in sorted((ctx.root / "datasets").glob("*/MANIFEST.md")):
-            dataset_dir = manifest.parent
-            ensure_dir_index(ctx, dataset_dir)
-            for rel in ["samples", "profiles", "queries"]:
-                path = dataset_dir / rel
-                if path.exists():
-                    ensure_dir_index(ctx, path)
+    for directory in optional_index_directories(ctx.root):
+        ensure_dir_index(ctx, directory)
 
     inbox = ctx.root / "inbox"
     if not inbox.exists():
@@ -451,6 +458,101 @@ def check_frontmatter_schema(ctx: LintContext) -> None:
         tags = doc.frontmatter.get("tags")
         if "tags" in doc.frontmatter and (not isinstance(tags, list) or not tags):
             ctx.issue("warning", "tags must be a non-empty list.", doc.path, check="C2")
+
+
+# --- C13: legacy frontmatter aliases -----------------------------------------
+# The alias tables of references/linting.md ("Alias tables (C13)"): append-only,
+# never remove an entry. Both are empty today, so the check below is a no-op
+# until an entry lands here and in that reference together.
+#   KEY_ALIASES    old_key -> canonical_key
+#   VALUE_ALIASES  canonical_key -> {old_value: canonical_value}
+KEY_ALIASES: dict[str, str] = {}
+VALUE_ALIASES: dict[str, dict[str, str]] = {}
+
+
+def alias_plan(fields: dict[str, object]) -> tuple[dict[str, str], dict[str, tuple[str, str]], list[str]]:
+    """What the C13 tables rewrite in one frontmatter: ``(keys, values, conflicts)``.
+
+    ``keys`` maps each legacy key present to its canonical key; ``values`` maps
+    a canonical key to the ``(old, new)`` value pair its scalar carries.
+    ``conflicts`` names a legacy key whose canonical key is also present: two
+    values would collide, which only a human can settle, so it is reported and
+    never rewritten.
+    """
+    keys: dict[str, str] = {}
+    values: dict[str, tuple[str, str]] = {}
+    conflicts: list[str] = []
+    for key, value in fields.items():
+        canonical = KEY_ALIASES.get(key, key)
+        if canonical != key:
+            if canonical in fields:
+                conflicts.append(key)
+                continue
+            keys[key] = canonical
+        table = VALUE_ALIASES.get(canonical)
+        if table and isinstance(value, str) and value in table:
+            values[canonical] = (value, table[value])
+    return keys, values, conflicts
+
+
+def apply_aliases_to_block(
+    block: str, keys: dict[str, str], values: dict[str, tuple[str, str]]
+) -> str:
+    """``block`` with the keys renamed and then the values rewritten, line by line.
+
+    Only the top-level ``key:`` line is touched; everything else, comments and
+    quoting of other fields included, stays byte for byte.
+    """
+    for old, new in keys.items():
+        block = re.sub(rf"(?m)^{re.escape(old)}(\s*:)", lambda match, new=new: new + match.group(1), block)
+    for field, (old, new) in values.items():
+        block = re.sub(
+            rf"(?m)^({re.escape(field)}\s*:[ \t]*)([\"']?){re.escape(old)}\2[ \t]*$",
+            lambda match, new=new: match.group(1) + new,
+            block,
+        )
+    return block
+
+
+def fix_frontmatter_aliases(ctx: LintContext) -> None:
+    """Apply the C13 alias tables to ``raw/``, ``wiki/``, ``inventory/`` and ``datasets/``."""
+    if not KEY_ALIASES and not VALUE_ALIASES:
+        return
+    changed = False
+    for doc in sorted(ctx.documents.values(), key=lambda item: str(item.path)):
+        keys, values, conflicts = alias_plan(doc.frontmatter)
+        for key in conflicts:
+            ctx.issue(
+                "warning",
+                f"Legacy frontmatter key {key} and its canonical key {KEY_ALIASES[key]} are both present; "
+                "merge them by hand.",
+                doc.path,
+                check="C13",
+            )
+        if not keys and not values:
+            continue
+        renamed = [f"key {old} -> {new}" for old, new in keys.items()] + [
+            f"{field}: {old} -> {new}" for field, (old, new) in values.items()
+        ]
+        action = "rewrite legacy frontmatter keys and values to canonical"
+        if not ctx.fix_allowed("frontmatter", doc.path, action, check="C13"):
+            ctx.issue(
+                "warning",
+                f"Legacy frontmatter ({'; '.join(renamed)}).",
+                doc.path,
+                fixable=True,
+                check="C13",
+                fix_class="frontmatter",
+            )
+            continue
+        try:
+            _frontmatter.update(doc.path, lambda block: apply_aliases_to_block(block, keys, values))
+        except _frontmatter.FrontmatterError:
+            continue
+        ctx.fixed(f"Rewrote legacy frontmatter in {ctx.rel(doc.path)} ({'; '.join(renamed)}).")
+        changed = True
+    if changed:
+        load_documents(ctx)
 
 
 def fix_legacy_wiki_frontmatter(ctx: LintContext) -> None:
@@ -1391,9 +1493,7 @@ def check_projects(ctx: LintContext) -> None:
         has_why = _projects.has_why(project)
         if not has_why:
             ctx.issue("warning", "Project is missing a non-empty WHY.md.", project, check="C8")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", project.name) or re.search(
-            r"\d{4}-\d{2}-\d{2}", project.name
-        ):
+        if not _projects.valid_slug(project.name):
             ctx.issue("warning", "Project slug should be lowercase, hyphen-separated, <=40 chars, no dates.", project, check="C8")
         if (project / _projects.LEGACY).is_file():
             agent_pass_issue(

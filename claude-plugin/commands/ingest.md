@@ -28,6 +28,18 @@ the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` or, in a source checkout,
 `skills/knowmade/references/source-lifecycle.md`. If the
 CLI fails, report its message and stop; do not retain originals by hand.
 
+### Writing `raw/` (CLI)
+
+Write each processed raw artifact with `llm-wiki source note --type <type>
+--title "..." --source <url|path|MANUAL> --summary "..." --tags a,b` (optional flags:
+`--slug`, `--project`, `--extra`, `--help`), the body on stdin or `--body-file`, plus
+the wiki scope flags. It derives the slug (`-2`, `-3` on a collision), writes
+the frontmatter lint requires, refuses private material in a public wiki (exit
+2, nothing written), then rebuilds the indexes and appends the `ingest` log
+entry. The master `_index.md` statistics and the move to `inbox/.processed/`
+stay with you. Write the file by hand per `wiki-format.md` only if the CLI is
+unavailable.
+
 ### Collection handoff
 
 If the user is trying to import a bounded upstream corpus rather than one source
@@ -221,8 +233,8 @@ When `--inbox` is set and no `--wiki` was provided, classify items as a batch:
    summary: "2-3 sentence summary"
    ---
    ```
-4. Update `raw/{type}/_index.md`, `raw/_index.md`, and master `_index.md` (best-effort — if skipped or interrupted, the next read will rebuild from file frontmatter. See `references/indexing.md` Derived Index Protocol.)
+4. Run `<cli> index rebuild --wiki <slug>` (<cli> is `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` (`scripts/llm-wiki` in a source checkout)) for `raw/{type}/_index.md` and `raw/_index.md`; update the master `_index.md` by hand. Only if the CLI is unavailable, update `raw/{type}/_index.md`, `raw/_index.md`, and master `_index.md` by hand (best-effort — if skipped or interrupted, the next read will rebuild from file frontmatter. See `references/indexing.md` Derived Index Protocol.)
 5. Move or copy the intake item to `inbox/.processed/` and preserve the link between the inbox item and raw artifact when cheap
-6. Append to `log.md`: `## [YYYY-MM-DD] ingest | Title (raw/type/slug.md)`
+6. `<cli> log append --wiki <slug> --kind ingest "Title (raw/type/slug.md)"` (by hand, only if the CLI is unavailable: append to `log.md`: `## [YYYY-MM-DD] ingest | Title (raw/type/slug.md)`)
 7. Report: what was staged, what processed artifact was saved, and detected tags
 8. Check uncompiled source count. If 5+, suggest `/knowmade:compile`

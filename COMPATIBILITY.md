@@ -256,6 +256,168 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.10.0.25.1 — Sprint K: Phase 5 cross-root references, Phase 6 federation views, inbox dispatch and the #83 CLI follow-ups
+
+- `llm-wiki init` (`knowmade#83`). CLI-protocol surface: additive, a new `init`
+  namespace (`--topic <slug>`, `--local`, `<path>`; `--hub`, `--title`,
+  `--description`, `--no-gitignore`, `--dry-run`, `--json` with schema
+  `knowmade/init/v1`); no existing verb, flag or exit code moves. It scaffolds
+  the layout `wiki-structure.md` describes with a fresh `wiki_id` and registers
+  a topic in `wikis.json`; exit 0 created, dry-run or already initialised, 1
+  refused with nothing written (a non-empty target that is not a wiki, a slug
+  registered elsewhere or archived, no configured hub, an unreadable registry),
+  2 invalid slug or usage. Corpus surface: unchanged; the output is an ordinary
+  rule-set 3 wiki. Agent spec: the init steps in `commands/wiki.md` call the
+  CLI first and keep the manual steps as the fallback. New lane step
+  `tests/test-local-cli-init.sh` ("Wiki init scaffold").
+- Cross-root references (`KM-HUB-006`, `KM-HUB-008`, `KM-HUB-009`).
+  CLI-protocol surface: additive, a new `ref` namespace (`parse`, `resolve`,
+  `check`) over the Sprint J registry; no existing verb, flag or exit code
+  moves. The reference form is `knowmade://<wk-|hb-id>[/<path>][#fragment]`;
+  `ref resolve` exits 0 resolved or equivalent, 1 unresolved, missing target,
+  divergent or ambiguous write, 2 unusable input, 3 a private target under
+  `--public` (judged over every replica before resolving, nothing on stdout).
+  `ref check` findings: `invalid-ref`, `private-target`, `divergent-ref`
+  (errors), `unresolved-ref`, `missing-target` (warnings). Corpus surface: no
+  new key and no lint check; `links check` and `lint` still treat
+  `knowmade://` as an external scheme. Packaging and agent spec: additive, the
+  "Cross-root references" section of `federation.md`, one `SKILL.md` line and
+  the regenerated `references/cli.md`; new lane step
+  `tests/test-local-cli-refs.sh`.
+- Hub inbox dispatch (`KM-INBOX-005`). CLI-protocol surface: additive, a new
+  `inbox` namespace (`list`, `route`, `hold`) that does the mechanical half of
+  the dispatcher workflow; the agent still chooses the topic slugs. `inbox route
+  <item> --to <slug>... [--reason] [--confidence] [--dry-run]` copies the item
+  into each topic's `inbox/` with provenance, moves the original to
+  `HUB/inbox/.routed/` only after every copy exists and appends one `dispatch`
+  entry to `HUB/log.md`; `inbox hold --as needs-human|skipped` covers the other
+  two verdicts. Exit 0 done, 1 refused with nothing written (a private item
+  routed to a public topic, an unknown or archived slug, a different file at a
+  destination, an unsafe item name, a symlinked or escaping destination,
+  non-UTF-8 Markdown going to a public topic), 2 unusable hub; `--json` carries
+  the refusals. Corpus surface: no new key and no lint check; `dispatch` is a
+  new log operation in `wiki-format.md`, which no lint check reads. Agent
+  spec: `hub-dispatch.md` calls the CLI first and keeps the manual steps as the
+  fallback. New lane step `tests/test-local-cli-inbox.sh` ("Hub inbox
+  dispatch").
+- `llm-wiki registry inventory|peek` (`KM-HUB-010`, `KM-HUB-011`). CLI-protocol
+  surface: additive, two verbs of the existing `registry` namespace; no existing
+  verb, flag or exit code moves. `inventory [--json] [--public]` is a read-only
+  portfolio view over every registered root, derived on every call with no cache
+  file; a private topic is shown slug-only. `peek <target> [--json] [--public]`
+  is target-first and prints one root's or directory's `_index.md` (a hub
+  without one prints the topic list of its `wikis.json`); exit 0 done, 1
+  unresolved, missing, divergent or ambiguous target, 2 unusable input, 3 a
+  private target under `--public`. `--public` omits private roots and topics and
+  reports their counts; a hub with any private topic never has its `_index.md`
+  text printed, the `wikis.json` topic list is shown instead, and a root or row
+  that cannot be judged counts as private. Corpus surface: no change. Packaging
+  and agent spec: additive, the "Inventory and peek" section of `federation.md`
+  and the regenerated `references/cli.md`; no new lane step, the verbs are
+  tested in `tests/test-local-cli-registry.sh`.
+- `llm-wiki index check|rebuild` and `llm-wiki log append` (#83 follow-up).
+  CLI-protocol surface: additive, two namespaces with JSON schemas
+  `knowmade/index-check/v1`, `knowmade/index-rebuild/v1` and
+  `knowmade/log-append/v1`. `index rebuild` applies exactly the index and
+  create fix classes of `lint --fix` (the lane asserts byte-identical trees);
+  `log append` writes the `## [YYYY-MM-DD] kind | message` entry the agent spec
+  wrote by hand and refuses (exit 2) a newline, and in a public wiki a private
+  path or a critical privacy finding. Corpus surface: no change. Agent spec:
+  `compile`, `ingest`, `lint`, `indexing.md`, `wiki-format.md` and
+  `skill-workflows.md` call the CLI first and keep the manual step as the
+  fallback. New lane step `tests/test-local-cli-index-log.sh`.
+- `llm-wiki source note` (the raw-note writer for ingest). CLI-protocol
+  surface: additive, one verb of the existing `source` namespace, JSON schema
+  `knowmade/source-note/v1`; no existing verb, flag or exit code moves. It
+  writes `raw/<type>/<slug>.md` with the frontmatter lint requires, derives the
+  `ingestion.md` slug (`YYYY-MM-DD-words`, 60 characters at most, `-2`, `-3` on a
+  derived collision), takes the body from `--body-file` or standard input, then
+  runs `index rebuild` and appends the `ingest` log entry (`--no-index`,
+  `--no-log`). Exit 0 written, 1 the note exists (explicit `--slug`), 2 a usage
+  error, a hub root, an empty body or one carrying frontmatter, a missing
+  `--project`, or a public wiki refusing a secret, machine-local path or
+  `-PRIVATE` path by the check `log append` uses over every field written,
+  `--extra` and `--project` included (nothing written); also 2, with `ok`
+  false, when the note is written but `index rebuild` leaves rows it cannot
+  repair. The master
+  `_index.md` statistics and the move to `inbox/.processed/` stay with the
+  agent. Corpus surface: no change; a written note lints with no new error or
+  warning. Agent spec: `commands/ingest.md` calls the CLI first and keeps the
+  manual write as the fallback; `ingestion.md` notes which index steps it does
+  and `source-lifecycle.md` names it as the step after `extract`. Tests: `tests/test-source-lifecycle.sh`, no new lane
+  step.
+- `llm-wiki retract --source RAW_PATH`. CLI-protocol surface: additive, one
+  flag of `retract` that selects the source-path mode (the literal-value flags
+  `--stdin`, `--everywhere`, `--allow-short`, `--max-file-bytes` and
+  `--delete-binary-matches` are refused with it), JSON schema
+  `knowmade/retract-source/v1`. Dry-run by default and writes nothing. `--apply`
+  edits the matched `sources:` entries, deletes the raw source, rebuilds the
+  indexes, lowers the master `Sources: N` count when it was current, with
+  `--remove-from-logs` removes topic and hub log entries naming the source, and
+  appends the generic `retract` entry to the topic and hub logs, then rescans.
+  Body links, wiki-links, footnotes, mentions and claims are listed with action
+  `agent` and never edited. Exit 0 dry-run or `verified`, 2 usage error or
+  `incomplete` (references, errors or the source still present); a source behind
+  a symbolic link or junction, or resolving outside `raw/`, is refused (exit 2)
+  before any write. Corpus
+  surface: no change. Agent spec: `retract-protocol.md` and `commands/retract.md`
+  call the CLI first and keep the manual workflow as the fallback. Tests:
+  `tests/test-local-cli-retract.sh`, no new lane step.
+- `llm-wiki status` and the C13/C19 lint work (#83 follow-up). CLI-protocol
+  surface: additive, a read-only `status` namespace (counts per raw type and
+  article category, open inbox items, last log entry, an in-process lint
+  summary that writes nothing, the freshness summary). Corpus surface: one new
+  hub lint finding, `archive-active-collision` (C19: a topic directory present
+  both as `topics/<slug>` and `topics/.archive/<slug>`), at `info` in rule set
+  3 through `rule_lint.issue_versioned`, never auto-fixed; an N-2 corpus gains
+  at most an info line. `lint --fix` gains the step "frontmatter aliases" in
+  the `frontmatter` fix class (C13), driven by the `KEY_ALIASES` and
+  `VALUE_ALIASES` tables of `lint_docs.py`; both tables are empty, so no
+  corpus sees a new finding until a mapping is decided. Agent spec: `/knowmade`
+  topic status calls `llm-wiki status --json` first. New lane step
+  `tests/test-local-cli-status.sh`.
+- `identity status --hub` reports each topic's overlay-resolved root as
+  `path` (Sprint J follow-up). CLI output change: `path` used to be the raw
+  `wikis.json` value while the id check used the resolved root; the raw value
+  moves to the new key `registry_path`. A bare `--hub` (also written before
+  the subcommand, `identity --hub status`) falls back to the hub enclosing the
+  current directory when `LLM_WIKI_HUB` and `hub_path` give none, and fails
+  with one line when nothing resolves.
+- Portable profile renamed `profiles/query-lite/SKILL.md` `name: wiki-query`
+  → `name: knowmade-query`, matching the Codex and OpenCode presets.
+  Packaging surface: a rename of the skill name only (path unchanged); a Pi or
+  DS4 launcher that selects it by path is unaffected.
+- Help strings for every `llm-wiki` argument and `source` subcommand: no
+  behaviour change; the generated `references/cli.md` has no `-` help cell, and
+  `tests/test-plugin-validate.sh` keeps it so.
+- `llm-wiki project list|new|add` (#83 follow-up). CLI-protocol surface:
+  additive, three verbs beside `project migrate-why`, JSON schemas
+  `knowmade/project-list/v1`, `knowmade/project-new/v1` and
+  `knowmade/project-add/v1`; no existing verb, flag or exit code moves. `list`
+  is read-only (flags `legacy_manifest` for C8c and `stale` for C8b, counted by
+  the lint's own `check_project_staleness`). `new <slug> [goal] [--goal]
+  [--title] [--dry-run]` writes the spec's `WHY.md`, the `output/_index.md`
+  entry (the repair `lint --fix` makes) and one `project` log line; `add <slug>
+  <path>...` moves files from `output/` into the project, drops their index
+  rows and logs once, idempotently. Exit 0 done, 1 refused with nothing
+  written (existing or archived project, no such project, raw or wiki file,
+  outside path, name clash, a public wiki's goal or file naming or linking a
+  `-PRIVATE` path), 2 invalid slug (now one shared `projects.valid_slug`, the
+  C8 rule), missing goal or unusable root. Corpus surface: no change; the
+  generated `WHY.md` is the spec template, no frontmatter. Agent spec:
+  `project.md` calls the CLI first for `new`, `list` and `add`. New lane step
+  `tests/test-local-cli-project.sh`.
+- An unresolvable `--wiki <slug>` (not in `wikis.json` and no initialised
+  `topics/<slug>`, archived without `--include-archived`, or no registry) now
+  exits 2 for every verb that resolves one through `cli.main` (`status`,
+  `lint`, `index check|rebuild`, `log append`, `project`, `source note` and
+  the rest), as their references document for unusable input; it was exit 1,
+  which `lint` and `index check` also use for findings. CLI-protocol surface:
+  an exit-code correction, same message on stderr. `inbox route` additionally
+  refuses (exit 1) a `--reason` that the checkpoint scan marks critical when a
+  target topic is public, so `route_reason` never carries a private or
+  machine-local path into a public copy.
+
 ### v0.9.0.25.1 — Sprint J: Phase 4 stable identity, federation registry and the Claude/OpenCode rename
 
 **#182, Claude plugin renamed `wiki@knowmade` → `knowmade@knowmade` and the

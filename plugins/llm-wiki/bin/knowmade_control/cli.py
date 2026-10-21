@@ -27,16 +27,23 @@ from . import federation as _federation
 from . import freshness as _freshness
 from . import hub as _hub
 from . import hub_index as _hub_index
+from . import inbox as _inbox
+from . import index_cli as _index_cli
+from . import init_cli as _init_cli
 from . import lint as _lint
 from . import links as _links
+from . import log_cli as _log_cli
 from . import pins as _pins
 from . import privacy as _privacy
 from . import projects as _projects
+from . import raw_note as _raw_note
 from . import retract as _retract
 from . import roots as _roots
 from . import rules as _rules
 from . import source_lifecycle as _source_lifecycle
 from . import specialists as _specialists
+from . import status as _status
+from . import xref as _xref
 from .fsio import permission_denied_message
 from .stdio import configure_utf8_stdio
 
@@ -53,6 +60,7 @@ def _register_source(subparsers: Any) -> argparse.ArgumentParser:
     return _source_lifecycle.register_parser(
         subparsers,
         resolve_wiki_root=lambda args: _roots.resolve_wiki_root_args(args),
+        extensions=(_raw_note.register_note,),
     )
 
 
@@ -62,13 +70,17 @@ NAMESPACES: tuple[Namespace, ...] = (
     Namespace("schema", _hub.register_schema_parser),
     Namespace("identity", _hub.register_identity_parser),
     Namespace("hub", _hub_index.register_parser),
+    Namespace("inbox", _inbox.register_parser),
     Namespace("registry", _federation.register_parser),
+    Namespace("ref", _xref.register_parser),
     Namespace("retract", _retract.register_parser),
     Namespace("specialist", _specialists.register_parser),
     Namespace("adapter", _adapters.register_parser),
     Namespace("checkpoint", _checkpoints.register_parser),
     Namespace("privacy", _privacy.register_parser),
     Namespace("links", _links.register_parser),
+    Namespace("index", _index_cli.register_parser),
+    Namespace("log", _log_cli.register_parser),
     Namespace("dataset", _datasets.register_parser),
     Namespace("rules", _rules.register_parser),
     Namespace("engine", _pins.register_engine_parser),
@@ -77,6 +89,8 @@ NAMESPACES: tuple[Namespace, ...] = (
     Namespace("project", _projects.register_parser),
     Namespace("adopt", _adopt_cli.register_parser),
     Namespace("source", _register_source),
+    Namespace("status", _status.register_parser),
+    Namespace("init", _init_cli.register_parser),
 )
 
 
@@ -97,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
+    except _roots.WikiNotResolved as exc:
+        print(exc, file=sys.stderr)
+        return 2
     except PermissionError as exc:
         print(permission_denied_message(None, "access wiki files", exc), file=sys.stderr)
         return 2

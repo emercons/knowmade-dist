@@ -447,6 +447,14 @@ def require_cwd_hub(hub: Path, cwd: Path | None = None) -> None:
         )
 
 
+class WikiNotResolved(SystemExit):
+    """A ``--wiki`` slug names no usable root (unknown, archived, no registry).
+
+    Still a ``SystemExit`` for callers that catch one; ``cli.main`` turns it
+    into exit 2 (unusable input), never 1, which several verbs use for findings.
+    """
+
+
 def _read_registry(hub: Path) -> dict[str, Any]:
     """Read ``hub/wikis.json``. Any read or parse failure is fatal (#91).
 
@@ -503,10 +511,10 @@ def resolve_wiki_identity(
             if initialized_wiki_root(fallback_archived):
                 if include_archived:
                     return RootIdentity(fallback_archived, "topic", hub_path, slug, True)
-                raise SystemExit(
+                raise WikiNotResolved(
                     f"wiki is archived: {slug}. Use --include-archived or restore it first."
                 )
-            raise SystemExit(f"wiki registry not found: {registry_path}")
+            raise WikiNotResolved(f"wiki registry not found: {registry_path}")
 
         entry = data.get("wikis", {}).get(slug) if isinstance(data.get("wikis"), dict) else None
         if not isinstance(entry, dict) or not entry.get("path"):
@@ -515,14 +523,14 @@ def resolve_wiki_identity(
             if initialized_wiki_root(fallback_archived):
                 if include_archived:
                     return RootIdentity(fallback_archived, "topic", hub_path, slug, True)
-                raise SystemExit(
+                raise WikiNotResolved(
                     f"wiki is archived: {slug}. Use --include-archived or restore it first."
                 )
-            raise SystemExit(f"wiki not found in registry: {slug}")
+            raise WikiNotResolved(f"wiki not found in registry: {slug}")
 
         archived = is_archived_registry_entry(entry)
         if archived and not include_archived:
-            raise SystemExit(
+            raise WikiNotResolved(
                 f"wiki is archived: {slug}. Use --include-archived or restore it first."
             )
         selected = registry_entry_path(hub_path, slug, entry)

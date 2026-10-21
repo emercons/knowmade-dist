@@ -63,8 +63,8 @@ The optional pointer keys `retrieved_at`, `note`, `aliases` and
 `imported_from` stay within `llm-wiki/source-pointer/v1`: validators check
 only the required keys.
 
-After `extract`, the agent still writes the processed `raw/` markdown from the
-extracted representation as usual. A failed `receive` or `verify` stops the
+After `extract`, the agent writes the processed `raw/` markdown from the
+extracted representation with `source note`. A failed `receive` or `verify` stops the
 ingest and is reported verbatim.
 
 The `source_store` mapping in project-local `config.md` configures the

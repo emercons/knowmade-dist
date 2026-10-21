@@ -1083,8 +1083,29 @@ def register_identity_parser(subparsers: Any) -> argparse.ArgumentParser:
     identity_fork.add_argument(
         "--dry-run", action="store_true", help="Report what would happen without writing."
     )
+    _let_bare_hub_precede_subcommand(identity, tuple(identity_sub.choices))
     identity.set_defaults(func=_identity.run_identity)
     return identity
+
+
+def _let_bare_hub_precede_subcommand(parser: argparse.ArgumentParser, commands: tuple[str, ...]) -> None:
+    """Make ``identity --hub status`` mean the resolved hub, not a hub named ``status``.
+
+    The parent ``--hub`` takes a value, so it would swallow the subcommand. A
+    subcommand name right after ``--hub`` is moved in front of it; the
+    subparser's own optional-value ``--hub`` then applies.
+    """
+    parse = parser.parse_known_args
+
+    def parse_known_args(args: Any = None, namespace: Any = None) -> Any:
+        tokens = list(args) if args is not None else []
+        for index in range(len(tokens) - 1):
+            if tokens[index] == "--hub" and tokens[index + 1] in commands:
+                tokens[index], tokens[index + 1] = tokens[index + 1], tokens[index]
+                break
+        return parse(tokens, namespace)
+
+    parser.parse_known_args = parse_known_args  # type: ignore[method-assign]
 
 
 def run(args: argparse.Namespace) -> int:

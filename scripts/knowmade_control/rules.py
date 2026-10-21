@@ -267,12 +267,12 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
         public_help="Resolve --wiki <slug> to the public sibling without -PRIVATE.",
         include_archived_help="Allow --wiki to resolve an archived topic.",
     )
-    check.add_argument("--json", action="store_true")
+    check.add_argument("--json", action="store_true", help="Print the comparison as JSON.")
 
     declare = sub.add_parser("declare", help="Write a supported rule-set declaration to config.md.")
     declare.add_argument("--path", required=True, help="Wiki root containing config.md.")
-    declare.add_argument("--set", type=int, default=CURRENT_RULE_SET, dest="rule_set")
-    declare.add_argument("--json", action="store_true")
+    declare.add_argument("--set", type=int, default=CURRENT_RULE_SET, dest="rule_set", help="Rule set number to declare (default: the current one).")
+    declare.add_argument("--json", action="store_true", help="Print the result as JSON.")
 
 
 def build_parser() -> argparse.ArgumentParser:

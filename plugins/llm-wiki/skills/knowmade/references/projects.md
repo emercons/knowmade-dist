@@ -65,7 +65,7 @@ LLMs rebuild wrong without rationale. LLMs don't need a manifest format to read 
 5. **No frontmatter schema on member files.** `project: <slug>` in frontmatter is optional sugar for Obsidian tag-based search; folder position is authoritative. If the two disagree, folder wins.
 6. **Max nesting depth: 3 levels inside a project folder.** `projects/<slug>/code/file.py` is the deepest shape allowed.
 7. **Slugs**: lowercase, hyphen-separated, max 40 characters. Semantic, not date-prefixed. Unique within the topic wiki.
-8. **Goal is mandatory at creation.** Enforced by `wiki project new <slug> "goal"` — the goal becomes the body of `WHY.md`.
+8. **Goal is mandatory at creation.** Enforced by `llm-wiki project new <slug> --goal "goal"` — the goal becomes the body of `WHY.md`; `project list` and `project add` are its deterministic companions.
 
 ## Promotion From An Idea
 

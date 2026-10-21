@@ -26,7 +26,7 @@ fi
 mkdir -p "$(dirname "$TARGET")"
 cat > "$TARGET" <<'EOF'
 ---
-name: wiki-query
+name: knowmade-query
 description: >
   Fast, read-only, index-first queries over a Knowmade wiki with bounded file
   reads, exact citations, and honest evidence gaps.

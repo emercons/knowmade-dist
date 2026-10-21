@@ -1,7 +1,7 @@
 ---
 description: "Manage projects inside a topic wiki. Projects are folders under output/projects/ that group related outputs (playbooks, images, code, data) with a goal captured in WHY.md."
 argument-hint: "new <slug> \"goal\" | list [--archived] | show <slug> | add <slug> <path> | archive <slug> [--include-archived]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(mkdir:*), Bash(mv:*), Bash(date:*), Bash(basename:*), Bash(find:*), Bash(wc:*)
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(mkdir:*), Bash(mv:*), Bash(date:*), Bash(basename:*), Bash(find:*), Bash(wc:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*)
 ---
 
 ## Your task
@@ -68,6 +68,8 @@ Flag:
 
 Create a new project.
 
+CLI first: `llm-wiki project new <slug> --goal "<goal>" [--title <t>] [--dry-run] [--json]` (`--wiki <slug>`, `--local` or `--path` pick the wiki). It validates the slug (exit 2 with a suggestion), refuses an existing project (exit 1), writes `WHY.md`, adds the `output/_index.md` entry and appends the `log.md` line, and refuses a public wiki's goal that names a `-PRIVATE` path. Do the steps below only if the CLI is unavailable.
+
 **Validate slug**:
 - Lowercase only
 - Hyphen-separated
@@ -109,6 +111,8 @@ Derive the title from the slug: `bitcoin-quantum-risk` → `Bitcoin Quantum Risk
 
 List projects in the resolved wiki.
 
+CLI first: `llm-wiki project list [--archived] --json` returns title, goal, member count, last update and the `legacy_manifest` and `stale` flags. Manual steps only if the CLI is unavailable.
+
 1. Glob `<wiki-root>/output/projects/*/WHY.md` (active projects)
 2. If `--archived` is set, also glob `<wiki-root>/output/projects/.archive/*/WHY.md`
 3. For each, read the first `#` heading (the title) and the first non-heading paragraph (the goal, first 120 chars)
@@ -149,6 +153,8 @@ No derived cache, no regeneration step — `show` always reflects current filesy
 ### Subcommand: `add <slug> <path>`
 
 Move an existing file into a project.
+
+CLI first: `llm-wiki project add <slug> <path>... [--dry-run] [--json]` moves files from `output/` (refusing anything else, exit 1, nothing moved), drops their `output/_index.md` rows, logs once and lists files that still link the old path. Idempotent. Manual steps only if the CLI is unavailable.
 
 1. Verify the project exists: `<wiki-root>/output/projects/<slug>/WHY.md`. If not, fail: `Project "<slug>" does not exist. Create it first with /knowmade:project new <slug> "goal".`
 2. Resolve the source path (absolute or relative to wiki root)

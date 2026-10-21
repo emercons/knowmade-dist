@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import fsio as _fsio
+from . import retract_source as _retract_source
 from .common import (
     is_under,
     read_registry,
@@ -626,6 +627,8 @@ def print_retract_report(report: dict[str, Any]) -> None:
 
 
 def run_retract(args: argparse.Namespace) -> int:
+    if args.source:
+        return _retract_source.run_source(args)
     value = read_retract_value(args)
     byte_patterns, name_patterns = retract_patterns(value, args.variants)
     try:
@@ -695,10 +698,19 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
         description=(
             "Find a value and common encoded forms without placing the value in command "
             "arguments. Dry-run is the default; pass --apply to rewrite matched text, "
-            "rename matched paths, and verify the selected local scope."
+            "rename matched paths, and verify the selected local scope. --source retracts a "
+            "raw source by path; body references are left to the agent (incomplete, exit 2)."
         ),
     )
     retract.add_argument("path", nargs="?", help="Wiki root path to scan.")
+    retract.add_argument(
+        "--source",
+        metavar="RAW_PATH",
+        help=(
+            "Retract this raw source (raw/<type>/<file> or a unique filename) instead of a "
+            "value; one wiki only, no --everywhere or --stdin. Rerun to verify."
+        ),
+    )
     retract.add_argument(
         "--stdin",
         action="store_true",
@@ -732,7 +744,7 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Remove complete matching entries from log.md files instead of replacing "
-            "the selected value inside those entries."
+            "the selected value inside those entries (with --source: entries naming it)."
         ),
     )
     retract.add_argument(

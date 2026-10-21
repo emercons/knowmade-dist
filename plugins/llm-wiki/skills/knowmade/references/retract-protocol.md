@@ -87,9 +87,17 @@ references. Archived targets are included without an extra permission gate.
 
 ## Source-path workflow
 
-This is an agent workflow: `llm-wiki retract` takes a wiki root to scan for a
-literal value and has no source-path mode. `--apply` and `--remove-from-logs`
-keep the meaning they have above.
+Call the CLI first: `llm-wiki retract <wiki-root> --source raw/<type>/<file>`
+(dry-run; `--apply` and `--remove-from-logs` as above; the literal-value flags
+are refused). It does steps 2, 3.1, 3.2 (frontmatter `sources:` and index rows),
+3.3, 3.5, 3.7 and the rescan of step 4. References it lists with action `agent`
+(body links, wiki-links, footnotes, mentions, claims, output and session text)
+are yours (3.2, 3.4, 3.6): edit them, then run `--apply` again; it exits 2 as
+`incomplete` until none remain, and a run after the source is gone is the
+verification. References match by the source's full path, never by filename
+alone (a same-named source elsewhere, or a URL ending in the name, is left
+alone), and a scalar `sources:` value is replaced with `sources: []`. The steps
+below are the manual fallback.
 
 ### 1. Resolve the wiki
 

@@ -184,7 +184,7 @@ processed artifacts to `raw/`.
 
 ## Post-Ingestion Index Updates
 
-After writing each processed raw artifact, update indexes in order:
+After writing each processed raw artifact (`source note` does 1-2), update indexes in order:
 
 1. `raw/{type}/_index.md` — add row to Contents table
 2. `raw/_index.md` — add row to Contents table

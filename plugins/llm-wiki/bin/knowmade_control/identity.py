@@ -374,7 +374,8 @@ def hub_status_payload(hub_root: Path) -> dict[str, Any]:
         topics.append(
             {
                 "slug": slug,
-                "path": entry.get("path"),
+                "path": str(root),
+                "registry_path": entry.get("path"),
                 "wiki_id": read_wiki_id(root),
                 "mismatch": verify_entry(entry.get("id"), root),
             }
@@ -412,6 +413,26 @@ def _is_hub_target(args: Any) -> bool:
         return False
     return not (
         getattr(args, "path", None) or getattr(args, "local", False) or getattr(args, "wiki", None)
+    )
+
+
+def _resolve_hub_target(explicit: str | None) -> Path:
+    """The hub ``identity --hub`` names: the path given, else the shared resolution.
+
+    A bare ``--hub`` follows :func:`roots.resolve_hub_selection` (``LLM_WIKI_HUB``,
+    ``hub_path``, cwd discovery when configured). When that only reaches the
+    ``~/wiki`` default and nothing is there, the hub enclosing the current
+    directory is used; if there is none either, one line says what to set.
+    """
+    selection = _roots.resolve_hub_selection(explicit)
+    if explicit or selection.source != "default" or _roots.is_hub(selection.path):
+        return selection.path
+    found = _roots.enclosing_hub(Path.cwd())
+    if found is not None:
+        return found
+    raise SystemExit(
+        "no hub resolves: set LLM_WIKI_HUB or hub_path in ~/.config/llm-wiki/config.json, "
+        "run inside a hub, or pass --hub <path>"
     )
 
 
@@ -454,8 +475,7 @@ def run_identity(args: Any) -> int:
     command = getattr(args, "identity_command", "status")
 
     if _is_hub_target(args):
-        selected = _roots.resolve_hub_selection(getattr(args, "hub", None) or None)
-        return _run_hub(args, selected.path, command)
+        return _run_hub(args, _resolve_hub_target(getattr(args, "hub", None) or None), command)
 
     identity = _roots.resolve_wiki_identity_args(args)
     root = identity.path

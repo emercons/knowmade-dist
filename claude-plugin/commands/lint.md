@@ -64,7 +64,7 @@ message ending in `(kind)` is a CLI candidate: judge it, never recompute it.
   `output-loose-*`: recommend, never move.
 - **Migration candidates**: judge fit, suggest the `migrate-output --dry-run`.
 - **`tag-near-duplicate`**: propose the canonical tag; semantic variants too.
-- **Rows still marked agent** (C7, C13), only for layers that exist.
+- **Rows still marked agent** (C7; C13's unknown-key warning), only for layers that exist.
 - **`--deep`**: WebSearch spot-checks of key claims and newer information.
 
 ### 6. Report
@@ -72,5 +72,6 @@ message ending in `(kind)` is a CLI candidate: judge it, never recompute it.
 Use `linting.md` § Report. Lead every line with plain English, never a check
 code (good: "Migrate 3 legacy project manifests"; bad: "C8c — migrate 3").
 Update the master `_index.md` "Last lint" date and any `index-stats-drift`
-statistic. Without `--fix`, append to
-`log.md`: `## [YYYY-MM-DD] lint | N critical, N warnings, N suggestions, N auto-fixed`.
+statistic. Without `--fix`, run
+`<cli> log append --kind lint --wiki <slug> "N critical, N warnings, N suggestions, N auto-fixed"`
+(by hand, only if the CLI is unavailable: append `## [YYYY-MM-DD] lint | ...` to `log.md`).

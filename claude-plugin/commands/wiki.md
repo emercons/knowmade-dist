@@ -42,7 +42,9 @@ Initialize a new wiki. Parse arguments:
 
 **A topic name is always required.** There is no bare global wiki — HUB is only a hub (wikis.json + _index.md + log.md). All content lives in topic sub-wikis.
 
-**Steps:**
+**Run `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" init --topic <slug> [--description ...]`** (or `--local`, or a path; `--dry-run` previews). It does steps 1-8 below with a fresh `wiki_id`, exits 1 writing nothing on a conflict, and is a no-op on an existing wiki. Pass the answer to "What is this wiki about?" as `--description`. Do the steps by hand only if the CLI is unavailable.
+
+**Steps (fallback):**
 
 1. If HUB doesn't exist yet, create the hub first:
    - `HUB/wikis.json` (empty registry)
@@ -71,38 +73,10 @@ Initialize a new wiki. Parse arguments:
      partially existing layer needs repair.
    - For local wikis (`--local`): ignore `.wiki/` in a git project (see "Local Wiki" in `wiki-structure.md`).
 
-3. Create `.obsidian/` directory with minimal vault config:
-   - `.obsidian/app.json`:
-     ```json
-     {
-       "showFrontmatter": true,
-       "alwaysUpdateLinks": true,
-       "newLinkFormat": "relative",
-       "useMarkdownLinks": false
-     }
-     ```
-   - `.obsidian/appearance.json`:
-     ```json
-     {
-       "accentColor": ""
-     }
-     ```
-   - `.obsidian/graph.json`:
-     ```json
-     {
-       "collapse-filter": false,
-       "search": "",
-       "showTags": true,
-       "showAttachments": false,
-       "showOrphans": true,
-       "collapse-color-groups": false,
-       "collapse-display": false,
-       "showArrow": true,
-       "textFadeMultiplier": 0,
-       "nodeSizeMultiplier": 1,
-       "lineSizeMultiplier": 1
-     }
-     ```
+3. Create `.obsidian/` with minimal vault config:
+   - `app.json`: `{"showFrontmatter": true, "alwaysUpdateLinks": true, "newLinkFormat": "relative", "useMarkdownLinks": false}`
+   - `appearance.json`: `{"accentColor": ""}`
+   - `graph.json`: `{"collapse-filter": false, "search": "", "showTags": true, "showAttachments": false, "showOrphans": true, "collapse-color-groups": false, "collapse-display": false, "showArrow": true, "textFadeMultiplier": 0, "nodeSizeMultiplier": 1, "lineSizeMultiplier": 1}`
 
 4. Create empty `_index.md` only in the directories created during init,
    following the format in `references/wiki-format.md` § _index.md Format. Use today's date.
@@ -177,9 +151,9 @@ Show wiki status. Before reading any `_index.md`, stale-check it: count `.md` fi
    - Show global log (last 5 entries)
 
 2. If targeting a specific topic wiki (`--wiki <name>` or local):
-   - Read its `_index.md` for statistics and recent changes
-   - Read `config.md` for title and description
-   - Count actual files for accuracy
+   - Run `llm-wiki status --json` (`--wiki <name>`, `--local` or a path) for
+     title, file counts, inbox, last log entry, lint and freshness; read
+     `_index.md` only for recent changes
    - Show: title, location, source/article/inventory/dataset/output counts, inbox pending, last compiled/lint dates, last 5 recent changes
    - If the topic is active and has no root `schema.md`, show one non-blocking
      topic-guide adoption nudge. For small/simple wikis:
@@ -211,11 +185,7 @@ The user is new or hasn't initialized a wiki yet. Instead of dumping a command l
 >
 > Just tell me the topic, and I'll set everything up.
 
-**Step 2: On user response,** derive a slug from their topic (lowercase, hyphens, max 40 chars) and run the full init protocol:
-1. Create the hub if it doesn't exist (at the resolved HUB path from config, or ask the user where to create it if no config exists — never assume `~/wiki/`)
-2. Create the topic wiki at `HUB/topics/<slug>/` with the core directory structure
-3. Register in wikis.json and update hub _index.md
-4. Create config.md using the user's topic description
+**Step 2: On user response,** derive a slug from their topic (lowercase, hyphens, max 40 chars) and run `llm-wiki init --topic <slug> --description "<their topic>"` (add `--hub <path>`; with no configured hub, ask the user where to create it — never assume `~/wiki/`). If the CLI is unavailable, run the manual init protocol above.
 
 **Step 3: After init completes,** suggest the immediate next action based on what's most likely useful:
 

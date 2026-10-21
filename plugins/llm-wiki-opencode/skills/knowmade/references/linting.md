@@ -28,7 +28,7 @@ llm-wiki lint --json [<wiki-root> | --local | --wiki <slug>] [--hub <path>] \
 
 ## Fix classes
 
-Classes: `quarantine` C12, `placement` C11, `frontmatter` C2/C4b/C6/C15,
+Classes: `quarantine` C12, `placement` C11, `frontmatter` C2/C4b/C6/C13/C15,
 `index` C3, `create` C1/C6/C22, `registry` C19, `gitignore` C19/C21, `log`
 log.md. Held back: reported as without `--fix`.
 
@@ -70,13 +70,13 @@ report only. **Agent** = judgment or a check the CLI does not implement yet.
 | C9 Project candidates | Info (rules/3) | Non-markdown file in `output/` root (`output-loose-binary`); a subdirectory other than `projects/`, `assets/` with files (`output-loose-directory`); 3 or more loose outputs sharing a prefix, slug proposed (`project-candidate`) | - | Turn a candidate into a ready-to-paste `wiki project new` + `add` block. Never auto-move |
 | C11 Placement | Crit | `raw/`, `wiki/`, `inventory/` files whose directory disagrees with frontmatter; destination collision (stays critical); dataset directory versus `dataset_id` | `mv` to the canonical path; skip on collision | Hub-level content directories: warn, never delete |
 | C12 Unknown files | Warn | Anything outside the allowlist at hub, topic root, `raw/`, `wiki/`, `inventory/`, `datasets/`. Topic roots allow `AGENTS.md`, `CLAUDE.md` and `PRIVATE_BOUNDARY.md`; git-root metadata (including `scripts/`, `docs/`, `tools/`, `.githooks/`, `.github/`) is allowed only at a repository root; `config.md` may widen the root level with `lint_allow_root: [name, ...]` (plain names only, never `raw`/`wiki`/`inventory` or a `*-PRIVATE` name). OS metadata (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`) is ignored everywhere and never moved | Files move to `inbox/.unknown/`; directories warn only | - |
-| C13 Aliases | Warn | - (alias tables are empty) | - | Apply the tables below if populated; warn on unknown keys |
+| C13 Aliases | Warn | A frontmatter key or value of the alias tables below (`lint_docs.KEY_ALIASES`, `VALUE_ALIASES`; empty today, so nothing fires); a legacy key beside its canonical key (reported, never rewritten) | Rewrite the legacy key or value to canonical (class `frontmatter`) | Warn on unknown keys |
 | C14 Freshness | Warn/Info | Article older than its volatility window since `verified`/`updated` (hot 30, warm 180, cold 365 days unless configured: `wiki-articles.md` § Lint Windows And Snapshots); missing or invalid date | - | Rank with `llm-wiki freshness score --json` (composite 0-100 against `freshness_threshold`); narrative; suggest `wiki refresh` |
 | C15 Volatility | Info | Article without `volatility` | Add `volatility: warm` | - |
 | C16 Inventory | Sugg | Indexes and frontmatter of an existing `inventory/` layer; an output whose name or title has an `inventory.md` § Discovery word (`inventory-migration-candidate`, info) | Missing indexes of existing layers; never create the tree | Judge each candidate's fit before suggesting its `migrate-output --dry-run`; never convert |
 | C17 Datasets | Sugg | Indexes and manifests of an existing `datasets/` layer; an output with a `datasets.md` § Discovery word (`dataset-migration-candidate`, info) | Missing indexes of existing layers; never create the tree | As C16, with `wiki dataset migrate-output`; never convert |
 | C18 Missing sources | Warn | Wiki article with no `sources` and no `compiled-from` of `conversation` or `mixed` | - | Suggest recompiling the raw source, or `compiled-from: conversation`; never add either |
-| C19 Archive and registry | Warn/Crit | Registry `default`/`hub` path not `<HUB>`; hub-owned topic paths not portable (active or archived); entry identity mismatch; external absolute paths; a relative path that does not exist (`registry-path-missing`, info) or escapes the hub (warning); a `*-PRIVATE` entry that carries a `description` (`private-registry-description`, info in rules/3: `wikis.json` is committed, so a private topic is registered by slug and `path`/`id` only; `archive` never copies the private title into it and the hub `_index.md` lists the slug alone); an unreadable, non-UTF-8 or non-object `wikis.json` (critical, one finding); an entry that resolves to a README-only `*-PRIVATE` directory (info, "private placeholder"; such a directory is also not linted as a wiki, one info instead of structure criticals); hub in a git work tree (root or nested in a larger repository) whose ignore rules miss live or archived `-PRIVATE` topics (**critical**, privacy) | Portable paths; append `topics/**/*-PRIVATE/` to `.gitignore` | Active/archive slug collisions (never choose); filesystem-only archived topics (use `llm-wiki archive list`); active content citing archived paths |
+| C19 Archive and registry | Warn/Crit | Registry `default`/`hub` path not `<HUB>`; hub-owned topic paths not portable (active or archived); entry identity mismatch; external absolute paths; a relative path that does not exist (`registry-path-missing`, info) or escapes the hub (warning); a `*-PRIVATE` entry that carries a `description` (`private-registry-description`, info in rules/3: `wikis.json` is committed, so a private topic is registered by slug and `path`/`id` only; `archive` never copies the private title into it and the hub `_index.md` lists the slug alone); an unreadable, non-UTF-8 or non-object `wikis.json` (critical, one finding); an entry that resolves to a README-only `*-PRIVATE` directory (info, "private placeholder"; such a directory is also not linted as a wiki, one info instead of structure criticals); a slug present in both `topics/<slug>` and `topics/.archive/<slug>` (`archive-active-collision`, info in rules/3, reported at the live copy; it blocks both `archive restore` and `archive topic`); hub in a git work tree (root or nested in a larger repository) whose ignore rules miss live or archived `-PRIVATE` topics (**critical**, privacy) | Portable paths; append `topics/**/*-PRIVATE/` to `.gitignore` | Decide which copy of a colliding slug stays (never choose); filesystem-only archived topics (use `llm-wiki archive list`); active content citing archived paths |
 | C20 Source lifecycle | Crit/Warn | Invalid `source_store` config or pointer records (missing local originals are valid in a clone); an unknown `source_store` key (`source-store-unknown-key`, info in rules/3: the key is ignored, check the spelling); a foreign-schema file among the pointers (`source-pointer-foreign`, info in rules/3); hub `topics/.wiki-local/` or `topics/sources/` left by the old shared default (warn, privacy) | - | Move each source into its topic or set `source_store` explicitly |
 | C21 Tracked machine state | Info (rules/3) | In a git work tree: tracked or un-ignored `/.sessions/`, `/.skills/registry.json`, `**/.audit/`, `**/.librarian/`, `**/.session-events.jsonl`, `**/.session-checkpoint.json`, `**/.obsidian/`, `**/.wiki-local/` | Hub: append the missing rules to `.gitignore` | Tracked files: `git rm --cached` after the owner agrees |
 | C22 Engine and rule set | Warn/Crit | Declared versus running engine, read from the `config.md` frontmatter only (a topic with no pin inherits `HUB/config.md`'s): `knowmade_version` (wins; must equal the running version) or `llm_wiki_version` (the running version or its upstream baseline: the last two components behind `0.`); `knowmade_checker_sha` (commits behind when an ancestor; `info` at the running `knowmade_version`, COMPATIBILITY.md "Which sha to pin"); `llm_wiki_checker_repo`/`_sha` informational; `knowmade_rule_set` outside the N-2 window | Declare the current rule set in an undeclared `config.md` | - |
@@ -86,7 +86,7 @@ report only. **Agent** = judgment or a check the CLI does not implement yet.
 | C26 Citations (`--profile`) | Info (rules/3) | `W_FOOTNOTE_LOCATOR` (no page, section, line or time), `W_LONG_UNCITED` (over `citations_long_words`, default 400), `W_SIGNAL_UNCITED` (`citations_signal_words` phrase) in `wiki/` articles without a citation | - | - |
 | C27 Dataset payloads (`--profile`) | Info (rules/3) | Local `locations` missing, wrong `size_bytes` or `checksum` (`datasets.md`) | - | - |
 
-Wiki-links and footnotes report as `C4`. C7 and C13 are agent-only; C10 is
+Wiki-links and footnotes report as `C4`. C7 is agent-only; C10 is
 unassigned.
 
 ## Whole-tree checks
@@ -105,8 +105,9 @@ A file with both `category` and `type` is an article. Not placed:
 
 ## Alias tables (C13)
 
-Append-only; never remove an entry. Empty today, so alias rewriting is a no-op.
-Form: `old_key -> canonical_key`, `old_value -> canonical_value (for field: F)`.
+Append-only; never remove an entry. `llm-wiki lint` applies them (`--fix`
+rewrites; `lint_docs.KEY_ALIASES` and `VALUE_ALIASES` hold the same entries),
+but they are empty today, so alias rewriting is a no-op. Form: `old_key -> canonical_key`, `old_value -> canonical_value (for field: F)`.
 
 Canonical optional raw keys (not unknown): `collection`, `adapter`,
 `upstream_id`, `upstream_type`, `revision`, `sha`, `canonical_url`,

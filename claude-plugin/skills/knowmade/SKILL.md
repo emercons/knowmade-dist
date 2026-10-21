@@ -117,7 +117,7 @@ Cross-Workflow Inventory Awareness rules: `skill-workflows.md` § Workflow Flows
 - Output, `wiki output`: `output-protocol.md`. Lessons Learned, `wiki ll`: `ll-protocol.md`.
 - Plan, `wiki plan`: `plan-protocol.md`. Assess, `wiki assess`: `assess-protocol.md`. Refresh, `wiki refresh`: `refresh-protocol.md`.
 - Retract, `wiki retract`: `retract-protocol.md`.
-- Federation registry, `llm-wiki registry` (known roots, locate an id): `federation.md`.
+- Federation registry, `llm-wiki registry` (known roots, locate an id), and cross-root references, `llm-wiki ref` (`knowmade://` URIs): `federation.md`.
 
 ## Links: File Paths and URLs
 
