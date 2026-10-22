@@ -28,7 +28,7 @@ inventory for durable watch items and blocked actions.
 When `--wiki all` is used, iterate active registered topic wikis only unless
 `--include-archived` is present. If a single `--wiki <name>` target is archived,
 ask for `--include-archived` or restoration before refreshing. `-PRIVATE`
-topics are iterated too; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+topics are iterated too; see `skills/knowmade/references/private-boundary.md`.
 
 Write-guard: an article update, `sources:` change, or `log.md` entry written
 into a public topic during refresh must not carry material, paths, or source

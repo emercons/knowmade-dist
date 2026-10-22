@@ -146,7 +146,7 @@ def issue_versioned(
     severity. Security/privacy/data-loss rules may pass ``exceptional_critical``
     only when the exception is documented in the change that adds the rule.
 
-    ``check`` is the finding's check id (``references/linting.md``), passed
+    ``check`` is the finding's check id (``references/lint-rules.md``), passed
     through to ``ctx.issue``, as is ``fix_class`` for a fixable finding (only
     when set, so a minimal context without the keyword still works).
     ``target_rule_set`` overrides the corpus declaration. It exists for findings

@@ -54,7 +54,7 @@ class Issue:
     fixable: bool = False
     fixed: bool = False
     # The stable id of the check that found it: a row of the rules table in
-    # references/linting.md (``C1``..``C25``, ``C4b``), emercons/knowmade#82.
+    # references/lint-rules.md (``C1``..``C25``, ``C4b``), emercons/knowmade#82.
     check: str = ""
     # The repair class that fixes it (``FIX_CLASSES``); empty when not fixable.
     fix_class: str = ""

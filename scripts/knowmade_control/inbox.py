@@ -29,7 +29,7 @@ Everything is checked before the first write, and a refusal changes nothing:
   count as done, so a re-run is idempotent and finishes an interrupted route;
 - an original already in ``.routed/`` with different bytes;
 - a private item routed to a public topic. Private is what can be decided
-  without reading meaning (``Private Data Boundary`` in ``knowmade-profile.md``):
+  without reading meaning (``private-boundary.md``):
   a ``private`` name hint (``private - x.md``, ``x.private.md``, an
   uppercase ``-PRIVATE`` token), a privacy/visibility/sensitivity/classification
   frontmatter value or ``private: true``, a path into a ``*-PRIVATE`` location or

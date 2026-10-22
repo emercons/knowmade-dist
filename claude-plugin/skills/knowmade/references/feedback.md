@@ -95,8 +95,7 @@ Write-guard on promote: when `--topic <slug>` is a public, non-`-PRIVATE`
 topic, the promoted note and log entry must not carry a `-PRIVATE` path
 string, a private goal, or a lesson derived from private material; drop those
 parts or promote into `<slug>-PRIVATE` instead; see
-[`knowmade-profile.md`](knowmade-profile.md) § Private Data Boundary: Read
-Freely, Write-Guard.
+[`private-boundary.md`](private-boundary.md).
 
 ## Relationship to Lessons Learned
 

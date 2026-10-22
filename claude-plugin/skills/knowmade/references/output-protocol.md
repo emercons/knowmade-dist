@@ -11,7 +11,7 @@ Parse $ARGUMENTS.
 Generate an output artifact from wiki content based on $ARGUMENTS.
 
 Public/private awareness: the primary wiki, `--with` wikis, and sibling
-context may include a `-PRIVATE` topic; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard
+context may include a `-PRIVATE` topic; see `skills/knowmade/references/private-boundary.md`
 for the rule, and Process step 3.5 for the mandatory write-guard applied
 before the artifact is saved. If operating in a private topic wiki, private
 `goals.md` may guide framing and usefulness, but it is planning context rather
@@ -86,7 +86,7 @@ When `--retardmax` is set:
 
 3. **Generate**: Create the artifact in the format specified for the output type. Draw domain content from the primary wiki and craft/technique guidance from `--with` wikis.
 
-3.5. **Write-guard (mandatory when the save target is a public, non-`-PRIVATE` topic)**: Before step 4, check the drafted artifact against `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard. The write does not proceed until every item passes:
+3.5. **Write-guard (mandatory when the save target is a public, non-`-PRIVATE` topic)**: Before step 4, check the drafted artifact against `skills/knowmade/references/private-boundary.md`. The write does not proceed until every item passes:
    - [ ] No fact, quote, number, or recommendation in the body traces to a `-PRIVATE` topic, `goals.md`, private inventory, or a private raw/inbox file — each such item is dropped, or the whole artifact is saved under `<slug>-PRIVATE/output/` instead.
    - [ ] The `sources:` frontmatter list and every inline link resolve inside the public topic; none points into a `-PRIVATE` topic.
    - [ ] The file contains no `-PRIVATE` path string anywhere (frontmatter, body, See Also, footnotes).

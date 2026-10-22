@@ -10,14 +10,29 @@ Manage or apply personal specialist methods. Read
 `skills/knowmade/references/specialists.md` before acting. A specialist is
 a bounded evidence/review protocol, not a human credential or new authority.
 
-Resolve HUB by `skills/knowmade/references/hub-resolution.md` (variant E:
-hub specialist library). Use the bundled deterministic helper:
+Resolve HUB only (the hub specialist library: `HUB/_index.md`,
+`wikis.json`, optional `.skills/_index.md`), by a few file reads, never `find`
+or a filesystem scan:
+
+<!-- hub-only-prelude:start -->
+HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+<!-- hub-only-prelude:end -->
+
+Use the bundled deterministic helper:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" specialist <subcommand>
 ```
 
 Use `scripts/llm-wiki` in a source checkout. Never assume a global install.
+
+### If HUB does not resolve, or a topic must be resolved (`apply`, `suggest`)
+
+Read `skills/knowmade/references/hub-resolution.md`: § Resolve HUB, then
+§ Resolve the target wiki, Registry Path Resolution and Archived entries for
+`--wiki <topic>` (reject an archived topic). Resolve one active topic only for
+these subcommands; `enable` and `disable` pass `--wiki <topic>` to the helper,
+which resolves it.
 
 ## Deterministic subcommands
 

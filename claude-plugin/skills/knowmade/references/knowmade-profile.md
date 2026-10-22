@@ -46,62 +46,20 @@ An upstream-style path remains valid:
 }
 ```
 
-Private and public versions are separate topic wiki roots inside that hub:
-`topics/<slug>/` and `topics/<slug>-PRIVATE/`. The private topic may contain
-personal goals, preferences, constraints, and source material that should not
-leak. Public repos should ignore private topic directories with `.gitignore`
-using `topics/**/*-PRIVATE/`, which also covers archived private topics under
-`topics/.archive/` (the older `topics/*-PRIVATE/` does not, because `*` never
-matches `/`). The private suffix is exact and uppercase:
-`workshop` pairs with `workshop-PRIVATE`; `workshop-private` is
-legacy/noncanonical and should be migrated.
+Private and public versions are separate topic wiki roots inside that hub
+(`topics/<slug>/` and `topics/<slug>-PRIVATE/`; the layout and the `.gitignore`
+rule are in `wiki-structure.md` § Public And Private Topic Pairs). The private
+topic may contain personal goals, preferences, constraints, and source material
+that should not leak. `workshop` pairs with `workshop-PRIVATE`;
+`workshop-private` is legacy/noncanonical and should be migrated.
 
-Public material may be referenced from private work. What private material
-may reach a public file is governed by the next section; it is the single
-statement of that rule.
+Public material may be referenced from private work; what private material
+may reach a public file is the next section's rule.
 
 ## Private Data Boundary: Read Freely, Write-Guard
 
-This is the one hard privacy rule for public/private topic pairs. Commands,
-references, and workflows that touch both sides cite this heading instead of
-restating it.
-
-**Private material** is anything under a `-PRIVATE` topic root (its `raw/`,
-`wiki/`, `inventory/`, `output/`, `log.md`, sessions, and inbox), any
-`goals.md`, private inventory records, private inbox or raw source files, and
-private adapter or specialist allowlists.
-
-**Reading is free.** When a `-PRIVATE` topic is accessible, any workflow may
-read it for context: sibling index peeks, `--with <wiki>`, `--wiki all`, hub
-status, portfolio views, query auto-selection, and plan context assembly may
-all include private topics. Reading private material never needs a flag.
-
-**Writing is guarded.** Before writing into a public (non-`-PRIVATE`) topic or
-producing a public output (exported files, checkpoints, `output/` artifacts,
-promoted notes, compiled public articles), apply the write-guard:
-
-1. Trace every fact, citation, link, and `source:`/`sources:` entry that came
-   from private material. Each one is either dropped from the public write, or
-   the write target moves to the private sibling (`<slug>-PRIVATE`).
-2. Public files must not contain `-PRIVATE` path strings, `source:`/`sources:`
-   entries pointing into a private topic, private goals, private inventory, or
-   private source files. There is no "redacted enough" middle ground inside a
-   public file: the whole derived item moves or goes.
-3. When a public workflow used private context, say so in the response and
-   append the note to `log.md` of the private sibling, never to the public
-   `log.md` or any other public file.
-
-An explicit private-to-public publication pass requested by the user is a
-deliberate, reviewed copy, not an exception to the write-guard. The checkpoint
-privacy scanner (`llm-wiki checkpoint seal`) is the deterministic backstop for
-`-PRIVATE` path strings; everything else relies on this rule.
-
-**Privacy scan.** `llm-wiki privacy scan` runs the checkpoint pattern pack over
-tracked text files plus `--check cross-boundary`: a public file whose link,
-reference, wiki-link, `source:` value, inventory path or symlink resolves (`realpath`) into
-a `*-PRIVATE/` directory or private registry topic, or a `goals.md` named from
-`output/`, is critical; `checkpoint seal` runs it too. `--check tracked-private`
-reports tracked `*-PRIVATE/` paths. Options: `references/cli.md`.
+The rule lives in [`private-boundary.md`](private-boundary.md). It is the
+single statement of the private-data rule; cite that file, do not restate it.
 
 ## Inbox-First Source Lifecycle
 
@@ -129,11 +87,11 @@ because they are produced by the hub's own tooling from session data it already
 holds: the live session for `wiki ll`, and digests and candidates captured under
 `HUB/.sessions/` for the two promote commands. A promoted note's `source:` is
 the `HUB/`-relative path of its session artifact, a `wiki ll` note uses
-`source: session`, and neither copies a raw transcript. The Private Data Boundary
-write-guard still applies to all three: private material never lands in a
-public topic's note, and the two promote commands refuse a target slug that does
-not end in `-PRIVATE` unless `--allow-public` is passed, which also drops machine
-identity from the note. Every other path into `raw/` goes through `inbox/`.
+`source: session`, and neither copies a raw transcript. The write-guard in
+[`private-boundary.md`](private-boundary.md) still applies to all three:
+private material never lands in a public topic's note, and the two promote
+commands refuse a target slug that does not end in `-PRIVATE` unless
+`--allow-public` is passed, which also drops machine identity from the note. Every other path into `raw/` goes through `inbox/`.
 
 ## Brownfield Projects
 
@@ -231,7 +189,7 @@ current decisions in private context only:
 Research, planning, output generation, audit, and assessment should consult the
 private goal context when operating in a private topic wiki. Public topic
 operations may read private goals for context; what reaches public files is
-governed by § Private Data Boundary: Read Freely, Write-Guard above.
+governed by [`private-boundary.md`](private-boundary.md).
 
 When goals affect a recommendation, say so in the reasoning. When a factual
 claim needs evidence, cite raw/wiki sources rather than private goals.

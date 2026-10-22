@@ -37,7 +37,7 @@ llm-wiki-session disable   # turns capture off again
 
 You can also leave the hooks untrusted. The `@knowmade` skill works either way. See
 the [Session Memory section of the README](README.md#session-memory) and
-[`sessions.md`](claude-plugin/skills/knowmade/references/sessions.md).
+[`session-hooks.md`](claude-plugin/skills/knowmade/references/session-hooks.md).
 
 ## New empty knowledge base
 

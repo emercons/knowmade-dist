@@ -10,9 +10,15 @@ Manage Knowmade session context. Session context is operational memory for agent
 sessions, not canonical topic knowledge. Use `HUB/.sessions/` as the canonical
 store and promote only explicit distilled learnings into topic `raw/notes/`.
 
-First read `references/sessions.md`, then resolve HUB by the standard hub
-resolution protocol from `references/hub-resolution.md`. If a deterministic
-helper is available, prefer it.
+First read `references/sessions.md`, then resolve HUB (sessions live under
+`HUB/.sessions/`; no topic wiki is needed until `promote`) by a few file reads,
+never `find` or a filesystem scan:
+
+<!-- hub-only-prelude:start -->
+HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
+<!-- hub-only-prelude:end -->
+
+If a deterministic helper is available, prefer it.
 
 Locate the helper once: use `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki-session"` in
 Claude Code, or `scripts/llm-wiki-session` in a source checkout, and call it
@@ -24,6 +30,20 @@ Claude Code, or `scripts/llm-wiki-session` in a source checkout, and call it
 
 If the helper is not available, perform the equivalent file operations described
 in `references/sessions.md`.
+
+### If HUB does not resolve, or the request is `promote`
+
+Read `skills/knowmade/references/hub-resolution.md`: § Resolve HUB (config edge
+cases, the missing-config question) when HUB does not resolve; for `promote`,
+§ Archived entries: reject a `--topic` whose `wikis.json` entry is
+`status: archived` or lives under `topics/.archive/` (the helper does not check
+this).
+
+### If the request is about hook adapters
+
+Read `skills/knowmade/references/session-hooks.md`: the `llm-wiki-session hook`
+adapter contract, what the six Codex hooks do, Codex hook packaging, and the
+Claude, OpenCode and Gemini adapters.
 
 ### Parse $ARGUMENTS
 
@@ -46,9 +66,9 @@ context block that the harness should read before continuing.
 transcripts. A target slug that does not end in `-PRIVATE` is refused unless
 `--allow-public` is passed; with it, the machine-identity rows (CWD, transcript
 pointer, git remote) and their literal values are scrubbed from the note.
-  Promotion writes `raw/notes/` without an `inbox/` item: that is the
-  session-distillate exception in `skills/knowmade/references/knowmade-profile.md`
-  (Inbox-First Source Lifecycle), and the write-guard still applies.
+  Promotion writes `raw/notes/` without an `inbox/` item (the session-distillate
+  exception to inbox-first intake, cited in `sessions.md` § Purpose), and the
+  write-guard still applies.
 
 ### Policy
 
@@ -100,4 +120,4 @@ Write-guard on promote: a digest may mention `-PRIVATE` topics, private goals,
 or private files; when `--topic <slug>` is a public, non-`-PRIVATE` topic,
 strip every such item from the promotion note (or promote into
 `<slug>-PRIVATE` instead) so the note and the public `log.md` carry no
-`-PRIVATE` path string or private-derived content; see `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+`-PRIVATE` path string or private-derived content; see `skills/knowmade/references/private-boundary.md`.

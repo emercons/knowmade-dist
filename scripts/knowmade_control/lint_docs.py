@@ -459,7 +459,7 @@ def check_frontmatter_schema(ctx: LintContext) -> None:
 
 
 # --- C13: legacy frontmatter aliases -----------------------------------------
-# The alias tables of references/linting.md ("Alias tables (C13)"): append-only,
+# The alias tables of references/lint-rules.md ("Alias tables (C13)"): append-only,
 # never remove an entry. An entry lands here and in that reference together.
 #   KEY_ALIASES    old_key -> canonical_key
 #   VALUE_ALIASES  canonical_key -> {old_value: canonical_value}

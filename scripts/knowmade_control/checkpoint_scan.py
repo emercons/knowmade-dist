@@ -25,7 +25,7 @@ from . import redaction as _redaction
 #    `/mnt/c/Users/x`, `D:/x`, `/d/x`).
 # 3: private-topic-path flags `-PRIVATE` topic path segments
 #    (`topics/x-PRIVATE/...`), the deterministic backstop for the
-#    knowmade-profile.md "Private Data Boundary" write-guard.
+#    private-boundary.md write-guard.
 # 4: the patterns moved to the shared table in redaction.py (#94).
 #    secret-known-token adds `github_pat_`, `ASIA` (STS), `sk_live_`/
 #    `sk_test_`/`rk_`, `glpat-` and `npm_` tokens; local-machine-path adds

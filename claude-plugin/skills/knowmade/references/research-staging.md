@@ -57,7 +57,7 @@ The capture is the intake trace. The coordinator, not the stager, produces the s
 
 1. Phase 2b scores the capture and writes `credibility_score`/`credibility_tier` into it.
 2. Selected captures are processed exactly like an inbox item in `wiki ingest --inbox`: read, detect `type`, extract, summarize, tag.
-3. Write `raw/<type>/...` with the standard raw frontmatter plus `inbox_item`, `research_query`, `research_agent`, `research_session` (when present), `credibility_score`, `credibility_tier`. These keys are listed as canonical optional raw-source keys in `linting.md` C13.
+3. Write `raw/<type>/...` with the standard raw frontmatter plus `inbox_item`, `research_query`, `research_agent`, `research_session` (when present), `credibility_score`, `credibility_tier`. These keys are listed as canonical optional raw-source keys in `lint-rules.md` § Alias tables (C13).
 4. Move the capture to `inbox/.processed/`. Skipped captures get `ingest_status`/`skip_reason` and move there too; a credible capture cut only by `--sources` may stay pending in `inbox/` and is reported.
 5. Update indexes best-effort (skipped in `--plan` mode; the Derived Index Protocol rebuilds them).
 

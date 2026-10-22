@@ -36,7 +36,7 @@ portable fallback.
    Auto-selection may pick a `-PRIVATE` topic when it is the best match.
    The answer must then label private facts as private and must not print
    `-PRIVATE` paths; cite such files relative to the topic root as
-   `private: wiki/...` (see `knowmade-profile.md` § Private Data Boundary).
+   `private: wiki/...` (see `private-boundary.md`).
 4. For a selected topic, read its `_index.md`, then only the relevant branch
    index: `wiki/_index.md`, `raw/_index.md`, `inventory/_index.md`,
    `datasets/_index.md`, or `output/_index.md`.

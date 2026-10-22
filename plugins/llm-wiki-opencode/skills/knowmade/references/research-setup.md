@@ -37,4 +37,4 @@ from `goals.md`, `config.md`, and high-priority inventory records when cheap.
 Use them to prioritize research paths and practical deliverables. Do not treat
 goals as factual evidence. A `-PRIVATE` sibling may also be read when
 researching a public topic; what reaches the public topic's `raw/`, `wiki/`,
-and `log.md` is governed by `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard, applied in Phases 4 and 5.
+and `log.md` is governed by `skills/knowmade/references/private-boundary.md`, applied in Phases 4 and 5.

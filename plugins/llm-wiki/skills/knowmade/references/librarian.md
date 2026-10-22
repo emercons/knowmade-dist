@@ -76,7 +76,7 @@ Range: 0 (completely stale) to 100 (perfectly fresh).
 
 ### `compiled-from: conversation` Exemption
 
-Articles whose evidence is the conversation that authored them — not fetchable raw files — set `compiled-from: conversation` in frontmatter (see `wiki-articles.md` § Wiki Article Format and `linting.md` C18). For these articles:
+Articles whose evidence is the conversation that authored them — not fetchable raw files — set `compiled-from: conversation` in frontmatter (see `wiki-articles.md` § Wiki Article Format and `lint-rules.md` C18). For these articles:
 
 - Skip the **source freshness** dimension (no `sources:` to age) — set its contribution to 0 of 0 (excluded, not zero-of-25).
 - Skip the **source chain integrity** dimension (no `sources:` to resolve) — set its contribution to 0 of 0.

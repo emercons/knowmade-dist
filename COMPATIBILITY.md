@@ -276,6 +276,116 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.14.0.25.1 — Sprint O: the prelude floor and the small-tier context diet
+
+- Agent spec only, no CLI or corpus change: the rule "Private Data Boundary:
+  Read Freely, Write-Guard" moved out of `references/knowmade-profile.md`
+  (11.6 KB, of which the stamped hub-resolution prelude needed only this one
+  section) into its own 2.5 KB `references/private-boundary.md`, still the
+  single statement of the rule. The profile keeps the heading with a pointer.
+  The prelude template item 3 now names `private-boundary.md` instead of
+  `knowmade-profile.md § Private Data Boundary`, so every stamped command
+  reads the small file; every other citation of the section (command bodies,
+  `feedback.md`, `output-protocol.md`, `plan-protocol.md`, `principles.md`,
+  `query-lite.md`, `refresh-protocol.md`, `research-setup.md`,
+  `hub-resolution.md`, `SKILL.md`, and comments in `inbox.py` and
+  `checkpoint_scan.py`) was repointed. `ingest` and `ingest-collection` now
+  name `private-boundary.md` and read only § Inbox-First Source Lifecycle
+  from the profile. First read (tokens, gate ceilings unchanged):
+  `query` 4,598 to 2,303; `project` 7,468 to 5,168 (worst path 9,764 to
+  7,463); `dataset` 10,420 to 8,120; `audit` 9,969 to 7,668; `checkpoint`
+  9,286 to 6,978; `compile` 19,490 to 17,177; `ingest` 11,998 to 9,696. Two
+  commands grew slightly because they now read the small file next to the
+  profile: `session` 10,788 to 10,817 and `ingest-collection` 19,590 to
+  19,630 (both under their ceilings). Baselines regenerated with
+  `--rebaseline`.
+- Agent spec only, no CLI or corpus change: the small tier's three commands
+  still above 75% of their ceiling after the first bullet were cut. (1) The
+  detection catalogue of `references/linting.md` moved to the new
+  `references/lint-rules.md`: the full rules table (every column, including
+  the 7 KB "CLI detects" prose), the placement map (C11), the alias tables
+  (C13, with the canonical optional raw keys) and the maintenance rationale.
+  `linting.md` keeps what the `lint` command runs on (CLI call, fix classes,
+  severity, § Whole-tree checks, § C8c, semantic passes, fix review, report) and
+  a compact rules table `Check | Sev | Fix | Agent` whose cells are the
+  catalogue's, checked by `tests/test-docs-consistency.sh`. `lint` does not
+  name `lint-rules.md`; `compile` names it instead of `linting.md` for its
+  C11/C12/C13 placement step. (2) `specialist` and `session` need HUB only, so
+  both carry a stamped hub-only block (`hub-only-prelude` markers) and name
+  `hub-resolution.md` only in an `### If HUB does not resolve` branch
+  (`specialist`: also for topic resolution in `apply` and `suggest`; `session`:
+  also for `promote`, whose branch states that a `--topic` that is archived
+  (`status: archived` or under `topics/.archive/`) is rejected, because the
+  helper does not check it). The hub-only block is not a second literal:
+  `scripts/sync-command-prelude.py` derives it from item 1 of the full prelude
+  template in `hub-resolution.md` (leading `1. ` removed), so the HUB rule,
+  including "with no config use `$HOME/wiki`", stays one statement and
+  `--check` pins both kinds (`--list` prints each command's kind; a file
+  carries one kind, never both). (3) `sessions.md` § Hook Adapter Contract,
+  § What the Codex hooks do, § Codex Hook Packaging and § Claude/OpenCode/Gemini
+  Adapters moved verbatim to the new `references/session-hooks.md`, which
+  `session` names only in an `### If the request is about hook adapters` branch;
+  `sessions.md` keeps a pointer. `session` no longer names
+  `knowmade-profile.md`: the session-distillate exception stays stated once
+  in the profile, with the pointer in `sessions.md` § Purpose, and `session.md`
+  says only what it permits. Citations repointed: `compile`, `feedback`,
+  `research-staging.md`, `librarian.md`, `projects.md`, `skill-workflows.md`,
+  `AGENTS.md`, README, FIRST_RUN, `BACKLOG.md`, and comments in `lint_docs.py`,
+  `lint_report.py`, `rule_lint.py` and the defect manifest.
+  Tokens, first read before to after (worst path before to after), ceilings
+  unchanged: `lint` 5,318 to 3,131 (worst path the same); `compile` 17,177 to
+  16,210 (same); `specialist` 5,288 to 2,803 (5,288 to 5,517); `session`
+  10,799 to 4,829 (10,799 to 7,542). `feedback` worst path grew 4,727 to 4,914
+  because its "hooks do not capture" branch now also reads `session-hooks.md`.
+  The sentence documenting the hub-only block in `hub-resolution.md` costs
+  every command that names it about 17 tokens. Not 75% yet: `specialist` worst
+  path, 5,517 of 6,000 (92%), up from 88%. The branch that sets it reads the
+  whole 10.9 KB `hub-resolution.md`; no tier or ceiling moved, and getting
+  below 75% needs that reference split, which is a separate change.
+- Agent spec only, no CLI or corpus change: `references/hub-resolution.md`
+  (10,853 to 8,080 bytes) now carries only the resolution protocol. The
+  inventory of missing-wiki variants A to E moved to `DESIGN.md` § Missing-wiki
+  variants (section 3, after "Canonical agent source", where a command-spec
+  author looks); the file keeps one sentence saying a command states its own
+  missing-wiki behaviour beside its block. The `-PRIVATE` sibling layout and
+  the `topics/**/*-PRIVATE/` ignore rule stay stated in `wiki-structure.md`
+  § Public And Private Topic Pairs (the lint repair in `archive.md`); the
+  private-topics section here and the matching `knowmade-profile.md` sentence
+  became pointers, and the goal-brief sentence points at
+  `knowmade-profile.md` § Goal-Directed Workflow. The archived-entries
+  paragraph keeps the rejection rule and points at principle 11 and the
+  `archive` command for the quiet-by-default list. The template prose shrank to
+  four lines (the template literals are unchanged, so no command was
+  restamped), the tilde-expansion shell snippet and the iCloud-path config
+  example were dropped (`SKILL.md` § Hub Path states the preferred config),
+  and the nine HUB steps were reworded without changing a rule. Repointed:
+  `SKILL.md` § Hub Path no longer lists wiki-requirement variants. Every
+  command that names the file drops 695 tokens from its first read (for
+  example `assess` 5,410 to 4,715, `audit` 7,685 to 6,990, `compile` 16,210 to
+  15,515, `wiki` 4,839 to 4,144; `ingest-collection` 741); `specialist` worst
+  path 5,517 to 4,820 (92% to 80%) and `session` worst path 7,542 to 6,847.
+  Ceilings unchanged, baselines regenerated with `--rebaseline`. Still above
+  75% of a tier: `specialist` worst path (80%), `adapter` (80%, untouched) and
+  `ingest-collection` (79%).
+
+- CLI, development tooling only; no corpus, protocol or packaging change:
+  `find_held_file()` in `scripts/bootstrap-codex-plugin.sh` (the diagnosis that
+  names the file a scanner holds when the cache-activation retry budget runs
+  out, #86) is one `python3 -I -X utf8` process instead of one `mv` per file:
+  it collects the files of every cache root (`plugin-install-*`,
+  `plugin-backup-*`, the entry), tries every `.codex-plugin/plugin.json` first
+  and then the rest, and prints the first whose rename raises
+  `PermissionError` (Windows error 5 or 32). On a 118-file cache that is 0.3 to
+  0.4 s instead of 7.7 s. Retry semantics are unchanged
+  (`KNOWMADE_CODEX_CACHE_RETRY_SECONDS=0` still means no retry, exhaustion
+  still exits 75); every `python3` call in the bootstrap and in
+  `scripts/lib/codex-config.sh` now runs as `python3 -I -X utf8`.
+  `tests/test-codex-runtime.sh` holds the staged `plugin.json` files of its
+  exhausted-budget case until the bootstrap has returned, so the 1 s budget
+  always runs out regardless of load (a fixed 4 s hold let go before the
+  probe ran, #208); exit 75 must name a `plugin.json`, and an exit 0 after the
+  scanner held a file fails the test on Windows.
+
 ### v0.13.0.25.1 — Sprint N: the command context diet and the lazy CLI
 
 - Agent spec only, no CLI or corpus change: the rare `wiki` branches (the
@@ -321,7 +431,7 @@ release commit tags it; the version is then added to the heading.
   surface: the rule set stays `rules/3`; no check is added, the existing C13
   `warning` now has entries. `KEY_ALIASES` is `compiled_from -> compiled-from`
   and `VALUE_ALIASES` is `category: references -> reference`
-  (`lint_docs.py`, `references/linting.md` § Alias tables, append-only).
+  (`lint_docs.py`, `references/lint-rules.md` § Alias tables, append-only).
   `lint` now reports a `compiled_from` key (previously nothing) and a
   `category: references` value (previously only the C2 critical "Invalid
   category", which stays until the value is fixed) as C13 warnings, fixable in

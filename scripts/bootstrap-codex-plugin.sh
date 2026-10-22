@@ -130,7 +130,7 @@ USER_CONFIG="$USER_HOME/.codex/config.toml"
 PLUGIN_CACHE_ROOT="$USER_HOME/.codex/plugins/cache/$MARKETPLACE_NAME"
 PLUGIN_CACHE_ENTRY="$PLUGIN_CACHE_ROOT/$PLUGIN_NAME"
 
-MANAGED_BLOCK="$(python3 - "$PLUGIN_KEY" <<'PY'
+MANAGED_BLOCK="$(python3 -I -X utf8 - "$PLUGIN_KEY" <<'PY'
 import sys
 
 plugin_key = sys.argv[1]
@@ -233,21 +233,76 @@ is_cache_replace_error() {
 # the entry. Windows refuses to rename a file another process holds open, so a
 # rename to a probe name and back identifies it; on POSIX nothing is ever held
 # and nothing is reported. Prints the first held path and succeeds, or fails.
+# The probe is one Python process, not one `mv` per file: a spawn costs 0.2-0.3 s
+# on Windows and more under load, the packaged plugin is over a hundred files
+# (twice that with a back-up beside it), and a scanner that lets go after a few
+# seconds would be gone before a spawn-per-file loop reached its file (knowmade#208).
+# The files a scanner or indexer opens first, .codex-plugin/plugin.json of any
+# root, are probed before all other files, so even a slow probe names the likely
+# file first.
 find_held_file() {
-  local root candidate probe
-  for root in "$PLUGIN_CACHE_ROOT"/plugin-install-* "$PLUGIN_CACHE_ROOT"/plugin-backup-* "$PLUGIN_CACHE_ENTRY"; do
-    [[ -d "$root" ]] || continue
-    while IFS= read -r candidate; do
-      probe="$candidate.knowmade-probe"
-      if mv -- "$candidate" "$probe" 2>/dev/null; then
-        mv -- "$probe" "$candidate" 2>/dev/null || true
-      else
-        printf '%s\n' "$candidate"
-        return 0
-      fi
-    done < <(find "$root" -type f 2>/dev/null | head -n 2000)
-  done
-  return 1
+  local native_root held
+  native_root="$PLUGIN_CACHE_ROOT"
+  if command -v cygpath >/dev/null 2>&1; then
+    native_root="$(cygpath -w "$PLUGIN_CACHE_ROOT")"
+  fi
+  held="$(python3 -I -X utf8 - "$native_root" "$PLUGIN_NAME" <<'PY'
+import glob
+import os
+import sys
+
+cache_root, plugin_name = sys.argv[1], sys.argv[2]
+LIMIT = 2000  # files per root, as the old find | head did
+pattern_root = glob.escape(cache_root)
+roots = sorted(glob.glob(os.path.join(pattern_root, "plugin-install-*")))
+roots += sorted(glob.glob(os.path.join(pattern_root, "plugin-backup-*")))
+roots.append(os.path.join(cache_root, plugin_name))
+
+
+def files_under(root):
+    found = []
+    for directory, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(directory, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                found.append(path)
+                if len(found) >= LIMIT:
+                    return found
+    return found
+
+
+def is_hot(path):
+    return os.path.basename(path) == "plugin.json" and os.path.basename(os.path.dirname(path)) == ".codex-plugin"
+
+
+def held(path):
+    probe = path + ".knowmade-probe"
+    try:
+        os.rename(path, probe)
+    except PermissionError:
+        return True
+    except OSError as exc:
+        return getattr(exc, "winerror", None) in (5, 32)
+    try:
+        os.rename(probe, path)
+    except OSError as exc:
+        print(f"warning: could not rename the probe back; {probe} was left behind ({exc})", file=sys.stderr)
+    return False
+
+
+candidates = []
+for root in roots:
+    if os.path.isdir(root):
+        candidates += files_under(root)
+for path in [p for p in candidates if is_hot(p)] + [p for p in candidates if not is_hot(p)]:
+    if held(path):
+        print(path)
+        sys.exit(0)
+sys.exit(1)
+PY
+)" || return 1
+  [[ -n "$held" ]] || return 1
+  printf '%s\n' "$held"
 }
 
 # codex_plugin_add <codex plugin add arguments...>: run the install, retrying
@@ -280,12 +335,13 @@ codex_plugin_add() {
       return "$status"
     fi
     if [[ "$waited" -ge "$CACHE_RETRY_SECONDS" ]]; then
+      held="$(find_held_file)" || held=""
       rm -f "$err_file"
       [[ -z "$output" ]] || printf '%s\n' "$output" >&2
       printf '%s\n' "$errors" >&2
       echo "Codex could not replace the installed plugin cache entry after $attempt attempt(s) and ${waited}s of retrying:" >&2
       echo "  $PLUGIN_CACHE_ENTRY" >&2
-      if held="$(find_held_file)"; then
+      if [[ -n "$held" ]]; then
         echo "A file under the plugin cache is held open by another process (virus scanner, search indexer, editor, a running Codex):" >&2
         echo "  $held" >&2
       else
@@ -341,10 +397,10 @@ done
 # block. Marketplace registration alone does not install the plugin.
 if grep -q -- '--json' <<<"$PLUGIN_ADD_HELP"; then
   INSTALL_OUTPUT="$(codex_plugin_add --json "$PLUGIN_KEY")"
-  INSTALLED_PATH="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["installedPath"])' <<<"$INSTALL_OUTPUT")"
+  INSTALLED_PATH="$(python3 -I -X utf8 -c 'import json, sys; print(json.load(sys.stdin)["installedPath"])' <<<"$INSTALL_OUTPUT")"
 else
   codex_plugin_add "$PLUGIN_KEY"
-  INSTALLED_VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/plugins/llm-wiki/.codex-plugin/plugin.json")"
+  INSTALLED_VERSION="$(python3 -I -X utf8 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/plugins/llm-wiki/.codex-plugin/plugin.json")"
   INSTALLED_PATH="$PLUGIN_CACHE_ENTRY/$INSTALLED_VERSION"
 fi
 TARGET="$USER_CONFIG"

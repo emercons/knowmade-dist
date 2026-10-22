@@ -23,7 +23,7 @@ or append to `log.md`.
 - `--tag` and `--category`: constrain candidate selection.
 - `--with <wiki>`: use an active supplementary wiki as secondary context.
   A `--with` or auto-selected `-PRIVATE` topic may be read; see
-  `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+  `skills/knowmade/references/private-boundary.md`.
 - `--wiki <name>` and `--local`: select the primary wiki.
 
 ## Depth

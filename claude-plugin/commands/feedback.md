@@ -50,7 +50,7 @@ Claude Code, or `scripts/llm-wiki-session` in a source checkout, and call it
 
 ### If promote
 
-A target slug that does not end in `-PRIVATE` is refused unless `--allow-public` is passed. Read `skills/knowmade/references/feedback.md` § Promotion (storage, the session-distillate exception, the write-guard on public topics, reporting) and the write-guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary before writing.
+A target slug that does not end in `-PRIVATE` is refused unless `--allow-public` is passed. Read `skills/knowmade/references/feedback.md` § Promotion (storage, the session-distillate exception, the write-guard on public topics, reporting) and the write-guard in `skills/knowmade/references/private-boundary.md` before writing.
 
 ### If the hub cannot be resolved or the helper cannot run
 
@@ -58,4 +58,4 @@ Resolve HUB by the standard protocol in `skills/knowmade/references/hub-resoluti
 
 ### If a candidate is missing or looks wrong, or hooks do not capture
 
-Read `skills/knowmade/references/sessions.md` (storage layout, config modes, hook adapters; § Feedback Candidates for the weak-trigger rule).
+Read `skills/knowmade/references/sessions.md` (storage layout, config modes; § Feedback Candidates for the weak-trigger rule) and, for hooks that do not capture, `skills/knowmade/references/session-hooks.md` (hook adapters).

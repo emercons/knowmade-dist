@@ -10,11 +10,11 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/private-boundary.md`.
 <!-- hub-prelude:end -->
 4. Read `<wiki>/_index.md` to verify. If missing and `--new-topic <name>` is set → create the topic wiki (branch below). If missing and no `--new-topic` → stop with "No wiki found. Use `--new-topic <name>` to create one, or run `/knowmade:wiki init` first."
 
-Read the ingestion protocol at `skills/knowmade/references/ingestion.md` (source types, URL, file, PDF and text ingestion, inbox processing, slugs, index updates), and from the Knowmade profile only § Private Data Boundary: Read Freely, Write-Guard and § Inbox-First Source Lifecycle (including its exception). Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
+Read the ingestion protocol at `skills/knowmade/references/ingestion.md` (source types, URL, file, PDF and text ingestion, inbox processing, slugs, index updates), `skills/knowmade/references/private-boundary.md`, and from the Knowmade profile only § Inbox-First Source Lifecycle (including its exception). Then ingest source material. New source material must be staged in or discovered from `inbox/`; `raw/` receives the processed extraction artifact after the agent has parsed the source.
 
 ### Writing `raw/` (CLI)
 

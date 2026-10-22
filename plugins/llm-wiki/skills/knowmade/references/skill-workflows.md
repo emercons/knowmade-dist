@@ -129,7 +129,7 @@ Flow: Survey uncompiled sources → plan articles → classify (concept/topic/re
 Flow: Read `_index.md` → identify relevant articles by summary/tag → read articles → follow See Also links → Grep for additional matches → synthesize answer with citations → note gaps → peek active sibling wikis. Supports `--resume` to reload context after a session break — reads session files, recent log entries, wiki stats, and last-updated articles to produce a "where you left off" briefing. Deep queries may peek archived sibling indexes in a separate Archived Matches section; full archived reads require explicit user intent.
 
 ### Linting
-See [references/linting.md](linting.md).
+See [references/linting.md](linting.md); the check catalogue is [references/lint-rules.md](lint-rules.md).
 Flow: run `llm-wiki lint --json` (structure, indexes, links, provenance, placement, registry) → agent passes for coverage, freshness and the rows marked `agent` → report → optionally `--fix`. Default lint keeps active material healthy and reports archived topics as skipped. Use `--wiki <slug> --include-archived` per archived slug for explicit archived structural maintenance (the command's `--archived-only` does that for all of them; it is not a CLI flag).
 
 ### Librarian
@@ -235,7 +235,7 @@ Automatically run a quick structural check when any of these triggers occur:
 
 ### Quick Structure Check (lightweight, runs inline — not a full lint)
 
-1. **Hub integrity**: The hub (HUB) should contain `wikis.json`, `_index.md`, `log.md`, `topics/`, optional `.sessions/`, optional `inbox/` for global intake, and optional `.skills/`. Validate `.skills/` against the instruction-only package and active-topic allowlist contract. If `raw/`, `wiki/`, `inventory/`, `datasets/`, `output/`, or `config.md` exist at the hub level → **warn, do not delete**. These may hold user data from an older wiki layout. Suggest `/knowmade:lint --fix`, which will move contents to the appropriate topic wiki, repair archive registry drift, or quarantine to a topic `inbox/.unknown/` per C11/C12/C16/C17/C19 in `references/linting.md`.
+1. **Hub integrity**: The hub (HUB) should contain `wikis.json`, `_index.md`, `log.md`, `topics/`, optional `.sessions/`, optional `inbox/` for global intake, and optional `.skills/`. Validate `.skills/` against the instruction-only package and active-topic allowlist contract. If `raw/`, `wiki/`, `inventory/`, `datasets/`, `output/`, or `config.md` exist at the hub level → **warn, do not delete**. These may hold user data from an older wiki layout. Suggest `/knowmade:lint --fix`, which will move contents to the appropriate topic wiki, repair archive registry drift, or quarantine to a topic `inbox/.unknown/` per C11/C12/C16/C17/C19 in `references/lint-rules.md`.
 
 2. **Index freshness**: For the active topic wiki, compare actual file counts in `raw/`, `wiki/`, `inventory/`, and `datasets/` subdirectories against the rows in their `_index.md`. Ignore maintenance/report areas such as `.librarian/` and `.audit/`. If mismatched → auto-fix with `llm-wiki index rebuild` (check first with `llm-wiki index check`); only if the CLI is unavailable, regenerate the affected directory index from frontmatter and remove dead entries by hand.
 
@@ -295,5 +295,6 @@ Automated Codex/Claude/OpenCode/Gemini session capture uses `HUB/.sessions/`
 redacted hook events, state JSON, derived indexes, and markdown session digests.
 It is not topic evidence until explicitly promoted.
 
-See `references/sessions.md` for the storage layout, config modes, hook adapter
-contract, rehydration behavior, and promotion rules.
+See `references/sessions.md` for the storage layout, config modes, rehydration
+behavior, and promotion rules, and `references/session-hooks.md` for the hook
+adapter contract.

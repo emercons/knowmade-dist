@@ -15,7 +15,7 @@ Private goals awareness: when planning from a private topic wiki, read relevant
 context. Use them to choose tradeoffs and sequencing. They are not factual
 evidence; factual claims still need wiki/raw citations. Private siblings and
 `--with` wikis may be read freely; what a plan saved into a public topic may
-contain is governed by `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard and enforced in Stage 6.
+contain is governed by `skills/knowmade/references/private-boundary.md` and enforced in Stage 6.
 
 Inventory awareness: use active inventory records as planning constraints when
 they are relevant to the goal, especially blocked tasks, candidate corpora,
@@ -216,7 +216,7 @@ Technical specification:
 
 ## Stage 6: Save & Log
 
-0. **Write-guard (mandatory when the target wiki is a public, non-`-PRIVATE` topic)**: apply `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard to the generated plan before saving. Every decision, risk row, phase grounding, and `Sources Consulted` entry traced to a `-PRIVATE` sibling, `--with` wiki, `goals.md`, or private inventory is either dropped or the plan is saved under `<slug>-PRIVATE/output/` instead; the saved file contains no `-PRIVATE` path string and no `sources:` entry into a private topic; if private context shaped the plan, say so in the Report and log it in the private sibling's `log.md`, not the public one.
+0. **Write-guard (mandatory when the target wiki is a public, non-`-PRIVATE` topic)**: apply `skills/knowmade/references/private-boundary.md` to the generated plan before saving. Every decision, risk row, phase grounding, and `Sources Consulted` entry traced to a `-PRIVATE` sibling, `--with` wiki, `goals.md`, or private inventory is either dropped or the plan is saved under `<slug>-PRIVATE/output/` instead; the saved file contains no `-PRIVATE` path string and no `sources:` entry into a private topic; if private context shaped the plan, say so in the Report and log it in the private sibling's `log.md`, not the public one.
 
 1. **Save** to `output/plan-{slug}-{YYYY-MM-DD}.md`. Follow core principle #9 (chunked writes): Write the frontmatter + executive summary first, then use sequential Edit calls to append each phase/section. With frontmatter:
    ```

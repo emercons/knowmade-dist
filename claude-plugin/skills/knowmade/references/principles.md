@@ -26,7 +26,7 @@ exception and write `raw/notes/` directly (`knowmade-profile.md`).
 
 8. **Honest gaps.** When answering questions, if the wiki doesn't have the answer, say so. Never hallucinate. Suggest what to ingest to fill the gap.
 
-9. **Multi-wiki awareness.** When querying, answer from the primary wiki first. Then peek at sibling wiki indexes (via `HUB/wikis.json`) for relevant overlap, `-PRIVATE` siblings included (write-guard: `references/knowmade-profile.md` § Private Data Boundary). Flag connections but never merge content across wikis.
+9. **Multi-wiki awareness.** When querying, answer from the primary wiki first. Then peek at sibling wiki indexes (via `HUB/wikis.json`) for relevant overlap, `-PRIVATE` siblings included (write-guard: `references/private-boundary.md`). Flag connections but never merge content across wikis.
 
 10. **Chunk large writes.** Never create files longer than ~200 lines in a single Write call — the API stream idles during large generations, causing timeout errors. Write the skeleton (frontmatter + headers + first section) first, then use sequential Edit calls to append remaining sections. For plans, articles, and raw notes: write one section per tool call.
 
@@ -52,8 +52,7 @@ research, Ideas, portfolio choices, planning, output, audit, assessment, and
 implementation support. Keep a short goal brief in context. Goals guide
 relevance but are not factual evidence and must not leak into public topics.
 Reading a `-PRIVATE` sibling is always allowed; the write-guard in
-`references/knowmade-profile.md` § Private Data Boundary: Read Freely,
-Write-Guard governs what reaches public files.
+`references/private-boundary.md` governs what reaches public files.
 
 15. **One human inbox, many topic workers.** `HUB/inbox/` is a shallow staging
 queue. A dispatcher classifies items by subject and privacy, routes them to one

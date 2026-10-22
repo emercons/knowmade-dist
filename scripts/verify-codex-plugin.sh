@@ -73,7 +73,7 @@ SKILL_NAME="$PLUGIN_NAME"
 QUERY_SKILL_NAME="${PLUGIN_NAME}-query"
 SOURCE_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/$SKILL_NAME/SKILL.md"
 SOURCE_QUERY_SKILL_PATH="$SOURCE_PLUGIN_ROOT/skills/$QUERY_SKILL_NAME/SKILL.md"
-EXPECTED_VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$SOURCE_PLUGIN_ROOT/.codex-plugin/plugin.json")"
+EXPECTED_VERSION="$(python3 -I -X utf8 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$SOURCE_PLUGIN_ROOT/.codex-plugin/plugin.json")"
 TMP_OUTPUT="$(mktemp)"
 TMP_LIST="$(mktemp)"
 USER_CONFIG="$USER_HOME/.codex/config.toml"
@@ -183,7 +183,7 @@ fi
 # enabled plugin of the same name adds its own line; the check below looks for
 # this checkout's install among them instead of trusting whichever Codex
 # happens to list last (knowmade#124).
-ACTUAL_SKILL_PATHS="$(python3 - "$TMP_OUTPUT" "$PLUGIN_NAME" "$SKILL_NAME" <<'PY'
+ACTUAL_SKILL_PATHS="$(python3 -I -X utf8 - "$TMP_OUTPUT" "$PLUGIN_NAME" "$SKILL_NAME" <<'PY'
 import json
 import re
 import sys
@@ -284,7 +284,7 @@ for legacy_key in $LEGACY_PLUGIN_KEYS; do
   fi
 done
 
-if ! python3 - "$EXPECTED_CACHE_QUERY_SKILL" "$SOURCE_QUERY_SKILL_PATH" <<'PY'
+if ! python3 -I -X utf8 - "$EXPECTED_CACHE_QUERY_SKILL" "$SOURCE_QUERY_SKILL_PATH" <<'PY'
 import sys
 from pathlib import Path
 

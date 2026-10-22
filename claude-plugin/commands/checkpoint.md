@@ -75,7 +75,7 @@ Write-guard for `team` and `public` audiences: inputs may be read from a
 `-PRIVATE` topic, but nothing derived from one enters the bundle unless it is
 re-sourced from public material, and no bundle file contains a `-PRIVATE`
 path string; `seal` flags `-PRIVATE` path segments deterministically
-(`private-topic-path`). See `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+(`private-topic-path`). See `skills/knowmade/references/private-boundary.md`.
 
 ### Preview
 

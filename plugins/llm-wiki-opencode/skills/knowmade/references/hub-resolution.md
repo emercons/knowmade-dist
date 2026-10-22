@@ -1,74 +1,62 @@
 # Hub And Wiki Resolution
 
-This is the one hub/wiki resolution protocol. Every other copy is either a
-pointer to this file or the stamped command prelude below, which is generated
-from it. Change the protocol here and in the template; never edit a stamped
-block by hand. Commands that delegate resolution to the `llm-wiki` CLI (`lint`,
-`archive`, and `wiki` init/status/config) carry no block; the CLI implements this
-protocol, and these steps are their CLI-unavailable fallback.
+This is the one hub/wiki resolution protocol; every other copy is a pointer to
+it or the stamped command prelude generated from it. Commands that delegate
+resolution to the `llm-wiki` CLI (`lint`, `archive`, and `wiki`
+init/status/config) carry no block; the CLI implements this protocol, and these
+steps are their CLI-unavailable fallback.
 
 ## Command prelude template
 
-Commands that need a wiki carry this block between `hub-prelude:start` and
-`hub-prelude:end` markers. `scripts/sync-command-prelude.py` (run by both plugin
-sync scripts) rewrites every marked block from the template below, and
-`tests/test-plugin-validate.sh` fails when a block differs. The block is
-deliberately short: the common case needs no reference read.
+`hub-prelude:start`/`end` markers in a command hold this block; `hub-only-prelude`
+markers (`session`, `specialist`) hold item 1 alone. `scripts/sync-command-prelude.py`
+stamps both from the template below and `tests/test-plugin-validate.sh` fails on
+drift: never hand-edit a stamped block.
 
 <!-- hub-prelude-template:start -->
 **Resolve the wiki.** A few file reads, not a search: never `find`, Explore, or scan the filesystem. Full protocol and edge cases: `skills/knowmade/references/hub-resolution.md`.
 1. HUB: `$LLM_WIKI_HUB` or read `$HOME/.config/llm-wiki/config.json` and use `hub_path` (expand only a leading `~`); `resolved_path` is a fallback cache; with no config use `$HOME/wiki`. If the hub is stat-able but reads fail with `Operation not permitted`, stop and report the launcher permission denial.
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
-3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary.
+3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/private-boundary.md`.
 <!-- hub-prelude-template:end -->
 
-What a command does when the resolved wiki is missing is command-specific and
-stays in the command, next to the block (see Wiki-requirement variants).
+A command states its own missing-wiki behaviour beside its block; the inventory
+of variants is in `DESIGN.md` § Missing-wiki variants.
 
 ## Resolve HUB
 
-**Sequential file-read protocol. Do NOT use Explore agents, `find`, `ls -R`, or
-any filesystem search. Each step is a single Read. Most configured sessions
-resolve by step 3.**
+**Sequential file reads: no Explore agents, `find`, `ls -R` or other filesystem
+search. Most configured sessions resolve by step 3.**
 
 HUB order: `--hub`, then `$LLM_WIKI_HUB`, then (only with `"hub_discovery":
 "cwd"` in config) the nearest enclosing directory holding `wikis.json` and
 `topics/`, then the steps below; `llm-wiki hub where` names the winner.
 
 1. Read `~/.config/llm-wiki/config.json` (expand `~` to `$HOME`).
-2. If config has `hub_path`, expand the leading `~` ONLY and treat that as the
-   preferred **HUB** candidate.
-3. If the expanded `hub_path` exists, **HUB** = expanded `hub_path`. Done. Later
-   verification still checks that `_index.md` exists before treating it as
-   initialized.
-4. If the expanded `hub_path` is unavailable and config has `resolved_path` with
-   `_index.md`, **HUB** = `resolved_path` (backward-compatible fallback). Done.
-5. If config has `hub_path` but neither path is initialized yet, **HUB** =
-   expanded `hub_path`; use it for initialization. Done.
+2. If config has `hub_path`, expand the leading `~` ONLY: the preferred **HUB**
+   candidate.
+3. If it exists, **HUB** = it. Done (`_index.md` is still checked before the hub
+   counts as initialized).
+4. If it is unavailable and config has `resolved_path` with `_index.md`,
+   **HUB** = `resolved_path` (backward-compatible fallback). Done.
+5. If config has `hub_path` but neither path is initialized, **HUB** = expanded
+   `hub_path`, used for initialization. Done.
 6. If config has legacy `private_hub_path`/`public_hub_path` but no `hub_path`,
-   ask the user to replace them with a single `hub_path`. Never choose between
-   split hubs automatically.
+   ask the user to replace them with a single `hub_path`; never choose between
+   split hubs.
 7. If config has only `resolved_path`, **HUB** = `resolved_path`. Done.
-8. If no config exists, try `$HOME/wiki/_index.md`. If it exists, **HUB** =
+8. If no config exists, try `$HOME/wiki/_index.md`; if it exists, **HUB** =
    `$HOME/wiki`. Done.
 9. If nothing is found, ask the user where to create the wiki before creating
-   anything.
-
-Preferred Knowmade config (an upstream-style shared path such as
-`~/Library/Mobile Documents/com~apple~CloudDocs/wiki` stays compatible):
-
-```json
-{ "hub_path": "~/knowmade" }
-```
+   anything; the preferred config is in `SKILL.md` § Hub Path.
 
 > **Do not confuse directory existence with hub existence.** A leftover
 > `.DS_Store`, an empty folder, or a symlink to an uninitialized path is not a
 > hub. Only `_index.md` at the hub root counts as an initialized hub.
 
 > **Config is authoritative.** When the config names `hub_path` or
-> `resolved_path`, all initialization happens there. Never create a hub at
-> `~/wiki/` when config points elsewhere, and never touch `~/wiki/` when config
-> exists (sandboxes may not allow it).
+> `resolved_path`, all initialization happens there; never create a hub at, or
+> touch, `~/wiki/` while config exists (sandboxes may not allow it).
 
 > **Do not write `resolved_path` into shared configs.** Older configs may carry
 > it, but new writes keep only `hub_path`, so one Mac's `/Users/<name>/...` path
@@ -83,15 +71,9 @@ Preferred Knowmade config (an upstream-style shared path such as
 
 ### Tilde expansion and spaces
 
-Replace ONLY the leading `~` with the current user's home directory. A `~` in
-the middle of a path (`com~apple~CloudDocs`) is a literal directory name.
-
-```bash
-hub_path="~/Library/Mobile Documents/com~apple~CloudDocs/wiki"  # from config
-expanded="${hub_path/#\~/$HOME}"
-```
-
-Never use `eval` or unquoted expansion. Always double-quote paths in Bash
+Replace ONLY the leading `~` with the current user's home directory; a `~` in
+the middle of a path (`com~apple~CloudDocs`) is a literal directory name. Never
+use `eval` or unquoted expansion. Always double-quote paths in Bash
 (`ls "$HUB/topics/"`); Read, Write, Edit, Glob and Grep handle spaces natively.
 
 A symlink such as `ln -s "<real hub>" ~/wiki` is an optional shell convenience;
@@ -107,73 +89,35 @@ With HUB known, the target wiki is the first match of:
    `HUB/topics/<name>`.
 3. The current directory contains `.wiki/` → use it.
 4. Otherwise HUB itself: use the hub's active topic wiki, or fail per the
-   command's wiki-requirement variant. A hub holds no content of its own; when
+   command's own missing-wiki behaviour. A hub holds no content of its own; when
    it has no topic wiki yet, suggest creating one.
 
 Then verify existence by reading `<wiki-root>/_index.md`. If it is missing,
-follow the command's variant.
+follow the command's missing-wiki behaviour.
 
 ### Archived entries
 
 A registry entry with `status: archived`, or a path under `topics/.archive/`, is
 rejected by every command that reads or writes semantic content unless that
 command explicitly supports archived inclusion (`--include-archived`). Archived
-topic wikis are quiet by default: query, compile, ingest, research, output,
-plan, assess, librarian, refresh and broad audit workflows skip them. Deep query
-may report archived index matches separately; full archived reads need explicit
-user intent.
+topics are quiet by default: principle 11 in [`principles.md`](principles.md)
+states the rule and how deep query may report archived index matches, and
+[`archive.md`](archive.md) lists which workflows skip them.
 
 ### Private topics and the private goal gate
 
 Private topic wikis (`<slug>-PRIVATE`) and local private wikis may be read for
-context by any workflow. For substantial private work, `config.md`, `goals.md`
-when present, and high-priority inventory records form a concise goal brief: it
-is planning context, not factual evidence. What may be written back into public
-files is governed by [`knowmade-profile.md`](knowmade-profile.md) § Private Data
-Boundary: Read Freely, Write-Guard.
-
-Public and private versions are sibling topic roots in the single hub:
-`topics/<slug>/` and `topics/<slug>-PRIVATE/`. The suffix is exact and
-uppercase. The canonical ignore rule is `topics/**/*-PRIVATE/`: it covers the
-live topic and its archived form under `topics/.archive/`. The older
-`topics/*-PRIVATE/` form does not reach the archive (`*` never matches `/`), so
-keep it if present but add the `**` rule beside it; `llm-wiki lint --fix` on a
-version-controlled hub does exactly that.
+context by any workflow; what may be written back into public files is governed
+by [`private-boundary.md`](private-boundary.md). Substantial private work
+assembles a goal brief first ([`knowmade-profile.md`](knowmade-profile.md)
+§ Goal-Directed Workflow). The sibling layout and the `.gitignore` rule are in
+[`wiki-structure.md`](wiki-structure.md) § Public And Private Topic Pairs.
 
 ### Project scoping
 
 Commands that accept `--project <slug>` (`ingest`, `research`, `output`,
 `compile`) apply it as an explicit flag only. There is no ambient project focus;
 see [`projects.md`](projects.md) § Focus.
-
-## Wiki-requirement variants
-
-Each command picks one variant for a missing wiki and states it beside its
-prelude block.
-
-- **A, wiki-required** (`compile`, `output`, `plan`, `assess`, `audit`,
-  `librarian`, `refresh`, `dataset`, `inventory`): stop with
-  "No wiki found. Run `wiki init <topic>` first." Running these on an empty
-  state would silently produce nothing or corrupt derived caches.
-- **B, wiki-creating** (`ingest`, `ingest-collection`, `research`): accept
-  `--new-topic <name>` and create the topic wiki with the init protocol. Without
-  the flag and without a wiki, stop with "No wiki found. Use `--new-topic
-  <name>` to create one, or run `wiki init` first."
-- **C, wiki-neutral** (`project`, and `wiki` status/router/init/config, which has no stamped block and resolves through the CLI): resolve
-  HUB and the wiki location, then handle missing state inline with
-  command-specific messaging.
-- **D, hub lifecycle** (`archive`): resolves HUB, not an active topic wiki; it
-  moves topic roots between `HUB/topics/<slug>/` and
-  `HUB/topics/.archive/<slug>/` and updates `wikis.json`. It does not operate on
-  project-local `.wiki/` directories.
-- **E, hub specialist library** (`specialist`): resolves HUB and reads its
-  `_index.md`, `wikis.json` and optional `.skills/_index.md`; it resolves one
-  active topic only to enable/disable, apply a method, or run a targeted
-  candidate scan. Definitions stay at hub scope and are never copied into topic
-  content.
-
-Command-specific parsing, flags and deviations (for example `assess` asking
-which wiki to compare against) stay in the command file.
 
 ## Registry Path Resolution
 

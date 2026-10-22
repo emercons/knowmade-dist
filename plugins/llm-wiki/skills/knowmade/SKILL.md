@@ -46,8 +46,8 @@ privacy, source-flow, or migration decisions.
 **Resolution**: At the start of every operation, resolve **HUB** from
 `~/.config/llm-wiki/config.json` (`hub_path`, with `~/wiki/` only when no config
 exists). [references/hub-resolution.md](references/hub-resolution.md) is the one
-protocol: fallbacks, the macOS permission diagnostic, registry paths, archived
-entries and wiki-requirement variants all live there.
+protocol: fallbacks, the macOS permission diagnostic, registry paths and
+archived entries all live there.
 
 The preferred Knowmade config looks like:
 
@@ -92,7 +92,7 @@ When this skill activates outside of an explicit `@knowmade` invocation or `/wik
 2. Read the master `_index.md` to assess if the wiki might cover the user's question
 3. If relevant content exists → read the relevant articles and answer with citations
 4. If no relevant content → answer normally, optionally suggest: "This could be added to your wiki; ask `@knowmade` to ingest it."
-5. When peeking at sibling wikis, only read their `_index.md` — do not read full articles unless the user asks. Skip archived sibling wikis by default; in deep mode, archived index matches may be reported separately. A `-PRIVATE` sibling may be peeked; label what it contributed as private and apply `references/knowmade-profile.md` § Private Data Boundary before anything is written.
+5. When peeking at sibling wikis, only read their `_index.md` — do not read full articles unless the user asks. Skip archived sibling wikis by default; in deep mode, archived index matches may be reported separately. A `-PRIVATE` sibling may be peeked; label what it contributed as private and apply `references/private-boundary.md` before anything is written.
 
 When giving any boot, resume, or "where you left off" briefing, start with the
 active wiki identity: `<wiki-name> booted from <wiki-root-path>`. Prefer the

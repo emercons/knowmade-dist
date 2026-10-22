@@ -213,11 +213,12 @@ PY
 )"
 
 # codex_python [args...] <<'PY' ... PY: run the program on stdin with the
-# helpers above defined first; the arguments arrive as sys.argv[1:]. PYTHONUTF8
+# helpers above defined first; the arguments arrive as sys.argv[1:]. -X utf8
 # keeps a non-ASCII path printable through a pipe on Windows, where Python's
-# console encoding would otherwise be a legacy code page.
+# console encoding would otherwise be a legacy code page; -I keeps the caller's
+# working directory and PYTHON* variables out of the interpreter's imports.
 codex_python() {
-  { printf '%s\n' "$CODEX_CONFIG_PY"; cat; } | PYTHONUTF8=1 python3 - "$@"
+  { printf '%s\n' "$CODEX_CONFIG_PY"; cat; } | python3 -I -X utf8 - "$@"
 }
 
 marketplace_source() {

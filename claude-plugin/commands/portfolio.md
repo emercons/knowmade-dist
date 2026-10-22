@@ -21,7 +21,7 @@ Resolve HUB by `skills/knowmade/references/hub-resolution.md`.
 - `--wiki <name>` selects one active topic from `HUB/wikis.json`.
 - With neither flag, select every active topic in `HUB/wikis.json`, excluding
   the synthetic `hub` entry. `-PRIVATE` topics are included; see
-  `skills/knowmade/references/knowmade-profile.md` § Private Data Boundary: Read Freely, Write-Guard.
+  `skills/knowmade/references/private-boundary.md`.
 - Skip archived topics unless `--include-archived` is explicit.
 
 ### Build the catalog

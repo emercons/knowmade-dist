@@ -127,4 +127,4 @@ The simpler model: pass `--project <slug>` explicitly when you want project scop
 
 ## Migration from legacy `_project.md`
 
-Existing wikis created under v0.1.0/v0.1.1 will have `_project.md` manifests. Lint reports each one (`project-legacy-manifest`, C8) and `llm-wiki project migrate-why --apply` migrates it losslessly to `WHY.md`: the first application of the lint-is-the-migration principle in `linting.md`. One-time healing; idempotent. The rule is in `linting.md` § C8c.
+Existing wikis created under v0.1.0/v0.1.1 will have `_project.md` manifests. Lint reports each one (`project-legacy-manifest`, C8) and `llm-wiki project migrate-why --apply` migrates it losslessly to `WHY.md`: the first application of the lint-is-the-migration principle in `lint-rules.md` § Rationale. One-time healing; idempotent. The rule is in `linting.md` § C8c.
