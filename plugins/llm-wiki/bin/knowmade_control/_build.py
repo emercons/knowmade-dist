@@ -1,7 +1,7 @@
 """Generated build identity of this Knowmade control-plane copy.
 
-GENERATED FILE: do not edit by hand. scripts/sync-codex-plugin.sh and
-scripts/sync-opencode-plugin.sh rewrite it, through
+GENERATED FILE: do not edit by hand. scripts/sync-codex-plugin.sh,
+scripts/sync-opencode-plugin.sh and scripts/sync-dsh-plugin.sh rewrite it, through
 scripts/.sync-build-identity.sh, into scripts/knowmade_control/ and into every
 packaged copy under claude-plugin/bin/ and plugins/*/bin/.
 
@@ -17,7 +17,7 @@ The mirror-sync tests compare this file with the COMMIT line filtered out, so
 everything except COMMIT is deterministic for a given checkout.
 """
 
-VERSION = "0.14.0.25.1"
-COMMIT = "1957aa2"
+VERSION = "0.15.0.1.0"
+COMMIT = "c619139"
 RULE_SET = 3
-GENERATED_BY = "scripts/sync-codex-plugin.sh, scripts/sync-opencode-plugin.sh"
+GENERATED_BY = "scripts/sync-codex-plugin.sh, scripts/sync-opencode-plugin.sh, scripts/sync-dsh-plugin.sh"

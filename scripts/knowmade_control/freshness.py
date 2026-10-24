@@ -1,7 +1,7 @@
 """Article freshness: configurable windows, dated snapshots and the due report (knowmade#108).
 
 A compiled article (``wiki/``) is due for refresh when more days have passed
-since its ``verified`` (else ``updated``) date than the window of its
+since its ``verified`` date than the window of its
 ``volatility``. The windows default to hot 30, warm 180 and cold 365 days; a
 topic's ``config.md`` frontmatter may set ``freshness_hot_days``,
 ``freshness_warm_days`` and ``freshness_cold_days``, and a topic under
@@ -148,7 +148,9 @@ def article_status(frontmatter: dict[str, Any], windows: Windows, today: dt.date
     status["volatility"] = volatility
     status["window"] = windows.days[volatility]
     status["window_source"] = windows.source[volatility]
-    verified = frontmatter.get("verified") or frontmatter.get("updated")
+    # ``updated`` is never treated as verification: only a human-set ``verified``
+    # date starts the clock (upstream llm-wiki 1.0.0).
+    verified = frontmatter.get("verified")
     verified_date = parse_date(str(verified)) if verified else None
     if not verified_date:
         status["state"] = "undated"
@@ -195,7 +197,12 @@ def check_freshness(ctx: LintContext) -> None:
         if state == "no-volatility":
             ctx.issue("info", "Compiled article has no volatility field.", doc.path, check="C15")
         elif state == "undated":
-            ctx.issue("warning", "Compiled article has no valid verified/updated date.", doc.path, check="C14")
+            ctx.issue(
+                "info",
+                "Compiled article has not been human-verified; `updated` is not treated as verification.",
+                doc.path,
+                check="C14",
+            )
         elif state == "stale":
             _report_stale(ctx, doc.path, status)
 

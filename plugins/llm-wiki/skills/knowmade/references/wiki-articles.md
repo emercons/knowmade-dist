@@ -14,6 +14,9 @@ title: "Wiki Title"
 description: "What this wiki is about"
 created: YYYY-MM-DD
 freshness_threshold: 70
+wiki_id: "optional-stable-id"
+llm_wiki_version: "optional-rule-set-version"
+checker_sha: "optional-git-commit"
 ---
 
 # Wiki Configuration
@@ -26,6 +29,15 @@ freshness_threshold: 70
 
 [Any wiki-specific conventions beyond defaults]
 ```
+
+The last three frontmatter fields are optional. `wiki_id` binds semantic
+identity to the matching `wikis.json` entry independent of its path
+(`llm-wiki identity status|assign`; assignment is dry-run-first and writes only
+with `--apply`). `llm_wiki_version` and `checker_sha` document the lint engine
+a corpus was reviewed against, beside the Knowmade pins `knowmade_version` and
+`knowmade_checker_sha` (C22). Engine drift is a warning by default;
+`llm-wiki lint --strict-engine` makes only that drift affect the exit status
+for CI.
 
 ## Topic Guide (`schema.md`) Format
 
@@ -41,9 +53,13 @@ boundaries, topic scope, and named concepts that should remain separate. This
 is an operational planning input, not a second lint schema.
 
 The guide cannot redefine deeper global primitives: the `category` vocabulary
-stays `concept`/`topic`/`reference`, the physical layout stays `raw/` →
+stays `concept`/`topic`/`reference`, raw types stay
+`articles|papers|repos|notes|data`, the compiled layout stays
 `wiki/concepts|topics|references/`, and the required-frontmatter set stays
-fixed. Additional topic fields remain optional to deterministic tooling.
+fixed. It may document optional namespaces below an existing raw type, such as
+`raw/articles/news/`; every such directory has `_index.md`, and files retain
+the top-level `type: articles`. Additional topic fields remain optional to
+deterministic tooling.
 Likewise, prose telling compilation to exclude a raw source does not satisfy C6
 coverage: the source remains visible in the uncompiled-source backlog until an
 article cites it or the user explicitly re-ingests it into the correct topic.
@@ -119,7 +135,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 tags: [tag1, tag2]
 aliases: [alternate names for Obsidian discovery]
-confidence: high|medium|low   # lint also accepts medium-high, medium-low (upstream warns on them)
+confidence: high|medium-high|medium|medium-low|low
 volatility: hot|warm|cold
 verified: YYYY-MM-DD
 freshness: snapshot          # optional; a dated state, never refreshed
@@ -184,7 +200,7 @@ staleness checks) must resolve source references with this protocol:
 
 ## Volatility Classification
 
-Wiki articles carry a `volatility` field that controls how quickly their freshness score decays. The `verified` field records when a human last confirmed the article's conclusions are still accurate.
+Wiki articles carry a `volatility` field that controls how quickly their freshness score decays. The optional `verified` field records only when a human explicitly confirmed the article's conclusions after review. Compilation, lint, source fetching, and due scans update operational dates such as `updated`; they never create or advance `verified`.
 
 | Tier | Decay rate | When to use | Examples |
 |------|-----------|-------------|----------|

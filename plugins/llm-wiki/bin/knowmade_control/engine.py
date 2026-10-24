@@ -80,6 +80,15 @@ CHECKER_VERSION_KEY = "llm_wiki_version"
 KNOWMADE_VERSION_KEY = "knowmade_version"
 UPSTREAM_REPO_KEY = "llm_wiki_checker_repo"
 UPSTREAM_SHA_KEY = "llm_wiki_checker_sha"
+# Upstream llm-wiki's own spelling of the checker pin (``checker_sha``). Upstream
+# pins name an upstream commit this engine cannot check, so the key is read as
+# informational, like ``llm_wiki_checker_sha``, and never compared.
+UPSTREAM_SHA_ALIAS = "checker_sha"
+# The upstream llm-wiki version the source tree has absorbed. A wiki written for
+# that upstream (``llm_wiki_version: 1.0.0``) is drift-clean here even before a
+# release moves the version's trailing components. Update with each upstream merge
+# (KNOWMADE_VS_LLM_WIKI.md records the baseline).
+ABSORBED_UPSTREAM_VERSION = "1.0.0"
 # Every key a config.md can pin the engine with. A topic that declares none of
 # them inherits the hub's (``pin_source``).
 PIN_KEYS = (
@@ -89,6 +98,7 @@ PIN_KEYS = (
     CHECKER_REPO_KEY,
     UPSTREAM_REPO_KEY,
     UPSTREAM_SHA_KEY,
+    UPSTREAM_SHA_ALIAS,
 )
 _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 _VERSION = re.compile(r"^[0-9][0-9A-Za-z.+-]*$")
@@ -325,8 +335,18 @@ def upstream_baseline(version: str | None) -> str | None:
     if not version:
         return None
     parts = version.split(".")
+    if len(parts) >= 6 and all(part.isdigit() for part in parts[-3:]):
+        # ``0.15.0.1.0.0``: the trailing three components are a full upstream
+        # version (upstream 1.0.0 and later).
+        return ".".join(parts[-3:])
     if len(parts) < 5 or not (parts[-2].isdigit() and parts[-1].isdigit()):
         return None
+    # ``0.15.0.1.0``: the trailing two components are the first two of the
+    # absorbed upstream version (``1.0`` for upstream 1.0.x), so the engine's
+    # own record of that baseline is the answer when they agree with it.
+    absorbed = ABSORBED_UPSTREAM_VERSION.split(".")
+    if len(absorbed) >= 2 and [parts[-2], parts[-1]] == absorbed[:2]:
+        return ABSORBED_UPSTREAM_VERSION
     return f"0.{parts[-2]}.{parts[-1]}"
 
 
@@ -344,7 +364,7 @@ def _version_form(
             if key == KNOWMADE_VERSION_KEY:
                 return value, key, _compare(value, running, prefix=False)
             form = _compare(value, running, prefix=False)
-            if form == "drift" and value == upstream_baseline(running):
+            if form == "drift" and value in (upstream_baseline(running), ABSORBED_UPSTREAM_VERSION):
                 form = "match"
             return value, key, form
     return None, None, "undeclared"
@@ -539,7 +559,7 @@ def contract_state(wiki_root: Path) -> dict[str, Any]:
     # Optional keys, present only when there is something to say.
     upstream = {
         "repo": scalar_field(pins, UPSTREAM_REPO_KEY),
-        "sha": scalar_field(pins, UPSTREAM_SHA_KEY),
+        "sha": scalar_field(pins, UPSTREAM_SHA_KEY) or scalar_field(pins, UPSTREAM_SHA_ALIAS),
     }
     if upstream["repo"] or upstream["sha"]:
         state_doc["declared_upstream"] = upstream
@@ -618,9 +638,11 @@ def drift_summary(state: dict[str, Any]) -> str:
     """Render mismatched contract forms as one human-readable clause."""
     parts: list[str] = []
     if "version" in state["drifted"]:
+        # Upstream llm-wiki 1.0.0 wording: the declaring key, then the checker.
+        key = state.get("declared_version_key") or CHECKER_VERSION_KEY
         parts.append(
-            f"declares engine version {state['declared_version']} "
-            f"but this lint is version {state['version']}"
+            f"declares {key} {state['declared_version']!r}, "
+            f"but this checker is {state['version']!r}"
         )
     if "commit" in state["drifted"]:
         clause = (

@@ -82,6 +82,11 @@ require the user to review/trust them. The bundled llm-wiki Codex hook should
 call the copied helper in the plugin root and use `--if-enabled`, so users turn
 capture on with `session enable` and off with `session disable` without editing
 hook manifests.
+Use the JSON hook `command` for Unix-like shells and `commandWindows` for a
+Windows-only override that calls the bundled `.cmd` launcher. Include
+`--event-name <event>` in both commands so empty hook payloads still retain the
+event type. The helper accepts UTF-8 and BOM-marked UTF-16 JSON, skips malformed
+hook JSON by default, and exposes `--strict-json` for diagnostics.
 
 Useful Codex events:
 

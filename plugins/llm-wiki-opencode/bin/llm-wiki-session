@@ -73,7 +73,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "rehydrate": {
         "session_start": True,
-        "user_prompt": True,
+        "user_prompt": False,
         "strict": False,
     },
     "raw_transcripts": False,
@@ -97,7 +97,7 @@ BALANCED_CONFIG = {
     },
     "rehydrate": {
         "session_start": True,
-        "user_prompt": True,
+        "user_prompt": False,
         "strict": False,
     },
     "raw_transcripts": False,
@@ -596,6 +596,60 @@ def read_json(path: Path, default: Any) -> Any:
             return obj
         except json.JSONDecodeError:
             return default
+
+
+def read_stdin_text() -> str:
+    """Read hook input without assuming PowerShell emitted UTF-8.
+
+    Windows PowerShell can pipe UTF-16 text, while newer PowerShell and Codex
+    normally use UTF-8. Honour byte-order marks first and otherwise prefer
+    UTF-8 so hook payloads are decoded consistently across runtimes.
+    """
+    data = sys.stdin.buffer.read()
+    if not data:
+        return ""
+
+    encodings: list[str] = []
+    if data.startswith(b"\xef\xbb\xbf"):
+        encodings.append("utf-8-sig")
+    elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encodings.append("utf-16")
+    encodings.extend(["utf-8", sys.getfilesystemencoding() or "utf-8"])
+
+    seen: set[str] = set()
+    for encoding in encodings:
+        if encoding in seen:
+            continue
+        seen.add(encoding)
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def hook_debug(message: str) -> None:
+    if os.environ.get("LLM_WIKI_HOOK_DEBUG"):
+        print(message, file=sys.stderr)
+
+
+def parse_hook_payload(args: argparse.Namespace) -> dict[str, Any]:
+    raw = read_stdin_text().lstrip("\ufeff")
+    if not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        if getattr(args, "strict_json", False):
+            raise SystemExit(f"invalid hook JSON input: {exc}") from exc
+        hook_debug(f"llm-wiki hook skipped invalid JSON input: {exc}")
+        raise HookSkip()
+    if not isinstance(parsed, dict):
+        if getattr(args, "strict_json", False):
+            raise SystemExit("hook JSON input must be an object")
+        hook_debug("llm-wiki hook skipped non-object JSON input")
+        raise HookSkip()
+    return parsed
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -1838,11 +1892,7 @@ def should_write_digest(state: dict[str, Any], event: dict[str, Any], config: di
 
 def yaml_string(value: Any) -> str:
     text = "" if value is None else str(value)
-    if text == "":
-        return '""'
-    if re.fullmatch(r"[A-Za-z0-9_.:/@+ -]+", text):
-        return json.dumps(text)
-    return json.dumps(text)
+    return json.dumps(text, ensure_ascii=False)
 
 
 def yaml_list(values: list[Any]) -> str:
@@ -1881,7 +1931,7 @@ def frontmatter_block(state: dict[str, Any], trigger: str, digest_file: Path) ->
         "topic_candidates: []",
         f"privacy: {yaml_string(state.get('privacy') or 'redacted')}",
         f"raw_transcripts: {str(bool(state.get('raw_transcripts'))).lower()}",
-        "promoted_to: []",
+        f"promoted_to: {yaml_list(as_list(state.get('promoted_to')))}",
         f"summary: {yaml_string(summary)}",
         "---",
     ]
@@ -2098,14 +2148,6 @@ def configure_utf8_stdio() -> None:
             continue
 
 
-def read_hook_input() -> str:
-    """Read the whole hook payload as UTF-8 regardless of the console code page."""
-    buffer = getattr(sys.stdin, "buffer", None)
-    if buffer is None:
-        return sys.stdin.read()
-    return buffer.read().decode("utf-8", errors="replace")
-
-
 def hook_output(event_name: str, context: str) -> None:
     if not context.strip():
         return
@@ -2165,7 +2207,7 @@ def run_hook(args: argparse.Namespace) -> int:
 
 
 def hook_body(args: argparse.Namespace) -> int:
-    raw = read_hook_input()  # drain stdin even when we end up skipping the event
+    payload = parse_hook_payload(args)  # drains stdin even when we end up skipping the event
     root = hook_root(args)
     if root is None:
         return 0
@@ -2175,17 +2217,6 @@ def hook_body(args: argparse.Namespace) -> int:
         raise HookSkip()
     if args.if_enabled and not config.get("enabled"):
         raise HookSkip()
-    payload: dict[str, Any]
-    if raw.strip():
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise SystemExit(f"invalid hook JSON input: {exc}") from exc
-        if not isinstance(parsed, dict):
-            raise SystemExit("hook JSON input must be an object")
-        payload = parsed
-    else:
-        payload = {}
     ensure_layout(root)
     event = normalize_event(args, payload, root)
     git = event_git_info(root, event)
@@ -2447,8 +2478,13 @@ def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
                 data[key.strip()] = json.loads(value)
             except json.JSONDecodeError:
                 data[key.strip()] = []
+        elif value.startswith('"') and value.endswith('"'):
+            try:
+                data[key.strip()] = json.loads(value)
+            except json.JSONDecodeError:
+                data[key.strip()] = value.strip('"')
         else:
-            data[key.strip()] = value.strip('"')
+            data[key.strip()] = value
     return data, body
 
 
@@ -2632,9 +2668,8 @@ def run_promote(args: argparse.Namespace) -> int:
 
             This note promotes a distilled session checkpoint into the `{args.topic}` topic raw layer. It intentionally promotes the digest, not the raw transcript.
 
-            {body.strip()}
             """
-        ).strip() + "\n"
+        ).strip() + "\n\n" + body.strip() + "\n"
         tx.write_file(dest, promoted)
         topics = set(as_list(state.get("topics")))
         topics.add(args.topic)
@@ -2643,6 +2678,17 @@ def run_promote(args: argparse.Namespace) -> int:
         promoted_to.append(str(dest))
         state["promoted_to"] = sorted(set(str(item) for item in promoted_to))
         tx.stage_state(state)
+        # Update only the frontmatter so local annotations in the digest survive.
+        frontmatter_end = digest_text.find("\n---\n", 4)
+        if digest_text.startswith("---\n") and frontmatter_end != -1:
+            header = digest_text[:frontmatter_end]
+            promoted_line = f"promoted_to: {yaml_list(state['promoted_to'])}"
+            header, replacements = re.subn(
+                r"^promoted_to:.*$", lambda _: promoted_line, header, count=1, flags=re.MULTILINE
+            )
+            if not replacements:
+                header += "\n" + promoted_line
+            tx.write_file(digest_file, header + digest_text[frontmatter_end:])
         tx.request_index()
     append_topic_log(topic_root, f"promoted session digest {state.get('llm_wiki_session_id')} → raw/notes/{filename}")
     print(str(dest))
@@ -2805,26 +2851,29 @@ def feedback_promote_locked(tx: Transaction, args: argparse.Namespace) -> int:
         # Feedback Candidate Promotion: {candidate.get('id')}
 
         This note promotes a curated user-feedback candidate from `.sessions/feedback/`. It is a distilled operational lesson, not a raw transcript.
-
-        ## Distilled Lesson
-
-        {candidate.get('distilled_lesson')}
-
-        ## Redacted User Feedback Preview
-
-        > {candidate.get('text_preview')}
-
-        ## Metadata
-
-        {markdown_table(metadata_rows)}
-
+        """
+    ).strip()
+    preview = textwrap.indent(str(candidate.get("text_preview") or "").strip(), "> ", lambda line: True).rstrip()
+    metadata = markdown_table(metadata_rows)
+    guidance = textwrap.dedent(
+        """
         ## Usage Guidance
 
         - Use corrections and preferences as candidates for future `AGENTS.md`, skill, or workflow rule updates.
         - Treat approval/decision candidates as validation of the immediate prior context unless corroborated by session digests.
         - Do not infer broader factual claims from this feedback alone.
         """
-    ).strip() + "\n"
+    ).strip()
+    promoted = "\n\n".join([
+        promoted,
+        "## Distilled Lesson",
+        str(candidate.get("distilled_lesson") or "").strip(),
+        "## Redacted User Feedback Preview",
+        preview,
+        "## Metadata",
+        metadata,
+        guidance,
+    ]) + "\n"
     tx.write_file(dest, promoted)
     status = read_json(feedback_status_path(root), {"promoted": {}})
     if not isinstance(status, dict):
@@ -2891,6 +2940,7 @@ def build_parser() -> argparse.ArgumentParser:
     hook.add_argument("--trigger", help="Override capture trigger name.")
     hook.add_argument("--if-enabled", action="store_true", help="Run only when .sessions/config.json enables capture (llm-wiki-session enable); without a config the hook exits 0 and writes nothing. A corrupt config always disables the hook.")
     hook.add_argument("--max-event-bytes", type=int, default=MAX_EVENT_PREVIEW_CHARS)
+    hook.add_argument("--strict-json", action="store_true", help="Fail hook calls on invalid JSON instead of skipping them.")
     hook.set_defaults(func=run_hook)
 
     capture = sub.add_parser("capture", help="Force a manual session digest checkpoint.")
@@ -2992,7 +3042,7 @@ def main(argv: list[str] | None = None) -> int:
         warn(str(exc))
         return 1
     except BrokenPipeError:
-        return 1
+        return 0
 
 
 if __name__ == "__main__":

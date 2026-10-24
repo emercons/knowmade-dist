@@ -455,6 +455,35 @@ class WikiNotResolved(SystemExit):
     """
 
 
+def wiki_id_at(root: Path) -> str | None:
+    """The ``wiki_id`` a root's ``config.md`` declares, shape unchecked, or None."""
+    from . import frontmatter as _frontmatter  # deferred: frontmatter builds on markdown, not on roots
+
+    try:
+        fields, _, _, _ = _frontmatter.read(root / "config.md")
+    except (OSError, UnicodeDecodeError, _frontmatter.FrontmatterError):
+        return None
+    value = fields.get("wiki_id")
+    text = str(value).strip() if value not in (None, "") else ""
+    return text or None
+
+
+def registry_identity_error(slug: str, entry: dict[str, Any], root: Path) -> str | None:
+    """Why a registry entry's ``id`` does not match the wiki it resolves to, or None.
+
+    Both ids must be declared and differ; an entry or wiki without an id is not
+    a mismatch (identity is opt-in). Same wording as upstream llm-wiki 1.0.0.
+    """
+    registry_id = str(entry.get("id") or "").strip()
+    wiki_id = wiki_id_at(root)
+    if registry_id and wiki_id and registry_id != wiki_id:
+        return (
+            f"registry identity mismatch for {slug}: entry id {registry_id!r} does not "
+            f"match config.md wiki_id {wiki_id!r} at {root}"
+        )
+    return None
+
+
 def _read_registry(hub: Path) -> dict[str, Any]:
     """Read ``hub/wikis.json``. Any read or parse failure is fatal (#91).
 
@@ -478,7 +507,13 @@ def resolve_wiki_identity(
     home: Path | None = None,
     config_path: Path | None = None,
     private_suffix: str = DEFAULT_PRIVATE_SUFFIX,
+    verify_identity: bool = True,
 ) -> RootIdentity:
+    """Resolve one wiki root; a named ``--wiki`` fails closed on an identity mismatch.
+
+    ``verify_identity=False`` is for ``identity`` itself, the inspection and
+    repair path for a mismatch.
+    """
     cwd = cwd or Path.cwd()
     if path:
         return RootIdentity(expand_leading_tilde(str(path)), "path")
@@ -544,6 +579,10 @@ def resolve_wiki_identity(
         ):
             selected = fallback_archived
             archived = True
+        if verify_identity:
+            identity_error = registry_identity_error(slug, entry, selected)
+            if identity_error:
+                raise WikiNotResolved(identity_error)
         return RootIdentity(selected, "topic", hub_path, slug, archived)
 
     local_path = cwd / ".wiki"
@@ -562,6 +601,7 @@ def resolve_wiki_identity_args(args: Any) -> RootIdentity:
         private=bool(getattr(args, "private", False)),
         public=bool(getattr(args, "public", False)),
         include_archived=bool(getattr(args, "include_archived", False)),
+        verify_identity=not bool(getattr(args, "allow_identity_mismatch", False)),
     )
 
 

@@ -66,6 +66,8 @@ def index_contract(root: Path, directory: Path) -> str:
         return "datasets-root"
     if rel == ("output",):
         return "output-root"
+    if rel and rel[0] == "raw":
+        return "raw-files"
     if len(rel) == 2 and rel[0] == "datasets":
         return "dataset-root"
     return "direct-files"
@@ -79,6 +81,7 @@ def index_contract_label(contract: str) -> str:
         "datasets-root": "dataset manifest registry",
         "output-root": "output artifact or project entry",
         "dataset-root": "dataset manifest or navigation entry",
+        "raw-files": "raw source or namespace",
         "direct-files": "file",
     }[contract]
 
@@ -101,6 +104,16 @@ def index_contract_entries(directory: Path, contract: str) -> list[Path]:
             index = directory / name / "_index.md"
             if index.exists():
                 entries.append(index)
+        return entries
+    if contract == "raw-files":
+        entries = sorted(path for path in directory.glob("*.md") if path.name != "_index.md")
+        entries.extend(
+            sorted(
+                child / "_index.md"
+                for child in directory.iterdir()
+                if child.is_dir() and not child.name.startswith(".") and (child / "_index.md").exists()
+            )
+        )
         return entries
     return sorted(
         path for path in directory.glob("*.md") if path.name != "_index.md"
@@ -230,6 +243,7 @@ def render_directory_index(ctx: LintContext, directory: Path, contract: str) -> 
         "datasets-root": render_dataset_registry_index,
         "output-root": render_output_index,
         "dataset-root": render_dataset_index,
+        "raw-files": render_direct_file_index,
         "direct-files": render_direct_file_index,
     }
     return renderers[contract](ctx, directory, contract)
@@ -536,7 +550,7 @@ def render_category_pointer_index(ctx: LintContext, directory: Path, contract: s
     if contract == "raw-root":
         count = len([
             path for category in RAW_INDEX_CATEGORIES
-            for path in (directory / category).glob("*.md")
+            for path in (directory / category).rglob("*.md")
             if path.name != "_index.md"
         ])
         lines.extend(["## Stats", f"- Total sources: {count}", f"- Last updated: {today_date().isoformat()}", ""])
@@ -663,10 +677,14 @@ def render_dataset_index(ctx: LintContext, directory: Path, contract: str) -> st
 
 def render_direct_file_index(ctx: LintContext, directory: Path, contract: str) -> str:
     rows: list[str] = []
-    for path in index_contract_entries(directory, "direct-files"):
+    for path in index_contract_entries(directory, contract):
         frontmatter = index_frontmatter(ctx, path)
+        link = path.relative_to(directory).as_posix()
+        title = frontmatter.get("title")
+        if not title:
+            title = path.parent.name if path.name == "_index.md" else path.stem
         rows.append(
-            f"| [{table_cell(str(frontmatter.get('title') or path.stem))}]({markdown_link_destination(path.name)}) | "
+            f"| [{table_cell(str(title))}]({markdown_link_destination(link)}) | "
             f"{table_cell(str(frontmatter.get('summary') or ''))} | "
             f"{table_cell(', '.join(as_string_list(frontmatter.get('tags'))))} | "
             f"{table_cell(index_updated(frontmatter))} |"

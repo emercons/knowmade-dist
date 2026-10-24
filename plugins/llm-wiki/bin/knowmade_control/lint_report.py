@@ -288,7 +288,12 @@ def report_lint_result(ctx: LintContext, args: argparse.Namespace) -> int:
     counts = ctx.counts()
     max_warnings = getattr(args, "max_warnings", None)
     too_many_warnings = max_warnings is not None and counts["warning"] > max_warnings
-    exit_code = 1 if too_many_warnings else lint_exit_code(counts, fail_on)
+    # ``--strict-engine`` fails the run on any declared/running engine mismatch,
+    # whatever ``--fail-on`` says (upstream llm-wiki 1.0.0 ordering).
+    strict_mismatch = bool(
+        getattr(args, "strict_engine", False) and (ctx.engine or {}).get("state") == "drift"
+    )
+    exit_code = 1 if too_many_warnings else lint_exit_code(counts, fail_on, strict_mismatch)
     failed = exit_code != 0
     if args.json:
         print_json_report(ctx, failed=failed, fail_on=fail_on, max_warnings=max_warnings)
@@ -357,7 +362,11 @@ SEVERITY_LABELS = {
 }
 
 
-def lint_exit_code(counts: dict[str, int], fail_on: str = "suggestion") -> int:
+def lint_exit_code(
+    counts: dict[str, int],
+    fail_on: str = "suggestion",
+    strict_engine_mismatch: bool = False,
+) -> int:
     """Exit non-zero when a finding at or above ``fail_on`` severity exists.
 
     The default reproduces the historical behaviour (any finding fails). A
@@ -365,8 +374,11 @@ def lint_exit_code(counts: dict[str, int], fail_on: str = "suggestion") -> int:
     violations without being blocked by advisory findings, which otherwise
     makes the exit code unusable as a gate on any wiki carrying known
     citation debt. ``none`` (a ``--preflight`` without ``--fail-on``) never
-    fails.
+    fails. A strict-engine mismatch (``lint --strict-engine`` with a declared
+    engine that is not the running one) fails first, before any threshold.
     """
+    if strict_engine_mismatch:
+        return 1
     if fail_on == "none":
         return 0
     threshold = FAIL_ON_LEVELS.index(fail_on) if fail_on in FAIL_ON_LEVELS else len(FAIL_ON_LEVELS) - 1

@@ -478,6 +478,13 @@ def cmd_add(args: argparse.Namespace) -> int:
                 _identity.assign_hub_id(root) if kind == "hub" else _identity.assign_wiki_id(root)
             )
 
+        if not _ID.match(found):
+            raise RegistryError(
+                f"{display(root)} declares {found!r}, a valid llm-wiki identity but not a federation id "
+                "(wk-/hb- plus 16 lowercase hex); re-identify it with "
+                "llm-wiki identity assign --replace --id wk-<16 hex> first",
+                1,
+            )
         stored = _stored_path(args.path)
         for entry in entries:
             if entry["id"] == found and _same_root(entry["path"], stored):

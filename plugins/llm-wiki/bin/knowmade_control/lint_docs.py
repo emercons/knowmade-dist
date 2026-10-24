@@ -38,6 +38,7 @@ from .common import (
     table_cell,
 )
 from .indexing import (
+    RAW_INDEX_CATEGORIES,
     extract_link_destinations,
     index_contract,
     index_contract_entries,
@@ -328,6 +329,17 @@ def optional_index_directories(root: Path) -> list[Path]:
     ``queries`` directories. Shared by the structure check and ``index``.
     """
     found: list[Path] = []
+    # Raw types are stable protocol categories, but sources may be namespaced
+    # below them (raw/articles/news/daily/); every namespace is independently
+    # navigable and carries its own generated index.
+    raw_root = root / "raw"
+    for source_type in RAW_INDEX_CATEGORIES:
+        type_root = raw_root / source_type
+        if not type_root.is_dir():
+            continue
+        for directory in sorted(path for path in type_root.rglob("*") if path.is_dir()):
+            if not any(part.startswith(".") for part in directory.relative_to(type_root).parts):
+                found.append(directory)
     if (root / "inventory").exists():
         found.append(root / "inventory")
         for name in ("items", "ideas", "candidates", "entities", "corpora", "views"):
@@ -656,6 +668,8 @@ def canonical_path_for(root: Path, doc: Document) -> Path | None:
     if parts[0] == "raw":
         source_type = fm.get("type")
         if isinstance(source_type, str) and source_type in RAW_TYPES:
+            if len(parts) >= 3 and parts[1] == source_type:
+                return doc.path
             return root / "raw" / source_type / doc.path.name
     if parts[0] == "wiki":
         if fm.get("type") == "thesis":
@@ -797,8 +811,21 @@ def check_unknown_files(ctx: LintContext) -> None:
             else:
                 handle_unknown(ctx, child, "Unexpected file in datasets/.")
 
+    raw = ctx.root / "raw"
+    if raw.exists():
+        for source_type in sorted(RAW_TYPES):
+            path = raw / source_type
+            if not path.exists():
+                continue
+            for child in sorted(path.rglob("*")):
+                if child.is_dir() or child.name == "_index.md":
+                    continue
+                if any(part.startswith(".") for part in child.relative_to(path).parts[:-1]):
+                    continue
+                if not child.is_file() or child.suffix != ".md":
+                    handle_unknown(ctx, child, f"Unexpected file in {ctx.rel(child.parent)}/.")
+
     for base, allowed_dirs in [
-        (ctx.root / "raw", {"articles", "papers", "repos", "notes", "data"}),
         (ctx.root / "wiki", {"concepts", "topics", "references", "theses"}),
         (
             ctx.root / "inventory",
@@ -1366,7 +1393,12 @@ def check_coverage(ctx: LintContext) -> None:
             load_documents(ctx)
         # A pointer the frontmatter class held back is reported, not listed.
         unreferenced = [raw_file for raw_file in unreferenced if outcomes.get(raw_file) != "attached"]
-        remaining = [raw_file for raw_file in unreferenced if outcomes.get(raw_file) != "held"]
+        # Only an ownerless raw file goes to the catch-all page; one with several
+        # possible owners is left for a human to choose.
+        remaining = [
+            raw_file for raw_file in unreferenced
+            if not owners[raw_file] and outcomes.get(raw_file) != "held"
+        ]
         if remaining and ctx.fix_allowed(
             "create",
             ctx.root / "wiki" / "references" / COVERAGE_REFERENCE,
@@ -1381,9 +1413,8 @@ def check_coverage(ctx: LintContext) -> None:
         if len(candidates) == 1:
             ctx.issue(
                 "suggestion",
-                "Raw source is not referenced by any compiled article, but "
-                f"{ctx.rel(candidates[0])} cites its underlying source directly; "
-                "add the pointer to that article's sources.",
+                f"Raw source is not referenced, but {ctx.rel(candidates[0])} cites its "
+                "underlying source directly; add this pointer to that article's sources.",
                 raw_file,
                 fixable=True,
                 check="C6",
@@ -1393,8 +1424,9 @@ def check_coverage(ctx: LintContext) -> None:
             listed = ", ".join(sorted(ctx.rel(candidate) for candidate in candidates))
             ctx.issue(
                 "suggestion",
-                "Raw source is not referenced by any compiled article; these cite "
-                f"its underlying source directly: {listed}.",
+                f"Raw source has multiple possible compiled owners: {listed}; choose one explicitly."
+                if ctx.fixing
+                else f"Raw source is not referenced and has multiple possible compiled owners: {listed}.",
                 raw_file,
                 check="C6",
             )
@@ -1441,7 +1473,6 @@ def create_or_update_coverage_reference(ctx: LintContext, unreferenced: list[Pat
             *[f"  - {source_ref}" for source_ref in source_refs],
             f"created: {today}",
             f"updated: {today}",
-            f"verified: {today}",
             "tags: [coverage, uncompiled-sources, backlog, lint-repair]",
             "confidence: low",
             "volatility: warm",

@@ -57,8 +57,8 @@ rule_set = int(rules.CURRENT_RULE_SET)
 
 content = f'''"""Generated build identity of this Knowmade control-plane copy.
 
-GENERATED FILE: do not edit by hand. scripts/sync-codex-plugin.sh and
-scripts/sync-opencode-plugin.sh rewrite it, through
+GENERATED FILE: do not edit by hand. scripts/sync-codex-plugin.sh,
+scripts/sync-opencode-plugin.sh and scripts/sync-dsh-plugin.sh rewrite it, through
 scripts/.sync-build-identity.sh, into scripts/knowmade_control/ and into every
 packaged copy under claude-plugin/bin/ and plugins/*/bin/.
 
@@ -77,7 +77,7 @@ everything except COMMIT is deterministic for a given checkout.
 VERSION = "{version}"
 COMMIT = "{commit}"
 RULE_SET = {rule_set}
-GENERATED_BY = "scripts/sync-codex-plugin.sh, scripts/sync-opencode-plugin.sh"
+GENERATED_BY = "scripts/sync-codex-plugin.sh, scripts/sync-opencode-plugin.sh, scripts/sync-dsh-plugin.sh"
 '''
 
 for destination in destinations:

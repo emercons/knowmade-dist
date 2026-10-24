@@ -105,6 +105,7 @@ All content lives here. One topic per wiki. Isolated indexes, focused queries.
 ├── raw/                           # Immutable processed artifacts from inbox
 │   ├── _index.md
 │   ├── articles/*.md
+│   ├── articles/<namespace>/*.md  # Optional nested organization; each dir has _index.md
 │   ├── papers/*.md
 │   ├── repos/*.md
 │   ├── notes/*.md
@@ -142,7 +143,7 @@ Same structure as a topic wiki but at `<project>/.wiki/`. Add `.wiki/` to `.giti
 7. **Incremental by default.** Only compile new sources unless explicitly asked for full recompile.
 8. **Honest gaps.** If the wiki doesn't have the answer, say so. Suggest what to ingest.
 9. **Multi-wiki peek.** When querying, answer from the target wiki, then peek at sibling wiki `_index.md` files for overlap.
-10. **Confidence scoring.** Articles get `confidence: high|medium|low` in frontmatter based on source quality.
+10. **Confidence scoring.** Articles get `confidence: high|medium-high|medium|medium-low|low` in frontmatter based on source quality.
 11. **Archive is quiet preservation.** Archived topic wikis move to
 `HUB/topics/.archive/<slug>/`, remain structurally maintainable, and stay out of
 normal query/compile/research/collect/output context unless explicitly included. Deep
@@ -230,8 +231,10 @@ default for topic wikis. It may define topic-local entity types, relationship
 verbs, article subtypes, source conventions, inventory/dataset boundaries, and
 compile guidance for article cardinality, boundaries, scope, and concepts that
 should remain separate.
-It must not redefine global llm-wiki primitives such as raw source folders,
-article categories, inventory kinds, or required frontmatter.
+It must not redefine global llm-wiki primitives such as top-level raw types,
+article categories, inventory kinds, or required frontmatter. It may recommend
+nested namespaces below a raw type, such as `raw/articles/news/`; files retain
+their top-level `type`, and every namespace has `_index.md`.
 `schema_state: advisory` means suggestions only. `strict` is advanced explicit
 opt-in: compilation confirms planned deviations before writing, but strict mode
 still never permits automatic rewrites of untouched articles. Topic-guide prose
@@ -254,6 +257,11 @@ summary: "2-3 sentence summary"
 ---
 ```
 
+Raw sources may live at any depth below the directory matching their declared
+type, for example `raw/articles/news/daily/`. Namespaces do not define new raw
+types, and lint preserves correctly typed nested paths while building indexes
+for every namespace.
+
 ### Wiki Article (wiki/)
 
 ```yaml
@@ -265,7 +273,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 tags: [tag1, tag2]
 aliases: [alternate names]
-confidence: high|medium|low
+confidence: high|medium-high|medium|medium-low|low
 summary: "2-3 sentence summary"
 ---
 ```
@@ -375,7 +383,7 @@ spaces in markdown, use angle-bracket destinations:
   "default": "<HUB>",
   "wikis": {
     "hub": { "path": "<HUB>", "description": "Hub" },
-    "<name>": { "path": "topics/<name>", "description": "...", "status": "active" },
+    "<name>": { "path": "topics/<name>", "id": "optional-stable-id", "description": "...", "status": "active" },
     "<archived-name>": {
       "path": "topics/.archive/<archived-name>",
       "description": "...",
@@ -401,6 +409,13 @@ repair the registry on the next sync.
 Archived topic wikis use portable paths under `topics/.archive/<name>` and
 `status: archived`. Normal tools skip these entries unless the user explicitly
 asks for archived content or structural maintenance.
+
+Topic `config.md` may carry an opaque `wiki_id`, and its matching registry entry
+may carry the same `id`. If both exist and differ, hub lint is critical and
+named resolution fails closed. Missing ids remain valid. Adopt them gradually
+with dry-run-first `llm-wiki identity status|assign`; write with `--apply`.
+Optional `llm_wiki_version` and `checker_sha` fields declare the lint engine a
+corpus satisfies. Drift warns by default; `lint --strict-engine` gates CI.
 
 ### log.md
 
@@ -473,6 +488,10 @@ metadata stub with `extraction_status: ocr-needed` rather than inventing text.
 
 Slug: `YYYY-MM-DD-descriptive-slug.md`. Update all indexes after each ingestion. If 5+ uncompiled sources, suggest compilation.
 
+`--raw-subdir <relative/path>` may place a source below its selected type, such
+as `raw/articles/news/daily/`. Reject absolute, hidden, empty, `.` and `..`
+segments; keep `type: articles`; create/update every containing `_index.md`.
+
 If the user wants to track or decide later about a source, use inventory instead
 of ingesting immediately. If a source is large or query-oriented, use a dataset
 manifest or collection ingest. After ingesting a tracked candidate, suggest
@@ -490,7 +509,9 @@ Adapters:
 - **git**: clone shallowly or read a local repo; inventory text files with blob
   SHAs and HEAD commit. For BIP-style repos, prioritize `bip-####.mediawiki`
   and `bip-####.md`, parse proposal headers, and store each proposal as a child
-  raw source.
+  raw source. With `--manifest-only`, require a local/full clone, resolve
+  `--revision <ref>` (default `HEAD`) to a full commit, and write only the
+  immutable manifest with filtered `Path | Blob SHA` rows; no child copies.
 - **mediawiki-dump**: read official `.xml`, `.xml.bz2`, or `.xml.gz` dumps with
   streaming XML parsing; default to namespace 0; skip redirects and non-content
   namespaces unless explicitly included.
@@ -805,7 +826,7 @@ needs no extra gate. Raw immutability and append-only rules yield to retraction.
 
 ### Refresh
 
-Freshness check for wiki articles. Re-fetches source URLs, detects changes (cosmetic, additive, contradictory), and presents a human-gated assessment. Three tiers: source check → change assessment → action decision (skip/update/flag/retract). `--due` flag shows all articles past their volatility threshold. Never auto-recompiles — human confirms every change.
+Freshness check for wiki articles. Follow `references/refresh-protocol.md`: re-fetch sources, detect changes (cosmetic, additive, contradictory), and present a human-gated assessment. A changed source creates a new immutable raw revision; it never overwrites the old one. `verified` is written only after an explicit human verification decision, never by compile, lint, or `--due`. Never auto-recompile.
 
 ### Inventory
 
@@ -927,9 +948,9 @@ Health checks with auto-fix capability. Lint **is** the migration path — there
   `--wiki <slug> --include-archived`, run per archived slug, structurally
   maintains them (there is no `--archived-only` CLI flag).
 
-**Checks**: structure integrity, frontmatter validity (plus legacy key/value aliases C13), canonical placement of raw/wiki files (C11), unknown-file quarantine for raw/wiki/inventory/datasets/root (C12), index consistency, link integrity, source provenance (dangling refs, unresolved explicit local raw-source paths, unresolved retraction markers), tag hygiene, coverage, project `WHY.md` presence (C8a), project staleness via source chain (C8b), legacy `_project.md` migration to `WHY.md` (C8c), project candidates (C9), inventory migration candidates (C16), dataset migration candidates (C17), archive registry drift and active/archive collisions (C19), deep fact-checking (optional).
+**Checks**: structure integrity, frontmatter validity (plus legacy key/value aliases C13), canonical placement of raw/wiki files and nested raw namespaces (C11), unknown-file quarantine for raw/wiki/inventory/datasets/root (C12), index consistency, Markdown/wiki-link/footnote integrity, source provenance (dangling refs, unresolved explicit local raw-source paths, unresolved retraction markers), tag hygiene, actionable coverage ownership, project `WHY.md` presence (C8a), project staleness via source chain (C8b), legacy `_project.md` migration to `WHY.md` (C8c), project candidates (C9), inventory migration candidates (C16), dataset migration candidates (C17), archive registry drift and active/archive collisions (C19), engine declarations and stable wiki identity (C20), deep fact-checking (optional).
 
-**Auto-fix** (`--fix`): rewrite legacy frontmatter keys/values to canonical (C13), move misplaced raw/wiki files to their canonical directory (C11), quarantine unknown files to `inbox/.unknown` (C12), migrate legacy `_project.md` to `WHY.md` (C8c), add a default human-owned `schema.md` in advisory mode when missing, repair missing indexes inside existing inventory/dataset layers (C16/C17), repair unambiguous archive registry path/status drift (C19), missing indexes, orphan files, dead index entries, statistics mismatch, missing bidirectional links, empty frontmatter fields, dangling source references, regenerate projects-aware `output/_index.md`. Never auto-delete unknown directories. Never auto-create `WHY.md` with placeholder goals (C8a is warn-only — manufactured rationale is worse than missing). Never create completely absent optional inventory or dataset trees just to populate placeholders. Never auto-move files into projects (C9 is human-authored via `/knowmade:project`). Never auto-migrate output artifacts into inventory or dataset records (C16/C17 are explicit via `/knowmade:inventory migrate-output --apply` and `/knowmade:dataset migrate-output --apply`). Never move topics into or out of archive during lint; archive/restore is explicit. On slug collisions during a placement move, skip and warn.
+**Auto-fix** (`--fix`): rewrite legacy frontmatter keys/values to canonical (C13), move misplaced raw/wiki files to their canonical top-level type/category while preserving valid nested raw namespaces (C11), quarantine unknown files to `inbox/.unknown` (C12), migrate legacy `_project.md` to `WHY.md` (C8c), add a default human-owned `schema.md` in advisory mode when missing, repair missing indexes inside existing inventory/dataset layers (C16/C17), repair unambiguous archive registry path/status drift (C19), missing indexes, orphan files, dead index entries, statistics mismatch, missing bidirectional links, empty frontmatter fields, dangling source references, regenerate projects-aware `output/_index.md`. Never auto-delete unknown directories. Never auto-create `WHY.md` with placeholder goals (C8a is warn-only — manufactured rationale is worse than missing). Never create completely absent optional inventory or dataset trees just to populate placeholders. Never auto-move files into projects (C9 is human-authored via `/knowmade:project`). Never auto-migrate output artifacts into inventory or dataset records (C16/C17 are explicit via `/knowmade:inventory migrate-output --apply` and `/knowmade:dataset migrate-output --apply`). Never move topics into or out of archive during lint; archive/restore is explicit. On slug collisions during a placement move, skip and warn.
 
 **Schema evolution**: when canonical paths or frontmatter fields for `raw/`, `wiki/`, `inventory/`, `datasets/`, or archive lifecycle paths change, update the rules in `skills/knowmade/references/lint-rules.md` (C11/C16/C17 placement maps, C12/C19 allowlists, C13 alias table). When the project model changes, update C8/C9 and `projects.md`. Never write version-specific migration code. Lint rules are the schema.
 

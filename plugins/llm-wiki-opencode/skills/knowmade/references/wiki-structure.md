@@ -117,7 +117,10 @@ HUB/topics/<name>/
 │   ├── _index.md
 │   ├── articles/
 │   │   ├── _index.md
-│   │   └── *.md
+│   │   ├── *.md
+│   │   └── <namespace>/            # Optional, e.g. news/ or vendors/acme/
+│   │       ├── _index.md
+│   │       └── *.md
 │   ├── papers/
 │   │   ├── _index.md
 │   │   └── *.md
@@ -199,7 +202,7 @@ selection happens at the topic slug, not by choosing another hub. Then resolve:
   "default": "<HUB>",
   "wikis": {
     "hub": { "path": "<HUB>", "description": "Global knowledge base" },
-    "<topic>": { "path": "topics/<topic>", "description": "...", "status": "active" },
+    "<topic>": { "path": "topics/<topic>", "id": "optional-stable-id", "description": "...", "status": "active" },
     "<archived-topic>": {
       "path": "topics/.archive/<archived-topic>",
       "description": "...",

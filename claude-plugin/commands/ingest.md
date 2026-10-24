@@ -1,6 +1,6 @@
 ---
 description: "Ingest source material into an active wiki using Knowmade's inbox-first flow. Accepts URLs, file paths, PDFs, freeform text, or processes the inbox. Supports X/Twitter status URLs through a fetch fallback chain."
-argument-hint: "<url|filepath|\"text\"> [--type articles|papers|repos|notes|data] [--title \"Title\"] [--inbox] [--keep] [--wiki <name>] [--local] [--auto-classify] [--new-topic <name>] [--project <slug>] [--include-archived]"
+argument-hint: "<url|filepath|\"text\"> [--type articles|papers|repos|notes|data] [--raw-subdir <path>] [--title \"Title\"] [--inbox] [--keep] [--wiki <name>] [--local] [--auto-classify] [--new-topic <name>] [--project <slug>] [--include-archived]"
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mv:*), Bash(mkdir:*), Bash(basename:*), Bash(file:*), Bash(curl:*), Bash(mktemp:*), Bash(rm:*), Bash(pdftotext:*), Bash(python3:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*), WebFetch, WebSearch
 ---
 
@@ -34,6 +34,11 @@ stay with you.
 - **--inbox**: Process all files in the wiki's `inbox/` directory
 - **--keep**: When processing inbox, keep originals (move to .processed/ instead of deleting)
 - **--type**: Force source type (articles, papers, repos, notes, data). Default: auto-detect.
+- **--raw-subdir <path>**: Place the source in an optional namespace below its
+  type, such as `--type articles --raw-subdir news/daily`. Reject absolute
+  paths, `.`/`..`, hidden segments, and paths whose first segment repeats or
+  changes the type. Create `_index.md` in every new namespace directory. The
+  source frontmatter `type` remains the top-level raw type.
 - **--title**: Override extracted title
 - **--auto-classify**: For single items, classify into the best-matching topic wiki instead of requiring `--wiki`. Always active for `--inbox` when no `--wiki` is set.
 - **--project <slug>**: Tag the processed raw artifact with `project: <slug>` (branch below).
@@ -88,7 +93,7 @@ Write the raw file by hand per `skills/knowmade/references/wiki-format.md` (raw 
 
 1. Ensure there is an intake item under `inbox/` unless this command is already
    processing `--inbox`
-2. Write the processed extraction artifact to `raw/{type}/` with `source note` (slug `YYYY-MM-DD-descriptive-slug.md`, indexes rebuilt and `ingest` log entry appended by the CLI)
+2. Write the processed extraction artifact to `raw/{type}/` (or `raw/{type}/{raw-subdir}/` when `--raw-subdir` was given) with `source note` (slug `YYYY-MM-DD-descriptive-slug.md`, indexes rebuilt and `ingest` log entry appended by the CLI)
 3. Update the master `_index.md` by hand (statistics, Recent Changes; `skills/knowmade/references/indexing.md` § Master Index Statistics)
 4. Move or copy the intake item to `inbox/.processed/` and preserve the link between the inbox item and raw artifact when cheap
 5. Report: what was staged, what processed artifact was saved, and detected tags

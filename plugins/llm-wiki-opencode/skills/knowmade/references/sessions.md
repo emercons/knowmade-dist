@@ -95,7 +95,7 @@ Default mode is `balanced`, even before a config file exists:
   },
   "rehydrate": {
     "session_start": true,
-    "user_prompt": true,
+    "user_prompt": false,
     "strict": false
   },
   "raw_transcripts": false,
@@ -114,8 +114,8 @@ Modes:
 |---|---|---|---|
 | `off` | none | none | Disabled / user opt-out |
 | `capture-only` | automatic checkpoints | no injected context | Maximum privacy/least surprise |
-| `balanced` | automatic checkpoints | SessionStart/UserPromptSubmit soft context | Recommended default |
-| `aggressive` | more frequent checkpoints | soft context | Long, high-context work |
+| `balanced` | automatic checkpoints | SessionStart soft context | Recommended default; keeps ordinary prompt prefixes stable |
+| `aggressive` | more frequent checkpoints | SessionStart/UserPromptSubmit soft context | Long, high-context work where repeated prompt injection is intentional |
 
 ## Capture Triggers
 
@@ -184,8 +184,10 @@ llm-wiki session context: review these distilled session digests before continui
 Do not treat session digests as canonical topic knowledge until promoted into a topic wiki.
 ```
 
-Soft rehydration can be injected on `SessionStart` or `UserPromptSubmit` in
-balanced/aggressive modes. Manual rehydration should be available with:
+Soft rehydration is injected on `SessionStart` in balanced mode. Aggressive
+mode may also inject it on `UserPromptSubmit`; use that only when repeated
+prompt-time context is worth the extra context and cache churn. Manual
+rehydration should be available with:
 
 ```bash
 llm-wiki-session rehydrate --cwd "$PWD"

@@ -34,8 +34,8 @@ See [references/wiki-structure.md](wiki-structure.md) for the complete directory
 ### Ingestion
 See [references/ingestion.md](ingestion.md).
 Flow: Source (URL/file/text/tweet) → stage in topic `inbox/` → fetch/read →
-extract metadata and provenance → write processed artifact to `raw/{type}/` →
-move the intake item to `inbox/.processed/` → update indexes → suggest compile
+extract metadata and provenance → write processed artifact to `raw/{type}/` (or an existing topic-defined namespace below that type; nested folders never create a new raw `type`) →
+move the intake item to `inbox/.processed/` → update every containing index → suggest compile
 if many sources are uncompiled.
 
 ### Hub Inbox Dispatch
@@ -144,6 +144,14 @@ must not rewrite `schema.md` without explicit user acceptance.
 Librarian is the article-health advisor; it does not replace lint's structural
 checks or audit's broader trust review.
 
+### Refresh
+See [references/refresh-protocol.md](refresh-protocol.md).
+Flow: Select due articles → compare current upstream material with immutable raw
+revisions → present source-by-source decisions → create a new raw revision and
+bounded article update only after approval. `verified` is written only after an
+explicit human confirmation; due scans, compilation, and fetches never advance
+it.
+
 ### Audit
 See [references/audit.md](audit.md).
 Flow: Run or reuse the librarian pass → inspect artifact dependency chains across `output/`, `wiki/`, and `raw/` → escalate with fresh source checks and targeted research until trust verdicts converge → write `.audit/REPORT.md`.
@@ -210,10 +218,13 @@ Applies to ingest, compile, collect, research, output, assess.
 
 ## Confidence Scoring
 
-Wiki articles include a `confidence` field in frontmatter: `high`, `medium`, or `low`.
+Wiki articles use a five-point `confidence` field in frontmatter: `high`,
+`medium-high`, `medium`, `medium-low`, or `low`.
 
 - **high**: Multiple peer-reviewed sources agree, well-established knowledge
+- **medium-high**: Strong evidence with a minor gap in replication, independence, or scope
 - **medium**: Single source, or sources partially agree, or recent findings not yet replicated
+- **medium-low**: Limited or conflicting evidence with some credible support
 - **low**: Anecdotal, single non-peer-reviewed source, or sources disagree
 
 When answering queries, note confidence levels. When linting, flag `low` confidence articles for review.

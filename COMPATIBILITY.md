@@ -241,7 +241,12 @@ Upstream integration and downstream release are separate events.
 trailing components of the version (`0.4.2.25.1`: the leading `0.4.2` is
 Knowmade's own release line, the trailing `25.1` is the upstream baseline) are
 set only in an authorized release commit, to the upstream baseline the tree has
-absorbed at that point. Manifests, install instructions and the release tag
+absorbed at that point. The version always has five components: the upstream
+baseline contributes its first two (`0.25.1` gives `25.1`; `1.0.0` gives
+`1.0`, so the first release after the v1.0.0 merge is `0.15.0.1.0`), and
+`tests/test-docs-consistency.sh` pins that shape; the engine also reads a
+six-part version as a three-part upstream baseline, for a corpus that writes
+one. Manifests, install instructions and the release tag
 therefore never name a baseline that is not shipped. `CLAUDE.md` (Upstream
 Update Process), `BACKLOG.md` and `.claude/release-checklist.md` point here
 instead of restating the rule.
@@ -275,6 +280,125 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.15.0.1.0 — Sprint P: upstream v1.0.0 absorbed
+
+Upstream `nvk/llm-wiki` v1.0.0 (commit `f6eecd6`, merged as `35d37c5`) was
+absorbed on 2026-10-24. Upstream re-implemented, under its own names, most of
+what Knowmade had asked for in PRs #96 to #106 (see
+`UPSTREAM_CONTRIBUTIONS.md` § 2026-10-24 upstream review outcome); this entry
+records how each user-facing name was reconciled and what moved on the three
+surfaces. Upstream's names win wherever the two disagreed on a message or a
+flag; Knowmade's engine, launcher and mirrors stay the implementation.
+
+- **Corpus rule set: unchanged (`rules/3`).** No check became stricter at
+  lint level, so no bump and no ladder exception. What moved: (1) `verified`
+  is human-only and the sole stale clock (`freshness.article_status` no longer
+  falls back to `updated`); an article without a valid `verified` is now an
+  `info` finding (C14, upstream's text) instead of a `warning`, a relaxation.
+  (2) Raw namespaces below a type (`raw/articles/news/daily/`) are allowed and
+  indexed: a new `raw-files` index contract with nested `_index.md` rows,
+  `optional_index_directories` covers nested raw directories for structure
+  lint and `index check/rebuild`, `canonical_path_for` accepts
+  `raw/<type>/<ns...>/file.md`, and non-`.md` files anywhere under a type are
+  reported by `check_unknown_files` (dotted directories ignored). Before, a
+  directory under a type was reported as unexpected, so this is a relaxation.
+  The missing-index message for raw directories reads "Required raw source or
+  namespace entry is missing from directory index". (3) Footnote and
+  wiki-link integrity (already in `lint_links.py`) now strip code with a
+  fence-length-aware `strip_code_blocks` that keeps line boundaries and
+  blanks inline code; `WIKILINK_RE` excludes images (`(?<!!)`) and takes the
+  target before `|` or `#` (a `#` fragment used to make the link not match at
+  all); messages use upstream's wording ("...the rendered claim has no
+  citation target.", "Footnote [^k] is defined but never referenced.") and
+  show the link as written, alias included. Severities unchanged. (4) C6 raw
+  coverage: `--fix` attaches a coverage pointer only when the raw file has a
+  single compiled owner; a file with several possible owners is reported
+  ("...and has multiple possible compiled owners: ...", in fix mode
+  "...choose one explicitly.") and no longer also lands on the catch-all
+  page, which only ownerless files reach; the catch-all page no longer writes
+  `verified:`. (5) The five-point `confidence` scale was already present.
+  Three new defect fixtures prove the checks: `footnote-link-integrity`,
+  `unverified-article`, `nested-raw-namespace`.
+- **Deterministic CLI and protocol: additive flags, one strictness change,
+  one contract widening.** Engine declarations: a wiki declaring
+  `llm_wiki_version: 1.0.0` is accepted through `engine.ABSORBED_UPSTREAM_VERSION`
+  (the absorbed baseline, so it holds before a release moves the version's
+  trailing components; `upstream_baseline()` also reads a six-part version
+  such as `0.15.0.1.0.0` as `1.0.0`; the unambiguous `knowmade_version` never
+  accepts it; the constant is updated on each upstream merge). Upstream's bare
+  `checker_sha` is read as informational (`declared_upstream.sha`) and never
+  compared, because Knowmade cannot verify an upstream commit. The
+  version-mismatch message names the declaring key, "declares
+  llm_wiki_version 'X', but this checker is 'Y'" (was "declares engine
+  version ... lint is version ..."); the commit-mismatch wording is unchanged.
+  Deliberate difference: `--strict-engine` still raises a mismatch to
+  `critical` (upstream keeps `warning` and forces exit 1);
+  `lint_exit_code(counts, fail_on, strict_engine_mismatch)` returns 1 first
+  when the contract state is drift under `--strict-engine`. Identity:
+  `wiki_id` shape widened to upstream's `[A-Za-z0-9][A-Za-z0-9._:-]{7,127}`
+  (generated ids stay `wk-<16 hex>`; `registry add` and cross-root references
+  still require `wk-` ids and refuse others with a clear message).
+  `roots.resolve_wiki_identity` now fails closed on a registry `id` versus
+  `config.md` `wiki_id` mismatch for `--wiki` ("registry identity mismatch for
+  <slug>: entry id ... does not match config.md wiki_id ...", exit 2 via
+  `WikiNotResolved`; upstream exits 1); `lint_hub.check_hub_registry` uses the
+  same message and now also covers hub-owned topics (it ran after the
+  portable-path `continue`). This is the one strictness change: before, the
+  mismatch was a `critical` at hub lint only. `identity status` gains `slug`,
+  `registry_id` and `status` (`match`, `mismatch`, `partial`, `unassigned`)
+  in text and JSON, exits 1 on mismatch, and looks up an explicit `--hub` or
+  the enclosing hub. `identity assign` gains `--apply`, `--replace` (needs an
+  explicit `--id`) and `--json`; it refuses when config and registry ids
+  disagree without `--replace`, adopts the id the registry entry of the
+  enclosing hub already carries when the wiki declares none (upstream's
+  `requested or existing`, so a re-cloned replica keeps its identity instead
+  of minting a new id over the entry), refuses an explicit `--id` that
+  conflicts with that registry id without `--replace`, binds the id into the
+  matching registry entry only of a hub the command names (`--wiki <slug>
+  --hub <path>`; `--replace` through the enclosing hub alone is refused
+  because it would leave the entry unbound), appends
+  `identity` log lines to wiki and hub, and `--dry-run --json` reports
+  `would-assign`. Deliberate difference: Knowmade's `identity assign` writes
+  by default and `--dry-run` previews (`--apply` is a synonym for the
+  default); upstream's is a dry run unless `--apply` is passed, so a script
+  written for upstream that omits `--apply` writes on Knowmade. Kept because
+  `test-local-cli-refs.sh`, README and AGENTS.md rely on the writing default,
+  and the Knowmade text output (`assigned: X` / `already declared: X`) is
+  unchanged. Ingestion: `ingest --raw-subdir`, `ingest-collection --adapter
+  git --manifest-only` and `--revision`; `refresh` writes a new raw revision
+  with `supersedes` instead of editing the old one (agent spec, single
+  statement in `references/refresh-protocol.md`; upstream's `refresh.md` was
+  not adopted). Session: `hook --strict-json`, `--event-name <Event>`, UTF-8
+  and UTF-16 stdin, `ensure_ascii=False`, `json.loads` scalars, `promoted_to`
+  from state, the dedent fix; balanced rehydration is SessionStart-only
+  (`user_prompt: False`). The `SessionStore` transaction stays Knowmade's.
+  `references/cli.md` regenerated.
+- **Distribution and runtime packaging: one new mirror, Codex hooks on
+  Windows.** New generated DeepSeek Harness skill package
+  `plugins/llm-wiki-dsh/` (`scripts/sync-dsh-plugin.sh`, self-contained incl.
+  `bin/`), installed by `scripts/install-deepseek-harness.sh` into
+  `${DSH_HOME:-~/.dsh}/skills/knowmade` (`.knowmade-managed` marker,
+  `--force`, `--verify`), proved by `tests/test-dsh-sync.sh` (a serial lane
+  step, "DeepSeek Harness generated mirror sync"; the lane is 46 steps).
+  `scripts/.sync-build-identity.sh` names the third sync as a writer of
+  `_build.py`. Codex hooks: `hooks.json` carries `commandWindows` (`cmd.exe
+  /d /s /c ""%PLUGIN_ROOT%\hooks\llm-wiki-hook.cmd" hook --harness codex
+  --event-name <Event> --if-enabled"`) beside `command`, generated by
+  `scripts/.sync-codex-plugin-legacy.sh`, which copies
+  `scripts/llm-wiki-hook.cmd` and fails closed if it is missing. No manifest
+  changed in the merge; the release that ships this baseline sets the version
+  suffix per "Upstream Merge Semantics" above (the first release after this
+  merge is `0.15.0.1.0`).
+- **Tests.** `tests/test-local-cli-lint.sh` carries both sides of the upstream
+  conflict plus every new upstream case (any engine version string accepted,
+  `llm_wiki_version: 0.0.1` as the mismatch, the first `identity assign`
+  step passes `--dry-run`); `test-identity-contract.sh` gains status and
+  upstream-baseline cases; `test_cli_subcommands.py` gains
+  `UpstreamEngineParityTest` (and its invalid id is `not valid!`, because
+  `nonsense` is valid under the widened shape); `test-session-capture.sh`
+  asserts the `hooks.json` shape; `test-structure.sh` gains the three
+  negative cases; `test-run-checks.sh` expects the DSH serial step.
 
 ### v0.14.0.25.1 — Sprint O: the prelude floor and the small-tier context diet
 

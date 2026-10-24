@@ -64,33 +64,59 @@ def check_links(ctx: LintContext) -> None:
 
 FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]\s]+)\]:", re.M)
 FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]\s]+)\](?!:)")
-WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]")
+WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]|#\n]+)(?:[|#][^\]\n]*)?\]\]")
 
 
-INLINE_CODE_RE = re.compile(r"`+[^`\n]*`+")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
 def strip_code_blocks(text: str) -> str:
     """Blank out code so prose checks do not fire inside syntax examples.
 
     Both fenced blocks and inline spans are removed: a wiki-link or footnote
-    marker shown as an example of the syntax is not a link or a citation.
+    marker shown as an example of the syntax is not a link or a citation. A
+    fence closes only on a marker of the same character that is at least as
+    long as the opener, so a four-backtick fence can show triple-backtick
+    examples; an inline span closes on a delimiter of the same length.
+    Line boundaries are preserved.
     """
-    out: list[str] = []
-    fence: str | None = None
+    prose_lines: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
     for line in text.split("\n"):
-        stripped = line.lstrip()
-        if fence is None:
-            if stripped.startswith("```") or stripped.startswith("~~~"):
-                fence = stripped[:3]
-                out.append("")
+        marker = FENCE_RE.match(line)
+        if fence_char is not None:
+            if marker and marker.group(1)[0] == fence_char and len(marker.group(1)) >= fence_length:
+                fence_char = None
+                fence_length = 0
+            prose_lines.append("")
+            continue
+        if marker:
+            fence_char = marker.group(1)[0]
+            fence_length = len(marker.group(1))
+            prose_lines.append("")
+            continue
+
+        output: list[str] = []
+        index = 0
+        while index < len(line):
+            if line[index] != "`":
+                output.append(line[index])
+                index += 1
                 continue
-            out.append(line)
-        else:
-            if stripped.startswith(fence):
-                fence = None
-            out.append("")
-    return INLINE_CODE_RE.sub("", "\n".join(out))
+            end = index
+            while end < len(line) and line[end] == "`":
+                end += 1
+            delimiter = line[index:end]
+            closing = line.find(delimiter, end)
+            if closing == -1:
+                output.append(delimiter)
+                index = end
+                continue
+            output.append(" " * (closing + len(delimiter) - index))
+            index = closing + len(delimiter)
+        prose_lines.append("".join(output))
+    return "\n".join(prose_lines)
 
 
 def compiled_article_bodies(ctx: LintContext):
@@ -122,16 +148,14 @@ def check_footnotes(ctx: LintContext) -> None:
         for key in sorted(referenced - defined):
             ctx.issue(
                 "warning",
-                f"Footnote [^{key}] is referenced but never defined; the claim it "
-                "supports has no evidence in the rendered article.",
+                f"Footnote [^{key}] is referenced but never defined; the rendered claim has no citation target.",
                 doc.path,
                 check="C4",
             )
         for key in sorted(defined - referenced):
             ctx.issue(
                 "suggestion",
-                f"Footnote [^{key}] is defined but never referenced; it supports "
-                "no claim in the article.",
+                f"Footnote [^{key}] is defined but never referenced.",
                 doc.path,
                 check="C4",
             )
@@ -221,6 +245,8 @@ def check_wikilinks(ctx: LintContext) -> None:
         seen: set[str] = set()
         for match in WIKILINK_RE.finditer(prose):
             written = match.group(1).strip()
+            # The message shows the link as written, alias and fragment included.
+            shown = match.group(0)[2:-2].strip()
             target = written.replace("\\", "/")
             stem = target.rstrip("/").rsplit("/", 1)[-1]
             if stem.lower().endswith(".md"):
@@ -250,7 +276,7 @@ def check_wikilinks(ctx: LintContext) -> None:
                     listed = ", ".join(sorted(ctx.rel(path) for path in found)[:3])
                     ctx.issue(
                         "info",
-                        f"Wiki-link [[{written}]] points to an existing file that is "
+                        f"Wiki-link [[{shown}]] points to an existing file that is "
                         f"not a compiled article: {listed}.",
                         doc.path,
                         check="C4",
@@ -258,14 +284,14 @@ def check_wikilinks(ctx: LintContext) -> None:
                 else:
                     ctx.issue(
                         "warning",
-                        f"Wiki-link [[{written}]] resolves to no compiled article.",
+                        f"Wiki-link [[{shown}]] resolves to no compiled article.",
                         doc.path,
                         check="C4",
                     )
             elif not article:
                 ctx.issue(
                     "info",
-                    f"Wiki-link [[{written}]] points to an existing file that is "
+                    f"Wiki-link [[{shown}]] points to an existing file that is "
                     f"not a compiled article: {ctx.rel(owners[0])}.",
                     doc.path,
                     check="C4",
@@ -274,7 +300,7 @@ def check_wikilinks(ctx: LintContext) -> None:
                 listed = ", ".join(sorted(ctx.rel(owner) for owner in owners))
                 ctx.issue(
                     "suggestion",
-                    f"Wiki-link [[{written}]] is ambiguous: {listed}.",
+                    f"Wiki-link [[{shown}]] is ambiguous: {listed}.",
                     doc.path,
                     check="C4",
                 )

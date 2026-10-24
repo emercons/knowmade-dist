@@ -76,7 +76,7 @@ detects.
 | C12 Unknown files | Warn | Files move to `inbox/.unknown/`; directories warn only | - |
 | C13 Aliases | Warn | Rewrite the legacy key or value to canonical (class `frontmatter`) | Warn on unknown keys |
 | C14 Freshness | Warn/Info | - | Rank with `llm-wiki freshness score --json` (composite 0-100 against `freshness_threshold`); narrative; suggest `wiki refresh` |
-| C15 Volatility | Info | Add `volatility: warm` | - |
+| C15 Volatility | Info | Add `volatility: warm`; never invent `verified` (only an explicit human verification sets it) | - |
 | C16 Inventory | Sugg | Missing indexes of existing layers; never create the tree | Judge each candidate's fit before suggesting its `migrate-output --dry-run`; never convert |
 | C17 Datasets | Sugg | Missing indexes of existing layers; never create the tree | As C16, with `wiki dataset migrate-output`; never convert |
 | C18 Missing sources | Warn | - | Suggest recompiling the raw source, or `compiled-from: conversation`; never add either |

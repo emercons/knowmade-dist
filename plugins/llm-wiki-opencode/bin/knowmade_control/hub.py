@@ -1079,12 +1079,26 @@ def register_identity_parser(subparsers: Any) -> argparse.ArgumentParser:
     identity_assign.add_argument(
         "--dry-run", action="store_true", help="Report what would happen without writing."
     )
+    identity_assign.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write config.md and the matching registry entry (upstream llm-wiki spelling; "
+        "this is already the default, only --dry-run holds it back).",
+    )
+    identity_assign.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace an existing identity; requires an explicit --id.",
+    )
+    identity_assign.add_argument("--json", action="store_true", help="Print a JSON report.")
     identity_fork.add_argument("--id", help="Use this new id instead of generating one.")
     identity_fork.add_argument(
         "--dry-run", action="store_true", help="Report what would happen without writing."
     )
     _let_bare_hub_precede_subcommand(identity, tuple(identity_sub.choices))
-    identity.set_defaults(func=_identity.run_identity)
+    # Identity commands are the inspection and repair path for a registry/config
+    # id mismatch; every other named resolution fails closed on one.
+    identity.set_defaults(func=_identity.run_identity, allow_identity_mismatch=True)
     return identity
 
 

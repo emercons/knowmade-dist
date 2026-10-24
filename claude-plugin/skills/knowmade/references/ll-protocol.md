@@ -89,8 +89,9 @@ For each identified event, produce a structured lesson:
 Guidelines:
 - **Deduplicate**: If multiple events teach the same lesson, merge them into one with the clearest example
 - **Generalize**: The "Rule" field must be useful outside the specific session. "Add user_caches_macos to custom-codex profile" is a fix. "Each AI tool needs its own nono profile extending that tool's built-in profile" is a rule.
+- **Redact before writing**: Replace API keys, tokens, authorization headers, passwords, connection strings, private keys, cookies, and personal data with a typed placeholder such as `[REDACTED:api-key]`. Never preserve a raw secret or unnecessary personal identifier merely to make a lesson more specific.
 - **Be specific**: Include exact error messages, file paths, tool names. Vague lessons ("be careful with symlinks") are useless. Specific lessons ("nono resolves symlinks before checking access, so the target path must also be in the allowed list") are actionable.
-- **Count**: A typical session yields 2-7 lessons. If you find more than 10, you're being too granular. If you find fewer than 2, look harder.
+- **Count**: A typical substantive session yields 2-7 lessons. More than 10 usually means the extraction is too granular. Zero or one is correct for a short or uneventful session; never invent a lesson to reach a quota.
 
 ---
 

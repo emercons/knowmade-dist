@@ -31,7 +31,8 @@
 # alone, after every other step has finished, never beside another step. The
 # rule for membership: a step belongs there if it writes into the checkout, or
 # if its verdict depends on the checkout staying exactly as it is while it
-# runs. Today that is the generated-mirror family: the Codex, OpenCode and
+# runs. Today that is the generated-mirror family: the Codex, OpenCode,
+# DeepSeek Harness and
 # query-lite sync tests regenerate the mirror IN PLACE when they find drift
 # (the self-healing hint in their failure text) and then assert that `git
 # status` of the generated paths is clean, and the control-plane sync test
@@ -97,6 +98,7 @@ Compile plan source survey	./tests/test-local-cli-compile-plan.sh
 Source original lifecycle	./tests/test-source-lifecycle.sh
 Codex generated mirror sync	./tests/test-codex-sync.sh	serial
 OpenCode generated mirror sync	./tests/test-opencode-sync.sh	serial
+DeepSeek Harness generated mirror sync	./tests/test-dsh-sync.sh	serial
 Query-lite generated profile sync	./tests/test-query-lite-sync.sh	serial
 Static token-efficiency gate	./scripts/benchmark-token-efficiency static --check
 Retract and privacy-log removal	./tests/test-local-cli-retract.sh

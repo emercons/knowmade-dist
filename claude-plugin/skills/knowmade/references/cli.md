@@ -201,6 +201,9 @@ Declare a wiki id in config.md (or, with --hub, a hub id) if there is none.
 | `--include-archived` | Allow targeting an archived wiki. |
 | `--id ID` | Use this id instead of generating one. |
 | `--dry-run` | Report what would happen without writing. |
+| `--apply` | Write config.md and the matching registry entry (upstream llm-wiki spelling; this is already the default, only --dry-run holds it back). |
+| `--replace` | Replace an existing identity; requires an explicit --id. |
+| `--json` | Print a JSON report. |
 
 ### `llm-wiki identity fork`
 

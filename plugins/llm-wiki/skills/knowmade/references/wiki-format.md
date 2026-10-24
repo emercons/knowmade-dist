@@ -104,6 +104,12 @@ summary: "2-3 sentence summary"
 [Full content]
 ```
 
+Raw sources may be grouped into any depth of namespace below their declared
+type, for example `raw/articles/news/2026/...` or `raw/repos/vendors/acme/`.
+Namespaces do not create new raw types: the first directory below `raw/` must
+still match `type`, each namespace directory has `_index.md`, and lint never
+flattens a correctly typed nested source.
+
 ### Optional Collection Provenance
 
 Raw files created by `wiki ingest-collection` may include additional

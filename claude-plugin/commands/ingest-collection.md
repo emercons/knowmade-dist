@@ -1,6 +1,6 @@
 ---
 description: "Bulk-ingest source collections such as Git doc repos, MediaWiki sources, CSV/JSON message archives, and Wayback CDX snapshots through Knowmade's inbox-first flow into processed raw artifacts."
-argument-hint: "<repo-url|repo-path|mediawiki-url|dump.xml[.bz2|.gz]|csv-json-path|cdx-url|archived-url> [--adapter auto|git|mediawiki-dump|mediawiki-api|csv-messages|wayback-cdx] [--wiki <name>] [--local] [--new-topic <name>] [--limit <N>] [--namespace <id>] [--include <pattern>] [--exclude <pattern>] [--from YYYYMMDD] [--to YYYYMMDD] [--dry-run] [--compile] [--include-archived]"
+argument-hint: "<repo-url|repo-path|mediawiki-url|dump.xml[.bz2|.gz]|csv-json-path|cdx-url|archived-url> [--adapter auto|git|mediawiki-dump|mediawiki-api|csv-messages|wayback-cdx] [--manifest-only] [--revision <ref>] [--wiki <name>] [--local] [--new-topic <name>] [--limit <N>] [--namespace <id>] [--include <pattern>] [--exclude <pattern>] [--from YYYYMMDD] [--to YYYYMMDD] [--dry-run] [--compile] [--include-archived]"
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mkdir:*), Bash(mv:*), Bash(cp:*), Bash(rm:*), Bash(basename:*), Bash(find:*), Bash(git:*), Bash(curl:*), Bash(python3:*), Bash(bunzip2:*), Bash(gunzip:*)
 ---
 
@@ -50,6 +50,8 @@ action update.
 - **--limit <N>**: maximum child sources to ingest. Useful for API imports and dry runs.
 - **--namespace <id>**: MediaWiki namespace. Default `0`.
 - **--include <pattern> / --exclude <pattern>**: filter upstream paths, page titles, message fields, or original snapshot URLs. Treat as shell globs for Git paths and regex for MediaWiki titles, message text, and Wayback original URLs unless the user specifies otherwise.
+- **--manifest-only**: Git only. Pin the selected files as path/blob-SHA rows in one immutable manifest and write no child raw copies.
+- **--revision <ref>**: Git only. Resolve this ref to a full commit SHA instead of assuming `HEAD`. Defaults to `HEAD`.
 - **--from YYYYMMDD / --to YYYYMMDD**: bound Wayback CDX capture timestamps.
 - **--dry-run**: list what would be ingested, write nothing.
 - **--compile**: after raw ingestion, run the normal compile workflow with collection-aware clustering.
@@ -79,7 +81,7 @@ Never recursively crawl HTML pages as a collection import. Use structured upstre
 5. If more than 500 child sources would be written and the user did not explicitly provide `--limit`, show the count and ask for confirmation before writing.
 6. For each child item, skip it if a raw source already has the same `collection`, `upstream_id`, and `revision`/`sha`. If the upstream item changed, write a new immutable raw source; do not overwrite the old one.
 7. Write one processed manifest artifact to `raw/repos/` with `tags: [collection, collection-manifest, <adapter>]`.
-8. Write processed child artifacts to `raw/articles/` unless the adapter-specific rule says otherwise. `csv-messages` usually writes children to `raw/notes/`.
+8. Write processed child artifacts to `raw/articles/` unless the adapter-specific rule says otherwise. `csv-messages` usually writes children to `raw/notes/`. Git `--manifest-only` writes no children.
 9. Rebuild affected raw indexes from frontmatter after the batch. Do not hand-edit hundreds of table rows one by one.
 10. Append to `log.md`:
    ```
@@ -137,13 +139,37 @@ Keep the full upstream text in the body, preserving tables, code blocks, proposa
 
 ## Git adapter
 
-Use a shallow clone for remote repositories unless the user provides a local path:
+Use a shallow clone for ordinary remote ingestion unless the user provides a local path:
 
 ```bash
 git clone --depth 1 <url> <tmpdir>
 git -C <tmpdir> rev-parse HEAD
 git -C <tmpdir> ls-tree -r --format='%(objectname) %(path)' HEAD
 ```
+
+With `--revision <ref>`, resolve `<ref>^{commit}` and use that full SHA for all
+tree/blob operations and canonical URLs. With `--manifest-only`, require a local
+repository or make a full clone (never `--depth 1`) so the selected revision is
+actually available while validating it:
+
+```bash
+git -C <repo> rev-parse '<ref>^{commit}'
+git -C <repo> ls-tree -r --full-tree --format='%(objectname) %(path)' <commit>
+```
+
+Apply the normal include/exclude and text-file filters, then write one manifest
+whose body is:
+
+```markdown
+| Path | Blob SHA |
+|---|---|
+| `CONTEXT.md` | `<full blob sha>` |
+```
+
+Set `manifest_only: true` in its frontmatter. Do not copy file bodies. A
+compiled article cites the manifest in `sources:` and may use
+`<collection>@<commit>:<path>` for claim-level locations. A later revision gets
+a new dated manifest; never edit the prior manifest.
 
 Candidate files:
 - Include text-like source files: `.md`, `.mediawiki`, `.wiki`, `.rst`, `.txt`, `.adoc`.
@@ -245,7 +271,7 @@ inventory; never recursively crawl live or archived HTML.
 
 If `--compile` is set, run normal compilation after ingestion with these collection-specific rules:
 
-- Use the collection manifest to understand scope, but do not require compiled articles to cite the manifest.
+- For ordinary collections, use the manifest to understand scope but cite child raw files. For Git `--manifest-only`, cite the manifest itself in `sources:` and use its pinned `<collection>@<commit>:<path>` rows for claim-level provenance.
 - Compile clusters into useful wiki articles: concepts, standards families, timelines, glossary/reference indexes, and thesis files when a claim is being tested.
 - For BIPs, likely clusters include activation mechanisms, wallet standards, script upgrades, peer services, Taproot/Schnorr, mining/RPC, and the BIP process.
 - For community wikis, treat pages as explanatory sources with medium confidence unless corroborated by authoritative specs, code, papers, or multiple independent sources.

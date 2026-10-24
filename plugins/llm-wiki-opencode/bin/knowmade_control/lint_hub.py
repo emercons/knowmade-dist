@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import engine as _engine
 from . import fsio as _fsio
-from . import identity as _identity
+from . import roots as _roots
 from . import rule_lint as _rule_lint
 from . import rules as _rules
 from .common import PRIVATE_SUFFIX, is_under, write_registry
@@ -122,7 +122,14 @@ def check_hub_registry(ctx: LintContext) -> None:
             f"topics/.archive/{slug}" if is_archived_registry_entry(entry) else f"topics/{slug}"
         )
         hub_topic = ctx.root / relative_path
-        if initialized_wiki_root(hub_topic) and raw_path != relative_path:
+        hub_topic_initialized = initialized_wiki_root(hub_topic)
+        if hub_topic_initialized:
+            # Identity beats path: an entry carrying an id is verified against the
+            # wiki it resolves to even when the path is about to be rewritten.
+            identity_error = _roots.registry_identity_error(slug, entry, hub_topic)
+            if identity_error:
+                ctx.issue("critical", identity_error, registry, check="C19")
+        if hub_topic_initialized and raw_path != relative_path:
             if ctx.fix_allowed(
                 "registry", registry, f"rewrite the path of {slug} to {relative_path}", check="C19"
             ):
@@ -145,9 +152,10 @@ def check_hub_registry(ctx: LintContext) -> None:
         # Identity beats path: an entry carrying an id can be verified against the
         # wiki it resolves to, so a moved or replaced directory is a detectable
         # error rather than a silent write to the wrong copy.
-        mismatch = _identity.verify_entry(entry.get("id"), resolved)
-        if mismatch:
-            ctx.issue("critical", f"Registry entry {slug} {mismatch}.", registry, check="C19")
+        if not hub_topic_initialized:
+            identity_error = _roots.registry_identity_error(slug, entry, resolved)
+            if identity_error:
+                ctx.issue("critical", identity_error, registry, check="C19")
 
         if is_private_placeholder(resolved):
             _rule_lint.issue_versioned(

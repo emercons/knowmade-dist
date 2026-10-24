@@ -1,5 +1,5 @@
 ---
-description: "Check if active wiki articles are still current. Re-fetches sources, detects changes, and offers to update stale articles."
+description: "Check active wiki articles against current sources without mutating raw evidence or claiming automatic verification."
 argument-hint: "[<article-path>|--due] [--wiki <name|all>] [--local] [--include-archived]"
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(python3:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*), WebFetch, WebSearch, Agent
 ---
@@ -15,3 +15,6 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:
 
 Then read `skills/knowmade/references/refresh-protocol.md` and follow it from step 4
 with $ARGUMENTS. It holds the whole workflow; do not act from this file alone.
+Assessment is read-only. Never overwrite a raw file (a changed source becomes a new
+raw revision with `supersedes`), never set `verified` during compile or a due scan,
+and never treat `updated` as human verification.

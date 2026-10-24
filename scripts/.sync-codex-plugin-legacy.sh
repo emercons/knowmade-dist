@@ -29,6 +29,7 @@ CLAUDE_MANIFEST="$ROOT/claude-plugin/.claude-plugin/plugin.json"
 CODEX_MANIFEST="$ROOT/plugins/llm-wiki/.codex-plugin/plugin.json"
 CODEX_MANIFEST_OUT="$TARGET_PLUGIN/.codex-plugin/plugin.json"
 SESSION_HELPER="$ROOT/scripts/llm-wiki-session"
+HOOK_WRAPPER="$ROOT/scripts/llm-wiki-hook.cmd"
 MARKETPLACE_MANIFEST="$ROOT/.agents/plugins/marketplace.json"
 LOCAL_HELPER="$ROOT/scripts/llm-wiki"
 ADOPT_HELPERS="llm-wiki-adopt llm-wiki-adopt-batch"
@@ -55,6 +56,11 @@ fi
 
 if [ ! -f "$SESSION_HELPER" ]; then
   echo "Missing session helper: $SESSION_HELPER" >&2
+  exit 1
+fi
+
+if [ ! -f "$HOOK_WRAPPER" ]; then
+  echo "Missing Windows hook wrapper: $HOOK_WRAPPER" >&2
   exit 1
 fi
 
@@ -112,6 +118,7 @@ mkdir -p "$TARGET_SKILL/agents"
 mkdir -p "$TARGET_PLUGIN/hooks"
 cp "$SESSION_HELPER" "$TARGET_PLUGIN/hooks/llm_wiki_session.py"
 chmod 0755 "$TARGET_PLUGIN/hooks/llm_wiki_session.py"
+cp "$HOOK_WRAPPER" "$TARGET_PLUGIN/hooks/llm-wiki-hook.cmd"
 
 cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
 {
@@ -121,7 +128,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name SessionStart --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name SessionStart --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Loading Knowmade session context"
           }
@@ -133,7 +141,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name UserPromptSubmit --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name UserPromptSubmit --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Checking Knowmade session context"
           }
@@ -146,7 +155,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name PostToolUse --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name PostToolUse --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Recording Knowmade session event"
           }
@@ -159,7 +169,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name PreCompact --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name PreCompact --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Capturing Knowmade pre-compact session context"
           }
@@ -172,7 +183,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name PostCompact --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name PostCompact --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Capturing Knowmade post-compact session context"
           }
@@ -184,7 +196,8 @@ cat > "$TARGET_PLUGIN/hooks/hooks.json" <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --if-enabled",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/llm_wiki_session.py\" hook --harness codex --event-name Stop --if-enabled",
+            "commandWindows": "cmd.exe /d /s /c \"\"%PLUGIN_ROOT%\\hooks\\llm-wiki-hook.cmd\" hook --harness codex --event-name Stop --if-enabled\"",
             "timeout": 5,
             "statusMessage": "Saving Knowmade session checkpoint"
           }
@@ -250,12 +263,12 @@ launcher = (
     "p=p if os.path.isfile(p) else (max(xs,key=k) if xs else \"\"); "
     "sys.exit(0) if not p else None; "
     "sys.argv=[p,*sys.argv[1:]]; runpy.run_path(p,run_name=\"__main__\")' "
-    "hook --harness codex --if-enabled"
+    "hook --harness codex"
 )
-for entries in value["hooks"].values():
+for event_name, entries in value["hooks"].items():
     for entry in entries:
         for hook in entry["hooks"]:
-            hook["command"] = launcher
+            hook["command"] = f"{launcher} --event-name {event_name} --if-enabled"
 path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8", newline="\n")
 PY
 

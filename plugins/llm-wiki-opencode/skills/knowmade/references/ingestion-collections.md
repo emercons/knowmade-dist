@@ -22,7 +22,7 @@ upstream interfaces:
 
 | Adapter | Use for | Primary access path |
 |---------|---------|---------------------|
-| `git` | GitHub/GitLab/local repos containing specs, proposals, docs | `git clone --depth 1`, `git ls-tree`, raw file reads |
+| `git` | GitHub/GitLab/local repos containing specs, proposals, docs | `git clone`, `git rev-parse`, `git ls-tree`, raw file reads or a manifest-only pin |
 | `mediawiki-dump` | Full MediaWiki imports or large snapshots | Official `.xml`, `.xml.bz2`, `.xml.gz` dumps |
 | `mediawiki-api` | Targeted MediaWiki imports or dumpless sites | `api.php` with `allpages` + `revisions` |
 | `csv-messages` | CSV/TSV/JSON/JSONL message archives such as mailing-list exports | Python stdlib `csv`/`json`, one child source per message row/object |
@@ -98,6 +98,15 @@ Use Git for repositories such as `bitcoin/bips`; do not scrape GitHub HTML.
 5. For BIP-style repos, prioritize root `bip-####.mediawiki` and `bip-####.md`
    files. Parse proposal headers such as `BIP`, `Layer`, `Title`, `Authors`,
    `Status`, `Type`, `Requires`, `License`, and `Discussion`.
+
+Optional `--manifest-only` mode keeps Git-owned file bodies in Git instead of
+duplicating them under `raw/articles/`. It accepts `--revision <ref>` (default
+`HEAD`), resolves it to a full commit SHA, applies the same path filters, and
+writes one immutable `raw/repos/` manifest with a `Path | Blob SHA` body table
+plus `manifest_only: true`. Use a local repository or a full clone, not a
+shallow clone, so the requested revision can be validated. Compiled articles
+cite that manifest in `sources:` and may locate claims as
+`<collection>@<commit>:<path>`. Each later revision creates a new manifest.
 
 For BIPs, publication in the repo is provenance for the proposal text, not proof
 of adoption or consensus. Compilation must preserve that distinction.

@@ -1,7 +1,7 @@
-# Knowmade 0.14.0.25.1 (distribution)
+# Knowmade 0.15.0.1.0 (distribution)
 
-Generated from the release tag `v0.14.0.25.1` of the private source repository
-`emercons/knowmade` (commit `4603128`). This repository holds only packaged
+Generated from the release tag `v0.15.0.1.0` of the private source repository
+`emercons/knowmade` (commit `8d70a3d`). This repository holds only packaged
 release trees, one commit per release, with no development history and no
 issue tracker. Do not edit it; the next release replaces the tree.
 
@@ -10,21 +10,21 @@ issue tracker. Do not edit it; the next release replaces the tree.
 Claude Code:
 
 ```bash
-claude plugin marketplace add emercons/knowmade-dist#v0.14.0.25.1
+claude plugin marketplace add emercons/knowmade-dist#v0.15.0.1.0
 claude plugin install knowmade@knowmade
 ```
 
 Codex (0.144+):
 
 ```bash
-codex plugin marketplace add emercons/knowmade-dist --ref v0.14.0.25.1
+codex plugin marketplace add emercons/knowmade-dist --ref v0.15.0.1.0
 codex plugin add knowmade@knowmade
 ```
 
 OpenCode, Pi and other agents (single-file protocol):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/emercons/knowmade-dist/v0.14.0.25.1/AGENTS.md -o AGENTS.md
+curl -fsSL https://raw.githubusercontent.com/emercons/knowmade-dist/v0.15.0.1.0/AGENTS.md -o AGENTS.md
 ```
 
 Deterministic CLI from this tree: `scripts/llm-wiki --help` (Python 3.10+).
@@ -33,9 +33,9 @@ Deterministic CLI from this tree: `scripts/llm-wiki --help` (Python 3.10+).
 
 `claude-plugin/` (Claude Code plugin, canonical behaviour source),
 `plugins/llm-wiki/` (Codex plugin), `plugins/llm-wiki-opencode/` (OpenCode
-plugin), `profiles/query-lite/` (read-only query profile), `scripts/` (the
+plugin), `plugins/llm-wiki-dsh/` (DeepSeek Harness skill), `profiles/query-lite/` (read-only query profile), `scripts/` (the
 `llm-wiki` control plane and the sync/bootstrap scripts), `AGENTS.md`,
 `FIRST_RUN.md`, `COMPATIBILITY.md` (the normative compatibility contract and
 the release compatibility record), `LICENSE`.
 
-Release notes: https://github.com/emercons/knowmade-dist/releases/tag/v0.14.0.25.1
+Release notes: https://github.com/emercons/knowmade-dist/releases/tag/v0.15.0.1.0

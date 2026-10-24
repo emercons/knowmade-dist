@@ -35,7 +35,10 @@ WIKI_ID_KEY = "wiki_id"
 WIKI_FORKED_FROM_KEY = "wiki_forked_from"
 HUB_ID_KEY = "hub_id"
 HUB_FORKED_FROM_KEY = "hub_forked_from"
-_ID = re.compile(r"^wk-[0-9a-f]{16}$")
+# Upstream llm-wiki 1.0.0 accepts any 8-128 character id of this shape (its
+# default is a UUID). The ids Knowmade generates stay ``wk-<16 hex>``; the
+# federation registry and cross-root references still require that shape.
+_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _HUB_ID = re.compile(r"^hb-[0-9a-f]{16}$")
 
 
@@ -75,7 +78,9 @@ def read_wiki_forked_from(wiki_root: Path) -> str | None:
     return value if isinstance(value, str) and is_wiki_id(value) else None
 
 
-def plan_assignment(wiki_root: Path, *, wiki_id: str | None = None) -> str | None:
+def plan_assignment(
+    wiki_root: Path, *, wiki_id: str | None = None, replace: bool = False
+) -> str | None:
     """Validate an ``identity assign`` request; return the id already declared.
 
     Raises ``SystemExit`` with one clear message when the request cannot be
@@ -83,10 +88,11 @@ def plan_assignment(wiki_root: Path, *, wiki_id: str | None = None) -> str | Non
     traceback or silently drops the requested id:
 
     * ``wiki_root`` has no ``config.md`` (a hub root, an uninitialised path);
-    * ``--id`` is not a well-formed ``wk-`` id;
+    * ``--id`` is not a well-formed wiki id;
     * ``--id`` differs from the id the wiki already declares. A declared id is
-      the wiki's stable identity; ``assign`` never replaces it (``fork`` does,
-      explicitly), and an explicit request must not be reported as satisfied.
+      the wiki's stable identity; ``assign`` never replaces it unless
+      ``--replace`` makes the change explicit (``fork`` also records the old
+      id), and an explicit request must not be reported as satisfied.
     """
     config = wiki_root / "config.md"
     if not config.is_file():
@@ -96,10 +102,13 @@ def plan_assignment(wiki_root: Path, *, wiki_id: str | None = None) -> str | Non
         )
     if wiki_id is not None and not is_wiki_id(wiki_id):
         raise SystemExit(f"not a valid wiki id: {wiki_id}")
+    if replace and wiki_id is None:
+        raise SystemExit("--replace requires an explicit --id")
     existing = read_wiki_id(wiki_root)
-    if existing and wiki_id is not None and wiki_id != existing:
+    if existing and wiki_id is not None and wiki_id != existing and not replace:
         raise SystemExit(
-            f"{config} already declares {WIKI_ID_KEY} {existing}; refusing to replace it with {wiki_id}"
+            f"{config} already declares {WIKI_ID_KEY} {existing}; refusing to replace it with {wiki_id} "
+            "(use --replace to make the change explicit)"
         )
     return existing
 
@@ -112,15 +121,17 @@ def _frontmatter_exit(config: Path, exc: Exception) -> SystemExit:
     return SystemExit(f"cannot read {config}: {exc}")
 
 
-def assign_wiki_id(wiki_root: Path, *, wiki_id: str | None = None) -> tuple[str, bool]:
+def assign_wiki_id(
+    wiki_root: Path, *, wiki_id: str | None = None, replace: bool = False
+) -> tuple[str, bool]:
     """Ensure the wiki declares an identity; return it and whether it was created.
 
     The identity is written into the existing frontmatter block. A wiki whose
     ``config.md`` has no frontmatter is left alone: creating one would rewrite a
     file this module does not own.
     """
-    existing = plan_assignment(wiki_root, wiki_id=wiki_id)
-    if existing:
+    existing = plan_assignment(wiki_root, wiki_id=wiki_id, replace=replace)
+    if existing and not (replace and wiki_id is not None and wiki_id != existing):
         return existing, False
 
     config = wiki_root / "config.md"
@@ -342,14 +353,57 @@ def verify_entry(declared_id: Any, wiki_root: Path) -> str | None:
     return f"declares id {declared_id} but the wiki at that path declares {actual}"
 
 
+def matching_registry_entry(hub_root: Path | None, wiki_root: Path) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    """``(slug, entry, registry)`` of the hub ``wikis`` entry that resolves to ``wiki_root``, or None."""
+    if hub_root is None or not (hub_root / "wikis.json").is_file():
+        return None
+    try:
+        data = _common.read_registry(hub_root)
+    except (_fsio.JSONReadError, SystemExit):
+        return None
+    wikis = data.get("wikis")
+    if not isinstance(wikis, dict):
+        return None
+    for slug, entry in wikis.items():
+        if slug == "hub" or not isinstance(entry, dict) or not entry.get("path"):
+            continue
+        try:
+            candidate = _roots.registry_entry_path(hub_root, slug, entry)
+        except OSError:
+            continue
+        if _roots.same_path(candidate, wiki_root):
+            return str(slug), entry, data
+    return None
+
+
+def identity_state(wiki_id: str | None, registry_id: str | None) -> str:
+    """``match``, ``mismatch``, ``partial`` (one side declared) or ``unassigned``."""
+    if wiki_id and registry_id:
+        return "match" if wiki_id == registry_id else "mismatch"
+    if wiki_id or registry_id:
+        return "partial"
+    return "unassigned"
+
+
 def status_payload(wiki_root: Path, *, hub_root: Path | None = None) -> dict[str, Any]:
-    """The status of a wiki root; ``hub_id`` appears when the wiki sits in a hub."""
+    """The status of a wiki root; ``hub_id`` appears when the wiki sits in a hub.
+
+    ``slug``, ``registry_id`` and ``status`` compare the wiki's ``wiki_id`` with
+    the ``id`` of the hub entry that resolves to it (upstream llm-wiki 1.0.0).
+    """
+    # The raw declaration, shape unchecked: a malformed id must still show as a mismatch.
+    declared = _roots.wiki_id_at(wiki_root)
     wiki_id = read_wiki_id(wiki_root)
+    match = matching_registry_entry(hub_root, wiki_root)
+    registry_id = str(match[1].get("id") or "").strip() or None if match else None
     payload: dict[str, Any] = {
         "root": str(wiki_root),
         "kind": "wiki",
         "wiki_id": wiki_id,
         "declared": wiki_id is not None,
+        "slug": match[0] if match else None,
+        "registry_id": registry_id,
+        "status": identity_state(declared, registry_id),
     }
     forked_from = read_wiki_forked_from(wiki_root)
     if forked_from is not None:
@@ -470,6 +524,29 @@ def _run_hub(args: Any, hub_root: Path, command: str) -> int:
     raise SystemExit(f"unknown identity command: {command}")
 
 
+def _wiki_hub(args: Any, identity: Any, root: Path, *, enclosing: bool = True) -> Path | None:
+    """The hub whose registry may describe ``root``: an explicit ``--hub``, the resolved one, else the enclosing one.
+
+    ``enclosing=False`` (``assign``) leaves out the last rung: a write into a hub
+    registry follows only a hub the command names, never one it merely sits in.
+    """
+    explicit = getattr(args, "hub", None)
+    if explicit:
+        return Path(explicit).expanduser()
+    if identity.kind == "topic":
+        return identity.hub
+    return _roots.enclosing_hub(root) if enclosing else None
+
+
+def _log_identity(root: Path | None, message: str) -> None:
+    """Append an ``identity`` entry to ``root/log.md``."""
+    if root is None:
+        return
+    from . import log_cli as _log_cli  # deferred: pulls in the checkpoint scanner
+
+    _log_cli.append_entry(root / "log.md", _log_cli.entry_line(_log_cli.today_date().isoformat(), "identity", message))
+
+
 def run_identity(args: Any) -> int:
     """`llm-wiki identity status|assign|fork` — read, create or re-issue a stable id."""
     command = getattr(args, "identity_command", "status")
@@ -488,9 +565,7 @@ def run_identity(args: Any) -> int:
             and not (root / "config.md").is_file()
         ):
             return _run_hub(args, root, command)
-        hub_root = identity.hub if identity.kind == "topic" else None
-        if hub_root is None:
-            hub_root = _roots.enclosing_hub(root)
+        hub_root = _wiki_hub(args, identity, root)
         payload = status_payload(root, hub_root=hub_root)
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2, sort_keys=True))
@@ -501,18 +576,75 @@ def run_identity(args: Any) -> int:
                 print(f"wiki_forked_from: {payload['wiki_forked_from']}")
             if "hub_id" in payload:
                 print(f"hub_id: {payload['hub_id'] or 'none'}")
+            print(f"Status: {payload['status']}")
+            print(f"Registry: {payload['slug'] or 'not registered'}")
+            print(f"Registry ID: {payload['registry_id'] or 'unassigned'}")
             if not payload["declared"]:
                 print("Next: llm-wiki identity assign")
-        return 0
+        return 1 if payload["status"] == "mismatch" else 0
 
     if command == "assign":
-        if getattr(args, "dry_run", False):
-            requested = getattr(args, "id", None)
-            existing = plan_assignment(root, wiki_id=requested)
-            print(existing or requested or "would assign a new wiki_id")
+        requested = getattr(args, "id", None)
+        replace = bool(getattr(args, "replace", False))
+        dry_run = bool(getattr(args, "dry_run", False))
+        as_json = bool(getattr(args, "json", False))
+        existing = plan_assignment(root, wiki_id=requested, replace=replace)
+        # Read the registry through the enclosing hub too, so a wiki that sits
+        # in a hub adopts the id its entry carries; write into a registry only
+        # when the command names the hub (``--wiki <slug> --hub <path>``).
+        hub_root = _wiki_hub(args, identity, root, enclosing=False)
+        lookup_hub = hub_root or _wiki_hub(args, identity, root, enclosing=True)
+        match = matching_registry_entry(lookup_hub, root)
+        registry_id = str(match[1].get("id") or "").strip() if match else ""
+        if existing and registry_id and existing != registry_id and not replace:
+            raise SystemExit(
+                "wiki and registry ids disagree; inspect them and rerun with --replace plus an explicit --id"
+            )
+        if requested and registry_id and requested != registry_id and not replace:
+            raise SystemExit(
+                f"--id {requested} conflicts with registry id {registry_id} for {match[0]}; "
+                "rerun with --replace to rebind the registry entry"
+            )
+        # A wiki that declares no id adopts the id its registry entry already
+        # carries (upstream: ``requested or existing``), so a re-cloned replica
+        # keeps its identity instead of overwriting the registry.
+        if not existing and not requested and registry_id and is_wiki_id(registry_id):
+            requested = registry_id
+        if replace and registry_id and requested != registry_id and hub_root is None:
+            raise SystemExit(
+                f"--replace would leave registry entry {match[0]} of {lookup_hub} at {registry_id}; "
+                "name the hub (--wiki <slug> --hub <path>) so the entry is rebound too"
+            )
+        if dry_run:
+            if as_json:
+                payload = status_payload(root, hub_root=hub_root)
+                payload.update(
+                    status="would-assign",
+                    assigned_id=requested or existing or "a new wiki_id",
+                    apply=False,
+                )
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(existing or requested or "would assign a new wiki_id")
             return 0
-        value, created = assign_wiki_id(root, wiki_id=getattr(args, "id", None))
-        print(f"{'assigned' if created else 'already declared'}: {value}")
+        value, created = assign_wiki_id(root, wiki_id=requested, replace=replace)
+        bound = False
+        if match is not None and hub_root is not None and match[1].get("id") != value:
+            match[1]["id"] = value
+            _common.write_registry(hub_root, match[2])
+            bound = True
+        if created or bound:
+            _log_identity(root, f"assigned stable wiki identity {value}")
+            if bound:
+                _log_identity(hub_root, f"assigned wiki identity for {match[0]}")
+        if as_json:
+            payload = status_payload(root, hub_root=hub_root)
+            payload.update(assigned_id=value, apply=True)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"{'assigned' if created else 'already declared'}: {value}")
+            if bound:
+                print(f"updated registry entry {match[0]}")
         return 0
 
     if command == "fork":

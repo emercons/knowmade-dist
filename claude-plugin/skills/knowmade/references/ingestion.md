@@ -41,6 +41,13 @@ does not need it.
 | notes | raw/notes/ | Freeform text, tweets, no URL |
 | data | raw/data/ | small .csv, .json, .tsv URLs or files, dataset references |
 
+An explicit `--raw-subdir <relative/path>` may namespace a single source below
+its selected type, for example `raw/articles/news/daily/`. The value must be a
+safe relative path with no empty, hidden, `.` or `..` segments and must not
+repeat/change the top-level type. Every namespace directory has `_index.md`;
+frontmatter continues to use the top-level type. Topic-guide conventions may
+recommend namespaces, but they do not create new raw types.
+
 If the data is large, mutable, remote, sensitive, or better queried in its
 native format, use the dataset registry (`references/datasets.md`) instead of
 copying it into `raw/data/`.
@@ -188,10 +195,12 @@ processed artifacts to `raw/`.
 
 After writing each processed raw artifact (`source note` does 1-2), update indexes in order:
 
-1. `raw/{type}/_index.md` — add row to Contents table
-2. `raw/_index.md` — add row to Contents table
-3. `_index.md` (master) — increment source count, add to Recent Changes
-4. Move the inbox item to `inbox/.processed/` and preserve enough provenance to
+1. Destination `_index.md` — add the source row
+2. Every containing namespace/type `_index.md` — add child namespace pointers
+   or direct rows according to the directory contract
+3. `raw/_index.md` — retain the top-level type pointer
+4. `_index.md` (master) — increment source count, add to Recent Changes
+5. Move the inbox item to `inbox/.processed/` and preserve enough provenance to
    trace the raw artifact back to the intake item
 
 ## Batch Ingestion

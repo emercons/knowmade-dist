@@ -1,118 +1,142 @@
 # Refresh Protocol
 
-The `/knowmade:refresh` (`wiki refresh`) workflow, moved verbatim out of `commands/refresh.md` so every
-runtime ships it. It continues the hub-resolution steps 1-3 in
+The `/knowmade:refresh` (`wiki refresh`) workflow, the shared protocol behind `commands/refresh.md`, shipped in every
+runtime package. It continues the hub-resolution steps 1-3 in
 [`hub-resolution.md`](hub-resolution.md); numbering below picks up at step 4.
-`$ARGUMENTS` is the user's request: free text plus the flags listed under
-Parse $ARGUMENTS.
+`$ARGUMENTS` is the user's request: an article path, `--due`, `--wiki <name|all>`, `--local`, `--include-archived`; see
+Target selection.
 
 4. `--wiki all` (this command only) → HUB with an `ALL_TOPICS` flag for step 6, instead of one wiki.
 5. Read `<wiki>/_index.md` to verify. If missing → stop with "No wiki found. Run `/knowmade:wiki init` first."
 6. **Hub-level detection**: Refresh operates on articles inside a single topic wiki. The HUB has no `wiki/` subdirectory. If `ALL_TOPICS` is set from `--wiki all`, read registered topic wikis from `HUB/wikis.json` (excluding the synthetic `hub` entry) and iterate refresh against each topic wiki sequentially. If the resolved wiki is the HUB (detected by the presence of `wikis.json` and the absence of a `wiki/` subdir) AND the user did not pass `--wiki <name>`, do NOT iterate against an empty topic surface. Instead, present a numbered list of registered topic wikis from `HUB/wikis.json` and ask the user to pick one. Re-resolve the wiki path with the selected name (`HUB/topics/<name>/`) and continue.
 
-Check whether wiki articles are still current by re-examining their sources. This is NOT automatic recompilation — it's a human-gated assessment of what may have changed.
+Refresh checks whether compiled articles still match their sources without
+silently changing evidence or claiming human verification. It is assessment
+first, write second.
 
-Inventory awareness: if refresh finds a source that needs later follow-up,
-monitoring, replacement, or access repair, offer an inventory record or update
-an existing one. Do not create records for every minor stale article; reserve
-inventory for durable watch items and blocked actions.
+## Invariants
 
-### Parse $ARGUMENTS
+1. **Raw stays immutable.** A changed upstream source becomes a new raw revision;
+   never overwrite the prior raw body or its original metadata.
+2. **`verified` means human-confirmed.** Compilation, fetching, due scans, lint,
+   and automatic checks never set it. Only an explicit `verify` decision after
+   review may write today's date.
+3. **No automatic recompilation.** Present the source comparison and proposed
+   article changes before any write.
+4. **Archived topics stay quiet.** Skip them unless the user explicitly includes
+   one; keep all writes inside that archived topic.
+5. **Failed fetches are evidence gaps.** Do not treat an unreachable source as
+   changed or retract it without approval.
 
-- **article-path**: Path to a specific wiki article to refresh (e.g., `wiki/concepts/nvidia-spark.md`)
-- **--due**: Check ALL articles past their volatility tier's staleness threshold. Present a numbered list for the user to select which ones to refresh.
-- **--include-archived**: Explicitly include archived topic wikis. Archived
-  topics are skipped by default so old interests do not create freshness chores.
-- If neither is provided, show articles sorted by staleness (most overdue first) and ask which to check.
+## Target selection
 
-When `--wiki all` is used, iterate active registered topic wikis only unless
-`--include-archived` is present. If a single `--wiki <name>` target is archived,
-ask for `--include-archived` or restoration before refreshing. `-PRIVATE`
-topics are iterated too; see `skills/knowmade/references/private-boundary.md`.
+Refresh operates on one topic/local wiki at a time. At a hub, ask the user to
+pick a registered topic; `--wiki all` may iterate active registered topics.
+`--include-archived` is required for archived targets. `-PRIVATE` topics are
+iterated too; see `skills/knowmade/references/private-boundary.md`.
 
 Write-guard: an article update, `sources:` change, or `log.md` entry written
 into a public topic during refresh must not carry material, paths, or source
 entries from a `-PRIVATE` topic; if a private sibling informed the update,
 record that only in the private sibling's `log.md` and say so in the report.
 
-### Refresh Protocol
+Inventory awareness: if refresh finds a source that needs later follow-up,
+monitoring, replacement, or access repair, offer an inventory record (see
+Inventory and logging); do not create records for every minor stale article.
 
-For each article being refreshed:
+- An article path checks that article.
+- `--due` runs `llm-wiki freshness score --path <topic> --json`: it lists the
+  articles below `freshness_threshold` (default 70), lowest score first
+  (`freshness report` adds the ones past their day window), and asks which to
+  inspect.
+- With neither, list articles from most overdue to least and ask which to check.
 
-#### Tier 1: Source Check
+Use `volatility`, `verified`, `updated`, source ingestion dates, and source-chain
+integrity for prioritization. A missing `verified` value means **never
+human-verified**; never substitute `updated` for it.
 
-1. Read the article's `sources:` frontmatter to get the list of raw source files. Resolve each entry with the Source Reference Resolution protocol in `references/wiki-articles.md`; preserve paths with whitespace and never split entries on whitespace.
-2. For each raw source, read its `source:` URL from frontmatter
-3. Use WebFetch to re-fetch the URL content
-4. Compare the fetched content against the stored raw source using key-fact extraction:
-   - Extract 5-10 key claims/facts/numbers from the stored raw source
-   - Check whether those same facts appear unchanged in the current version
-   - Note any new sections, updated statistics, or changed conclusions
-5. Classify each source as: **unchanged**, **updated** (new info available), **contradicted** (facts changed), or **unreachable** (URL 404/timeout)
+## Source check
 
-#### Tier 2: Change Assessment
+For each selected article:
 
-For sources classified as **updated** or **contradicted**:
+1. Resolve every `sources:` entry with the Source Reference Resolution protocol in `references/wiki-articles.md`; preserve paths with whitespace and never split entries on whitespace.
+2. Read each raw record's `source:` provenance.
+3. For fetchable URLs, retrieve the current source. For local sources, read the
+   current file only when its path is authorized and available.
+4. Compare 5-10 material claims, figures, conclusions, and scope boundaries with
+   the stored raw revision.
+5. Classify the result as `unchanged`, `updated`, `contradicted`, or
+   `unreachable`.
+6. Classify impact as `cosmetic`, `additive`, or `contradictory`.
 
-1. Summarize what changed: new information added, statistics updated, conclusions revised, sections removed
-2. Classify the change impact on the wiki article:
-   - **Cosmetic**: formatting, typos, no factual change — no action needed
-   - **Additive**: new information that could supplement the article — optional update
-   - **Contradictory**: information that conflicts with the article's claims — update recommended
+Do not write while checking. Record fetch limitations in the report.
 
-#### Tier 3: Action Decision
+## Decision report
 
-Present the assessment to the user with options per source:
+Present one numbered decision per source:
 
-```
-## Refresh Report — <article title>
-
-### Sources checked: N
-
-1. **[Source Title]** — unchanged (last fetched: YYYY-MM-DD)
-2. **[Source Title]** — updated (additive)
-   What changed: New benchmarks published for 2026 Q2, 15% performance improvement reported
-   → skip | update | flag
-3. **[Source Title]** — unreachable (HTTP 404)
-   → skip | retract
-
-### Article freshness
-Current: volatility hot, verified 45 days ago
-Recommendation: update sources 2, retract source 3
-```
-
-On user selection:
-- **skip**: No changes. Update `verified` date to today (human confirmed it's still accurate).
-- **update**: Re-ingest the changed source (overwrite the raw file with new content, preserve frontmatter), then recompile the article following the standard compilation protocol.
-- **flag**: Degrade the article's `confidence` by one level (high→medium, medium→low). Add a note to the article body: `> ⚠️ Some sources for this article may have changed since last verification. Run /knowmade:refresh to update.`
-- **retract**: Route to `/knowmade:retract` for the unreachable source.
-
-After all actions, update the article's `verified` date to today.
-
-### --due Mode
-
-When `--due` is set, run `llm-wiki freshness score --path <topic> --json`: it lists the articles below `freshness_threshold` (default 70), lowest score first (`freshness report` adds the ones past their day window). Present them as a numbered list:
-
-```
-### Articles due for freshness review
-
-1. [NVIDIA Spark Specs](wiki/topics/nvidia-spark.md) — score 42/100 (hot, sources 120d old, unverified 62d)
-2. [CLI UX Patterns](wiki/concepts/cli-ux-patterns.md) — score 65/100 (warm, sources 105d old, unverified 105d)
-3. [TCP/IP Fundamentals](wiki/references/tcp-ip.md) — score 94/100 (cold, stable — informational only)
-
-Enter numbers (e.g. 1,2), "all", or "skip":
+```text
+1. Source title — unchanged
+   → skip | verify
+2. Source title — updated (additive)
+   What changed: ...
+   → skip | update | update-and-verify | flag
+3. Source title — unreachable
+   → skip | flag | retract
 ```
 
-On selection, run the full refresh protocol for each selected article.
+- **skip**: no files change and `verified` is untouched.
+- **verify**: after the user reviews the unchanged evidence and article, set the
+  article's `verified` date to today.
+- **update**: capture a new immutable raw revision, recompile the affected claims,
+  and update `updated`; do not set `verified`.
+- **update-and-verify**: perform `update`, show the final article diff, then set
+  `verified` only after the user explicitly confirms that final diff.
+- **flag**: lower confidence one step
+  (`high→medium-high→medium→medium-low→low`) and add a visible source-change
+  warning. Do not set `verified`.
+- **retract**: route through the explicit retraction workflow. An HTTP failure by
+  itself is not proof that evidence should be deleted.
 
-### Report & Log
+## Immutable raw revision write
 
-After refreshing:
-- Update each article's `verified` frontmatter to today
-- Append to `log.md`: `## [YYYY-MM-DD] refresh | N articles checked, M updated, K flagged, J retracted`
-- Append same to hub `log.md`
+For `update`:
 
-### Scheduled Refresh
+1. Create a new raw file in the same raw type and optional namespace as the old
+   record. Use today's date in the filename and `-2`, `-3`, ... on collision.
+2. Preserve the provenance fields that still apply, set `ingested`/`fetched` to
+   today, and add `supersedes: <wiki-root-relative-old-raw-path>`.
+3. Put the newly fetched body only in the new file. Do not edit the old file.
+4. Add the new raw path to the article `sources:`. Retain the old raw path so the
+   article preserves the evidence lineage used by earlier revisions.
+5. Recompile only the affected claims and update the article's `updated` date.
+6. Rebuild affected raw/wiki indexes.
+
+If the new capture is byte-identical to the stored revision, do not create a
+new file; report it as unchanged.
+
+## Due mode
+
+`--due` is read-only until the user selects article actions. It may fetch and
+compare sources, but it never updates `verified` merely because a check ran.
+Present score components so the user can distinguish stale evidence from a
+never-verified article.
+
+## Inventory and logging
+
+Offer a durable inventory record only for meaningful follow-up: inaccessible
+sources, recurring monitoring, replacement evidence, or blocked review.
+
+After approved actions, append:
+
+```text
+## [YYYY-MM-DD] refresh | N articles checked, M new raw revisions, K updated, J verified, F flagged, R retracted
+```
+
+Append to the topic log and hub log when available. A check with no approved
+writes may log counts, but must not imply verification.
+
+## Scheduled refresh
 
 For recurring freshness checks, use Claude Code's `/loop` command:
 
@@ -120,6 +144,6 @@ For recurring freshness checks, use Claude Code's `/loop` command:
 /loop 1d /knowmade:refresh --due --wiki <name>
 ```
 
-This checks overdue articles once daily while your session is open. The loop persists across `/resume` and expires after 7 days (re-create as needed).
-
-For unattended scheduling, `/schedule` creates cloud-based routines — but these require the wiki to be in a git-cloneable repo (not local-only iCloud storage). If your wiki is local, `/loop` is the recommended approach.
+The loop only runs the read-only due scan; every write still needs the user's
+decision. For unattended scheduling, `/schedule` creates cloud-based routines,
+but they require the wiki to be in a git-cloneable repo.
