@@ -129,6 +129,9 @@ def check_hub_registry(ctx: LintContext) -> None:
             identity_error = _roots.registry_identity_error(slug, entry, hub_topic)
             if identity_error:
                 ctx.issue("critical", identity_error, registry, check="C19")
+                # A same-named directory with a different identity is not a safe
+                # path repair. Keep the original binding, even in --fix mode.
+                continue
         if hub_topic_initialized and raw_path != relative_path:
             if ctx.fix_allowed(
                 "registry", registry, f"rewrite the path of {slug} to {relative_path}", check="C19"

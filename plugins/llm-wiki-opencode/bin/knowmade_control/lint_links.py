@@ -67,7 +67,7 @@ FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]\s]+)\](?!:)")
 WIKILINK_RE = re.compile(r"(?<!!)\[\[([^\]|#\n]+)(?:[|#][^\]\n]*)?\]\]")
 
 
-FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 
 
 def strip_code_blocks(text: str) -> str:
@@ -86,12 +86,13 @@ def strip_code_blocks(text: str) -> str:
     for line in text.split("\n"):
         marker = FENCE_RE.match(line)
         if fence_char is not None:
-            if marker and marker.group(1)[0] == fence_char and len(marker.group(1)) >= fence_length:
+            if (marker and marker.group(1)[0] == fence_char
+                    and len(marker.group(1)) >= fence_length and not marker.group(2).strip()):
                 fence_char = None
                 fence_length = 0
             prose_lines.append("")
             continue
-        if marker:
+        if marker and not (marker.group(1)[0] == '`' and '`' in marker.group(2)):
             fence_char = marker.group(1)[0]
             fence_length = len(marker.group(1))
             prose_lines.append("")
@@ -108,7 +109,9 @@ def strip_code_blocks(text: str) -> str:
             while end < len(line) and line[end] == "`":
                 end += 1
             delimiter = line[index:end]
-            closing = line.find(delimiter, end)
+            closing_run = next((match for match in re.finditer(r"`+", line[end:])
+                                if len(match.group()) == len(delimiter)), None)
+            closing = end + closing_run.start() if closing_run else -1
             if closing == -1:
                 output.append(delimiter)
                 index = end

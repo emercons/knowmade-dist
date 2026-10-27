@@ -42,14 +42,12 @@ Knowmade's corpus rules equal those of the absorbed upstream baseline except
 where this list says otherwise. A divergence is recorded here, classified, and
 mirrored as one line in `KNOWMADE_VS_LLM_WIKI.md`.
 
-- **Five-point `confidence` scale** (knowmade#121). Lint accepts `high`,
+- **Five-point `confidence` scale is now shared** (knowmade#121). Lint accepts `high`,
   `medium-high`, `medium`, `medium-low` and `low` (`CONFIDENCE_VALUES` in
-  `scripts/knowmade_control/lint_docs.py`); upstream accepts `high`, `medium`, `low`
-  and warns on the rest. Classification: a superset of upstream's enum, so it
-  makes no Knowmade corpus fail and needs no rule-set bump; a corpus that uses
-  an intermediate value gets one upstream *warning* per article. Agents writing
-  new articles keep to the three upstream values (`references/compilation.md`);
-  the intermediates are for authors who chose them. Proposed upstream as
+  `scripts/knowmade_control/lint_docs.py`). The absorbed upstream v1.0.0 accepts
+  the same five values, so this is no longer a corpus divergence and requires
+  no rule-set bump. New articles normally use `high`, `medium` or `low`
+  (`references/compilation.md`); intermediate values remain valid. Proposed upstream as
   UPS-F005, [nvk/llm-wiki#94](https://github.com/nvk/llm-wiki/issues/94)
   (`UPSTREAM_CONTRIBUTIONS.md`).
 - **C13 alias tables carry two entries** (knowmade#83, owner decision
@@ -280,6 +278,29 @@ surfaces rather than relying on the package version as a proxy.
 Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
+
+### v0.15.1.1.0 — v1.0 integration correctness fixes
+
+Shipped 2026-10-27 from PR #217 ("Track reviewed identity bugs and upstream PR
+proposals", merged as `1cf7119`; knowmade#218–#221). Release only; the
+version's trailing `1.0` is unchanged because the absorbed upstream baseline is
+still v1.0.0.
+
+- **Corpus:** rule sets, check IDs, severities and the N-2 window are unchanged.
+  C4 parsing now respects exact inline backtick delimiters and requires a fence
+  terminator to have no trailing text, so code examples cannot hide later prose.
+  C19 never plans or applies a path repair toward a topic with a conflicting ID.
+- **CLI/protocol:** identity inspection and assignment reject unreadable or malformed
+  registries. Assignment checks every alias resolving to the same wiki, rebinds all
+  such rows together, and restores the previous config bytes if writing the registry
+  fails. Named status reports the requested alias rather than whichever row came first.
+- **Distribution:** the Windows hook launcher disables delayed expansion to preserve
+  `!` in plugin paths and still returns the helper's real exit status. Versions,
+  release tags and install pins are unchanged; regenerated runtime packages carry
+  the corrections.
+
+The reproduced failures are covered by `tests/test-update-regressions.py`, invoked
+from the existing identity, lint and session suites; the lane remains 46 steps.
 
 ### v0.15.0.1.0 — Sprint P: upstream v1.0.0 absorbed
 

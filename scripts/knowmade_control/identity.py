@@ -13,8 +13,8 @@ detectable error instead of a silent write to the wrong copy. A hub declares
 registry.
 
 Every id is optional. Nothing regresses for a wiki or registry that has none.
-``assign`` never replaces a declared id; ``fork`` is the one explicit way to
-give an independent copy a new identity and records the old one
+``assign`` preserves a declared id unless ``--replace --id`` explicitly changes
+it; ``fork`` gives an independent copy a new identity and records the old one
 (``wiki_forked_from`` / ``hub_forked_from``). See ``DESIGN.md`` section 4.
 """
 
@@ -353,17 +353,18 @@ def verify_entry(declared_id: Any, wiki_root: Path) -> str | None:
     return f"declares id {declared_id} but the wiki at that path declares {actual}"
 
 
-def matching_registry_entry(hub_root: Path | None, wiki_root: Path) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
-    """``(slug, entry, registry)`` of the hub ``wikis`` entry that resolves to ``wiki_root``, or None."""
-    if hub_root is None or not (hub_root / "wikis.json").is_file():
-        return None
-    try:
-        data = _common.read_registry(hub_root)
-    except (_fsio.JSONReadError, SystemExit):
-        return None
+def matching_registry_entries(hub_root: Path | None, wiki_root: Path) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """All rows resolving to a wiki, sharing one validated registry snapshot.
+
+    A corrupt registry is an error, never evidence that a wiki is unregistered.
+    """
+    if hub_root is None:
+        return []
+    data = _common.read_registry(hub_root)
     wikis = data.get("wikis")
     if not isinstance(wikis, dict):
-        return None
+        return []
+    matches = []
     for slug, entry in wikis.items():
         if slug == "hub" or not isinstance(entry, dict) or not entry.get("path"):
             continue
@@ -372,8 +373,16 @@ def matching_registry_entry(hub_root: Path | None, wiki_root: Path) -> tuple[str
         except OSError:
             continue
         if _roots.same_path(candidate, wiki_root):
-            return str(slug), entry, data
-    return None
+            matches.append((str(slug), entry, data))
+    return matches
+
+
+def matching_registry_entry(
+    hub_root: Path | None, wiki_root: Path, *, slug: str | None = None
+) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    """The requested row, or the first matching row for a positional wiki."""
+    matches = matching_registry_entries(hub_root, wiki_root)
+    return next((row for row in matches if row[0] == slug), matches[0] if matches else None)
 
 
 def identity_state(wiki_id: str | None, registry_id: str | None) -> str:
@@ -385,7 +394,7 @@ def identity_state(wiki_id: str | None, registry_id: str | None) -> str:
     return "unassigned"
 
 
-def status_payload(wiki_root: Path, *, hub_root: Path | None = None) -> dict[str, Any]:
+def status_payload(wiki_root: Path, *, hub_root: Path | None = None, slug: str | None = None) -> dict[str, Any]:
     """The status of a wiki root; ``hub_id`` appears when the wiki sits in a hub.
 
     ``slug``, ``registry_id`` and ``status`` compare the wiki's ``wiki_id`` with
@@ -394,7 +403,7 @@ def status_payload(wiki_root: Path, *, hub_root: Path | None = None) -> dict[str
     # The raw declaration, shape unchecked: a malformed id must still show as a mismatch.
     declared = _roots.wiki_id_at(wiki_root)
     wiki_id = read_wiki_id(wiki_root)
-    match = matching_registry_entry(hub_root, wiki_root)
+    match = matching_registry_entry(hub_root, wiki_root, slug=slug)
     registry_id = str(match[1].get("id") or "").strip() or None if match else None
     payload: dict[str, Any] = {
         "root": str(wiki_root),
@@ -566,7 +575,7 @@ def run_identity(args: Any) -> int:
         ):
             return _run_hub(args, root, command)
         hub_root = _wiki_hub(args, identity, root)
-        payload = status_payload(root, hub_root=hub_root)
+        payload = status_payload(root, hub_root=hub_root, slug=identity.slug)
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
@@ -594,8 +603,14 @@ def run_identity(args: Any) -> int:
         # when the command names the hub (``--wiki <slug> --hub <path>``).
         hub_root = _wiki_hub(args, identity, root, enclosing=False)
         lookup_hub = hub_root or _wiki_hub(args, identity, root, enclosing=True)
-        match = matching_registry_entry(lookup_hub, root)
+        matches = matching_registry_entries(lookup_hub, root)
+        match = next((row for row in matches if row[0] == identity.slug), matches[0] if matches else None)
+        registry_ids = {str(row[1].get("id") or "").strip() for row in matches} - {""}
+        if len(registry_ids) > 1 and not replace:
+            raise SystemExit("registry aliases disagree on the wiki id; inspect them and use --replace with an explicit --id")
         registry_id = str(match[1].get("id") or "").strip() if match else ""
+        if not registry_id and registry_ids:
+            registry_id = next(iter(registry_ids))
         if existing and registry_id and existing != registry_id and not replace:
             raise SystemExit(
                 "wiki and registry ids disagree; inspect them and rerun with --replace plus an explicit --id"
@@ -608,16 +623,18 @@ def run_identity(args: Any) -> int:
         # A wiki that declares no id adopts the id its registry entry already
         # carries (upstream: ``requested or existing``), so a re-cloned replica
         # keeps its identity instead of overwriting the registry.
-        if not existing and not requested and registry_id and is_wiki_id(registry_id):
+        if not existing and not requested and registry_id:
+            if not is_wiki_id(registry_id):
+                raise SystemExit("registry declares an invalid wiki id; repair it with --replace and an explicit --id")
             requested = registry_id
-        if replace and registry_id and requested != registry_id and hub_root is None:
+        if replace and any(value != requested for value in registry_ids) and hub_root is None:
             raise SystemExit(
                 f"--replace would leave registry entry {match[0]} of {lookup_hub} at {registry_id}; "
                 "name the hub (--wiki <slug> --hub <path>) so the entry is rebound too"
             )
         if dry_run:
             if as_json:
-                payload = status_payload(root, hub_root=hub_root)
+                payload = status_payload(root, hub_root=lookup_hub, slug=identity.slug)
                 payload.update(
                     status="would-assign",
                     assigned_id=requested or existing or "a new wiki_id",
@@ -627,24 +644,36 @@ def run_identity(args: Any) -> int:
             else:
                 print(existing or requested or "would assign a new wiki_id")
             return 0
+        config = root / "config.md"
+        before_config = config.read_bytes()
         value, created = assign_wiki_id(root, wiki_id=requested, replace=replace)
-        bound = False
-        if match is not None and hub_root is not None and match[1].get("id") != value:
-            match[1]["id"] = value
-            _common.write_registry(hub_root, match[2])
-            bound = True
+        bound_slugs = []
+        if matches and hub_root is not None:
+            for slug, entry, _ in matches:
+                if entry.get("id") != value:
+                    entry["id"] = value
+                    bound_slugs.append(slug)
+            if bound_slugs:
+                try:
+                    _common.write_registry(hub_root, matches[0][2])
+                except BaseException:
+                    if created:
+                        _fsio.atomic_write_bytes(config, before_config)
+                    raise
+        bound = bool(bound_slugs)
         if created or bound:
             _log_identity(root, f"assigned stable wiki identity {value}")
             if bound:
-                _log_identity(hub_root, f"assigned wiki identity for {match[0]}")
+                _log_identity(hub_root, f"assigned wiki identity for {', '.join(bound_slugs)}")
         if as_json:
-            payload = status_payload(root, hub_root=hub_root)
+            payload = status_payload(root, hub_root=lookup_hub, slug=identity.slug)
             payload.update(assigned_id=value, apply=True)
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             print(f"{'assigned' if created else 'already declared'}: {value}")
             if bound:
-                print(f"updated registry entry {match[0]}")
+                for slug in bound_slugs:
+                    print(f"updated registry entry {slug}")
         return 0
 
     if command == "fork":
