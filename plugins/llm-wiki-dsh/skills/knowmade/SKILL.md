@@ -100,7 +100,7 @@ Cross-Workflow Inventory Awareness rules: `skill-workflows.md` § Workflow Flows
 
 - Ingestion, `wiki ingest`: `ingestion.md` (+ `source-lifecycle.md` only when original bytes are kept).
 - Hub Inbox Dispatch: `hub-dispatch.md`, `knowmade-profile.md`.
-- Collection ingestion, `wiki ingest-collection`: `ingestion-collections.md`.
+- Collection ingestion, `wiki ingest-collection`: `ingestion-collections.md` (+ `collection-adapters.md` for the adapter in hand; `collection-setup.md` for the fit check or without the CLI).
 - Knowmade profile (identity, goals, public/private, migration): `knowmade-profile.md`.
 - Private data boundary (read freely, write-guard): `private-boundary.md`.
 - Private adapters, `wiki adapter`: `adapters.md`.

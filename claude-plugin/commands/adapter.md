@@ -7,11 +7,17 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(date:*), Bash(pyt
 ## Your task
 
 Manage or invoke a private llm-wiki adapter through the deterministic bundled
-CLI. Read `skills/knowmade/references/adapters.md` before acting.
+CLI. Read `skills/knowmade/references/adapters.md` (registry, CLI location,
+routing, command list) before acting; the `If` branches below name the
+references for the rarer paths.
 
 Private-adapter management is wiki-neutral. Do not put executable registrations
 or absolute machine paths in `wikis.json` or a topic wiki. Resolve a topic wiki
 only when the user asks to promote a reviewed result after execution.
+
+Private visibility is an access control, not permission to redistribute data or
+perform protected-content collection, deanonymization, sensitive inference,
+targeting, harassment, or other prohibited analysis.
 
 ## Declarative intent routing
 
@@ -62,7 +68,23 @@ adapter reference. Do not assume the command is globally installed.
 - `remove <id> --yes`: remove only the registration. Never delete adapter code,
   inputs, or outputs.
 
-## Run operation
+## If a route matched or the user names an adapter
+
+Read `skills/knowmade/references/adapter-routes.md`: the interactive
+authorization handoff when the adapter guide offers a local helper, and the
+explicit-only named adapter (`wiki skill-factory <request>`).
+
+## If you add, replace or review a registration
+
+Read `skills/knowmade/references/adapter-authoring.md` before `add` or
+`add --replace`: the content-free code plane, naming, the manifest and route
+schema, and the security limits that bound what registering a checkout trusts.
+
+## If you run an operation
+
+Read `skills/knowmade/references/adapter-run.md` first: the request and
+response documents, the remote-write request and receipt, and the wiki
+promotion boundary.
 
 1. Inspect the request JSON without opening referenced corpora or secrets.
 2. Confirm the adapter id, operation, declared paths, and requested output
@@ -80,7 +102,3 @@ If the user asks to update the wiki, inspect only `wiki-safe` artifacts. Review
 them as candidates, keep `private` and `bulk` artifacts external, write the
 smallest useful raw note/evidence packet, compile bounded conclusions, update
 indexes, and append the normal topic and hub logs.
-
-Private visibility is an access control, not permission to redistribute data or
-perform protected-content collection, deanonymization, sensitive inference,
-targeting, harassment, or other prohibited analysis.

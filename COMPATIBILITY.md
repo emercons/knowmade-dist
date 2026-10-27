@@ -279,6 +279,42 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.15.2.1.0 — Sprint Q: the last context diets and a bare checker sha
+
+Shipped 2026-10-27 from PR #225 ("Sprint Q: context diet for adapter, specialist
+and ingest-collection; pin set writes the sha bare (#224)", merged as `420a1a5`).
+The version's trailing `1.0` is unchanged: the absorbed upstream baseline is
+still v1.0.0.
+
+- **Corpus:** rule sets, check IDs, severities and the N-2 window are unchanged.
+- **CLI/protocol:** CLI output fix (knowmade#224, "pin set writes knowmade_checker_sha
+  double-quoted"). `pin set` now writes `knowmade_checker_sha` /
+  `llm_wiki_checker_sha` bare, as hand-written pins and the docs do, so consumer
+  gates that grep the bare value parse it. A SHA a YAML reader would take for a
+  number (all numerals, `1e10`-style) keeps its quotes. `pin verify` and `pin status`
+  read both forms, unchanged; the `changes` map of `pin set --json` carries the
+  value as written.
+- **Agent spec (context diet):** rare branches of three commands move into
+  references loaded only on that branch; no behavior changes.
+  - `adapter`: `adapters.md` (14.9 KB) keeps the registry, routing and command
+    list. The route handoff, authoring rules and run protocol move verbatim to
+    `adapter-routes.md`, `adapter-authoring.md` and `adapter-run.md`. First read
+    and worst path go from 4,783/4,783 to 2,478/3,736 tokens (tier 6,000).
+  - `specialist`: the HUB-failure/topic branch asks the CLI (`hub where`,
+    `status --wiki`) instead of reading all of `hub-resolution.md`. Worst path
+    goes from 4,820 to 2,990.
+  - `ingest-collection`: the five adapter procedures (incl. `--revision`,
+    `--manifest-only`) move to `collection-adapters.md`, and the
+    inventory/dataset fit check and the by-hand index fallback move to
+    `collection-setup.md`. `--compile`, `--new-topic`, archived targets and the
+    no-CLI path become branches, and the index and log steps call
+    `index rebuild` and `log append`. First read and worst path go from 19,658
+    to 9,296/11,461 (tier 24,000).
+  - Token baselines rebaselined; that also records +18 to +427 tokens of
+    Sprint P drift in eight other commands.
+- **Distribution:** regenerated runtime packages carry the fix and the five
+  new references; versions are unchanged.
+
 ### v0.15.1.1.0 — v1.0 integration correctness fixes
 
 Shipped 2026-10-27 from PR #217 ("Track reviewed identity bugs and upstream PR

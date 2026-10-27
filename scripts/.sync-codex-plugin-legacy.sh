@@ -401,9 +401,9 @@ choose the smallest matching workflow and load only the reference material you
 need for it:
 
 - `ingest` → `references/ingestion.md`; add `references/source-lifecycle.md` only when original bytes are retained
-- `ingest-collection` → `references/ingestion-collections.md`
+- `ingest-collection` → `references/ingestion-collections.md`, plus `references/collection-adapters.md` for the adapter in hand and `references/collection-setup.md` for the fit check
 - hub inbox dispatch → `references/hub-dispatch.md` and `references/knowmade-profile.md`
-- `adapter` and private-adapter execution → `references/adapters.md`
+- `adapter` and private-adapter execution → `references/adapters.md`, which names `adapter-routes.md`, `adapter-authoring.md` and `adapter-run.md` per branch
 - `collect` → `references/inventory.md`
 - `inventory` → `references/inventory.md`
 - `idea` → `references/ideas.md`

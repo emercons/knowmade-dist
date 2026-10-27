@@ -187,6 +187,34 @@ def yaml_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+_PLAIN_SCALAR_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+/-]*")
+# What a YAML 1.1/1.2 reader would turn into a number or a bool: these stay quoted.
+_NON_STRING_PLAIN_RE = re.compile(
+    r"[-+]?\d[\d_]*(?:\.\d*)?(?:[eE][-+]?\d+)?"
+    r"|0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+"
+    r"|(?:y|Y|yes|Yes|YES|n|N|no|No|NO|on|On|ON|off|Off|OFF)"
+)
+
+
+def yaml_scalar(value: str) -> str:
+    """``value`` as a frontmatter scalar: bare when that reads back as the same string.
+
+    Bare means ``parse_scalar`` returns ``value`` unchanged *and* a full YAML
+    reader would not read a number or bool from it (an all-numeral or
+    ``1e10``-style SHA); anything else is written with :func:`yaml_quote`.
+    Written for ``pin set`` values (versions and hex SHAs): a date such as
+    ``2020-01-01`` would be written bare and read as a timestamp by a YAML
+    1.1 reader, so check that case before reusing it for other fields.
+    """
+    if (
+        _PLAIN_SCALAR_RE.fullmatch(value)
+        and parse_scalar(value) == value
+        and not _NON_STRING_PLAIN_RE.fullmatch(value)
+    ):
+        return value
+    return yaml_quote(value)
+
+
 def topic_title(path: Path, slug: str) -> str:
     """The ``title`` of ``path/config.md`` read through ``frontmatter``, else a title-cased slug."""
     # frontmatter imports this module, so the import cannot be at module level.

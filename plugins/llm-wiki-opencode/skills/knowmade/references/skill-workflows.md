@@ -52,7 +52,7 @@ Use it before changing project identity, goal-directed behavior,
 public/private boundaries, inbox-first intake, or migration rules.
 
 ### Collection Ingestion
-See [references/ingestion-collections.md](ingestion-collections.md).
+See [references/ingestion-collections.md](ingestion-collections.md); the per-adapter procedures are in [collection-adapters.md](collection-adapters.md), the fit check and the no-CLI fallback in [collection-setup.md](collection-setup.md).
 Flow: structured upstream collection (Git repo, BIP-style proposal set, MediaWiki dump/API) → upstream item inventory → write a `raw/repos/` manifest plus immutable child sources → rebuild raw indexes → optionally compile synthesized clusters. Use `/knowmade:ingest-collection` for bulk imports; never recursively crawl HTML.
 
 ### Private Adapters

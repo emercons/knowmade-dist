@@ -2,7 +2,9 @@
 
 Bounded upstream corpora for `wiki ingest-collection`, moved verbatim out of
 `ingestion.md`. The shared inbox-first overview, slug generation and
-post-ingestion index updates stay in [`ingestion.md`](ingestion.md).
+post-ingestion index updates stay in [`ingestion.md`](ingestion.md); the
+per-adapter procedures (Git, MediaWiki dump and API, CSV/JSON messages, Wayback
+CDX) are in [`collection-adapters.md`](collection-adapters.md).
 
 ## Collection Ingestion
 
@@ -81,119 +83,14 @@ fetched: YYYY-MM-DD
 ---
 ```
 
+Keep the full upstream text in the body, preserving tables, code blocks,
+proposal metadata and references as much as possible; do not summarize away
+normative requirements in specs. Name each file by `ingestion.md` § Slug
+Generation, with words taken from the upstream title or path.
+
 Deduplication key: `collection` + `upstream_id` + `revision`/`sha`. If the exact
 same upstream item was already ingested, skip it. If the item changed upstream,
 write a new raw source; never overwrite the old one.
-
-### Git Collections
-
-Use Git for repositories such as `bitcoin/bips`; do not scrape GitHub HTML.
-
-1. Clone shallowly or use the local repo path.
-2. Record HEAD commit SHA and each blob SHA.
-3. Include text-like files (`.md`, `.mediawiki`, `.wiki`, `.rst`, `.txt`,
-   `.adoc`).
-4. Exclude `.git/`, `.github/`, generated assets, binaries, images, archives,
-   vendored dependencies, scripts, and test vectors unless explicitly included.
-5. For BIP-style repos, prioritize root `bip-####.mediawiki` and `bip-####.md`
-   files. Parse proposal headers such as `BIP`, `Layer`, `Title`, `Authors`,
-   `Status`, `Type`, `Requires`, `License`, and `Discussion`.
-
-Optional `--manifest-only` mode keeps Git-owned file bodies in Git instead of
-duplicating them under `raw/articles/`. It accepts `--revision <ref>` (default
-`HEAD`), resolves it to a full commit SHA, applies the same path filters, and
-writes one immutable `raw/repos/` manifest with a `Path | Blob SHA` body table
-plus `manifest_only: true`. Use a local repository or a full clone, not a
-shallow clone, so the requested revision can be validated. Compiled articles
-cite that manifest in `sources:` and may locate claims as
-`<collection>@<commit>:<path>`. Each later revision creates a new manifest.
-
-For BIPs, publication in the repo is provenance for the proposal text, not proof
-of adoption or consensus. Compilation must preserve that distinction.
-
-### MediaWiki Dumps
-
-Use official dumps when available. They are stable, polite to the upstream site,
-and carry revision metadata.
-
-1. Download or read the dump file.
-2. Decompress `.bz2` with `bunzip2 -c` or `.gz` with `gunzip -c`.
-3. Parse streaming XML; do not load a large dump entirely into memory.
-4. Default to namespace `0`. Skip redirects and titles with `:` unless the user
-   explicitly includes them.
-5. Store page id/title, latest revision id, timestamp, contributor when
-   available, and raw wikitext.
-
-### MediaWiki API
-
-Use the API for targeted imports or when dumps are unavailable:
-
-1. Discover `api.php` from the site URL.
-2. List pages via `action=query&list=allpages&apnamespace=0&aplimit=max`.
-3. Follow continuation tokens.
-4. Fetch content in batches with `prop=revisions`, `rvslots=main`, and
-   `rvprop=ids|timestamp|user|comment|content`.
-5. Optionally fetch categories and links for graph-aware compilation.
-6. Respect throttling; never fall back to uncontrolled HTML crawling.
-
-### CSV/JSON Message Archives
-
-Use this adapter for bounded exports where each row/object is a message,
-document, post, email, or transcript item. Examples include Cypherpunks-style
-mailing-list CSVs and JSON exports with message-like objects.
-
-1. Read local files directly or download URL sources to a temporary file.
-2. Support `.csv`, `.tsv`, `.json`, and `.jsonl` using Python stdlib parsers.
-   Do not split arbitrary nested JSON unless the user identifies the message
-   array path.
-3. Infer message fields conservatively:
-   - id: `id`, `message_id`, `Message-ID`, `url`, or stable row number.
-   - date: `date`, `created_at`, `timestamp`, `sent`, or `time`.
-   - author: `author`, `from`, `sender`, `name`, or `handle`.
-   - subject/title: `subject`, `title`, or the first non-empty text fragment.
-   - body: `body`, `text`, `content`, `message`, `plain`, or `markdown`.
-4. On ambiguous schemas, run `--dry-run` first and report detected columns,
-   candidate field mapping, row count, and a sample. Ask before writing if the
-   body field cannot be identified with high confidence.
-5. Write the manifest to `raw/repos/` and each message to `raw/notes/` unless
-   the dataset is explicitly a set of articles or formal documents.
-6. Preserve row/object provenance in frontmatter: `row_number`, `message_id`,
-   `author`, `date`, `subject`, `dataset_sha`, and `source_columns` when known.
-7. Deduplicate by stable message id when present; otherwise use
-   `dataset_sha + row_number + content hash`.
-
-Message bodies should be markdown documents with a small provenance header
-followed by the original message text. Preserve quoting, code blocks, URLs, and
-mailing-list headers that may matter for later source criticism.
-
-### Wayback CDX Snapshots
-
-Use this adapter for bounded archived web captures. The CDX API is the
-inventory; never recursively crawl live or archived HTML beyond the CDX result
-set.
-
-1. Accept either a CDX API URL or an original URL/prefix. For original URLs,
-   query `https://web.archive.org/cdx` with JSON output, `fl=timestamp,original,statuscode,mimetype,digest,length`, and a conservative `filter=statuscode:200`.
-2. Use `collapse=digest` by default to avoid duplicate captures with identical
-   content. Respect `--from`, `--to`, `--include`, `--exclude`, and `--limit`
-   if provided.
-3. Fetch each selected capture with the `id_` replay form so the archived HTML
-   is returned with minimal Wayback UI rewriting:
-   `https://web.archive.org/web/<timestamp>id_/<original-url>`.
-4. Convert HTML to markdown with a readability pipeline. Prefer a temporary
-   Python virtual environment using `readability-lxml` plus `markdownify` or
-   `html2text`; if dependency installation is unavailable, use WebFetch with an
-   extraction prompt and record the fallback in `extraction_tool`.
-5. Write the manifest to `raw/repos/` and each readable snapshot to
-   `raw/articles/`. Preserve snapshot provenance in frontmatter:
-   `wayback_timestamp`, `wayback_original`, `wayback_digest`, `statuscode`,
-   `mimetype`, `length`, `canonical_url`, and `extraction_tool`.
-6. Skip captures whose body is empty, binary, or mostly navigation after
-   readability extraction. Count and report skips by reason.
-
-For volatile pages, later compilation should treat Wayback captures as evidence
-of what an archived page said at a specific timestamp, not as evidence that the
-claim remains true.
 
 ### Collection Compilation
 
@@ -205,3 +102,11 @@ After collection ingestion, compile selectively:
   upgrades, peer services, Taproot/Schnorr, mining/RPC, and the BIP process.
 - For community wikis, default confidence to `medium` unless corroborated by
   authoritative specs, code, papers, or multiple independent sources.
+- For ordinary collections, use the manifest to understand scope but cite the
+  child raw files. For a Git `--manifest-only` manifest, cite the manifest
+  itself in `sources:` and use its pinned `<collection>@<commit>:<path>` rows
+  for claim-level provenance.
+- Thesis files are for claims under test. A BIP being published means it met
+  the repository's process criteria; it is provenance for the proposal text and
+  does not by itself prove adoption, consensus or desirability. Preserve that
+  distinction.

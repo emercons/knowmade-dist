@@ -1,7 +1,7 @@
 ---
 description: "Bulk-ingest source collections such as Git doc repos, MediaWiki sources, CSV/JSON message archives, and Wayback CDX snapshots through Knowmade's inbox-first flow into processed raw artifacts."
 argument-hint: "<repo-url|repo-path|mediawiki-url|dump.xml[.bz2|.gz]|csv-json-path|cdx-url|archived-url> [--adapter auto|git|mediawiki-dump|mediawiki-api|csv-messages|wayback-cdx] [--manifest-only] [--revision <ref>] [--wiki <name>] [--local] [--new-topic <name>] [--limit <N>] [--namespace <id>] [--include <pattern>] [--exclude <pattern>] [--from YYYYMMDD] [--to YYYYMMDD] [--dry-run] [--compile] [--include-archived]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mkdir:*), Bash(mv:*), Bash(cp:*), Bash(rm:*), Bash(basename:*), Bash(find:*), Bash(git:*), Bash(curl:*), Bash(python3:*), Bash(bunzip2:*), Bash(gunzip:*)
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash(ls:*), Bash(wc:*), Bash(date:*), Bash(mkdir:*), Bash(mv:*), Bash(cp:*), Bash(rm:*), Bash(basename:*), Bash(find:*), Bash(git:*), Bash(curl:*), Bash(python3:*), Bash(bunzip2:*), Bash(gunzip:*), Bash(scripts/llm-wiki:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki:*)
 ---
 
 ## Your task
@@ -14,34 +14,9 @@ Bulk-ingest a collection into the wiki as immutable processed raw artifacts. A c
 2. Wiki, first match: `--local` → `.wiki/`; `--wiki <name>` → `HUB/wikis.json` entry (`wikis.local.json` path first; stale path → `HUB/topics/<name>`); `.wiki/` in CWD; else HUB. Reject archived entries (`status: archived`, `topics/.archive/`) unless the command takes `--include-archived`.
 3. `<slug>` and `<slug>-PRIVATE` are sibling topics in one hub: read private freely, write under the Write-Guard in `skills/knowmade/references/private-boundary.md`.
 <!-- hub-prelude:end -->
-4. If `<wiki>/_index.md` is missing and `--new-topic <name>` is set, create the topic wiki using the init protocol before ingesting. If no wiki exists and no `--new-topic`, stop and ask for a target wiki.
+4. If `<wiki>/_index.md` is missing and `--new-topic <name>` is set, create the topic wiki first (branch below). If no wiki exists and no `--new-topic`, stop and ask for a target wiki.
 
-Archive rule: collection ingest skips archived topic wikis by default. If
-`--wiki <name>` resolves to `status: archived` or a path under
-`topics/.archive/`, stop and ask the user to restore it with
-`/knowmade:archive restore <name>` or rerun with `--include-archived`. When
-explicitly included, write only inside that archived topic path and keep it
-archived. Auto-classification and `--new-topic` collision checks should treat
-archived topics as unavailable unless the user explicitly restores or includes
-archived context.
-
-Read the collection protocol at `skills/knowmade/references/ingestion-collections.md`, the file formats at `skills/knowmade/references/wiki-format.md`, the private-data rule at `skills/knowmade/references/private-boundary.md`, and from `skills/knowmade/references/knowmade-profile.md` only § Inbox-First Source Lifecycle, then follow the collection ingestion protocol. From `skills/knowmade/references/ingestion.md` read only § Overview, § Slug Generation and § Post-Ingestion Index Updates. Read the directory layout at `skills/knowmade/references/wiki-structure.md` only when `--new-topic` creates a wiki.
-
-## Inventory and dataset awareness
-
-Before writing a large collection, be explicit about fit:
-
-- If the user only wants to remember a possible collection for later, create or
-  suggest one inventory `corpus` record instead of ingesting.
-- If the collection is row-like data that should be queried in place, create or
-  suggest a dataset manifest plus one linked inventory record.
-- If the user is about to ingest hundreds of child sources, show the collection
-  manifest shape, estimated child count, and any inventory/dataset companion
-  record before asking for confirmation.
-
-After ingesting a collection, if a matching inventory record exists, link the
-raw collection manifest from that record and report the recommended status/next
-action update.
+Read the collection protocol at `skills/knowmade/references/ingestion-collections.md` (manifest and child-source frontmatter, deduplication key, collection compilation), then follow the shared flow below. The per-adapter procedure and the fit check are read only in the branch that needs them. Pass the resolved target (`--wiki <slug>`, `--local` or the wiki path) to every `llm-wiki` call; use the bundled `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki"` (`scripts/llm-wiki` in a source checkout) for the deterministic steps named below.
 
 ## Parse arguments
 
@@ -51,12 +26,12 @@ action update.
 - **--namespace <id>**: MediaWiki namespace. Default `0`.
 - **--include <pattern> / --exclude <pattern>**: filter upstream paths, page titles, message fields, or original snapshot URLs. Treat as shell globs for Git paths and regex for MediaWiki titles, message text, and Wayback original URLs unless the user specifies otherwise.
 - **--manifest-only**: Git only. Pin the selected files as path/blob-SHA rows in one immutable manifest and write no child raw copies.
-- **--revision <ref>**: Git only. Resolve this ref to a full commit SHA instead of assuming `HEAD`. Defaults to `HEAD`.
+- **--revision <ref>**: Git only. Resolve this ref to a full commit SHA instead of assuming `HEAD`.
 - **--from YYYYMMDD / --to YYYYMMDD**: bound Wayback CDX capture timestamps.
 - **--dry-run**: list what would be ingested, write nothing.
 - **--compile**: after raw ingestion, run the normal compile workflow with collection-aware clustering.
-- **--include-archived**: explicitly allow ingestion into an archived target
-  wiki. Keep the topic archived.
+- **--new-topic <name>**: create the topic wiki first (branch below).
+- **--include-archived**: explicitly allow ingestion into an archived target wiki (branch below).
 
 ## Adapter detection
 
@@ -74,208 +49,55 @@ Never recursively crawl HTML pages as a collection import. Use structured upstre
 ## Shared collection flow
 
 1. Derive a stable collection slug from the upstream name, e.g. `bitcoin-bips`, `bitcoin-wiki`.
-2. Stage the collection pointer, downloaded dump, or manifest seed in `inbox/`
-   or preserve a clear intake note in `inbox/.processed/`.
-3. Fetch an inventory of candidate items with stable upstream IDs and revision markers.
+2. Stage the collection pointer, downloaded dump, or manifest seed in `inbox/` or preserve a clear intake note in `inbox/.processed/`.
+3. Fetch an inventory of candidate items with stable upstream IDs and revision markers (the adapter branch below).
 4. Apply filters and `--limit`.
-5. If more than 500 child sources would be written and the user did not explicitly provide `--limit`, show the count and ask for confirmation before writing.
+5. If more than 500 child sources would be written and the user did not explicitly provide `--limit`, show the count and ask for confirmation before writing; for hundreds of children also run the fit check (branch below).
 6. For each child item, skip it if a raw source already has the same `collection`, `upstream_id`, and `revision`/`sha`. If the upstream item changed, write a new immutable raw source; do not overwrite the old one.
 7. Write one processed manifest artifact to `raw/repos/` with `tags: [collection, collection-manifest, <adapter>]`.
 8. Write processed child artifacts to `raw/articles/` unless the adapter-specific rule says otherwise. `csv-messages` usually writes children to `raw/notes/`. Git `--manifest-only` writes no children.
-9. Rebuild affected raw indexes from frontmatter after the batch. Do not hand-edit hundreds of table rows one by one.
-10. Append to `log.md`:
-   ```
-   ## [YYYY-MM-DD] ingest-collection | <collection> via <adapter>: N new, M skipped, K total candidates
-   ```
-11. Report the inbox intake trace, manifest path, counts, skipped duplicates, filters, and next compile suggestion.
+9. After the batch, run `llm-wiki index rebuild` (it rebuilds every raw index from frontmatter; never hand-edit hundreds of table rows) and `llm-wiki log append --kind ingest-collection "<collection> via <adapter>: N new, M skipped, K total candidates"`. If `index rebuild` exits 1 or 2, report its findings and stop before the log line. Then do items 4 and 5 of `skills/knowmade/references/ingestion.md` § Post-Ingestion Index Updates yourself (master `_index.md` source count and Recent Changes; move the intake item to `inbox/.processed/` with provenance); the CLI does neither.
+10. Report the inbox intake trace, manifest path, counts, skipped duplicates, filters, and next compile suggestion.
 
-## Raw frontmatter
+### If the adapter is `git` (including `--manifest-only` and `--revision`)
 
-Manifest source:
+Follow `skills/knowmade/references/collection-adapters.md` § Git (clone, candidate files, per-file `upstream_id`/`revision`/`sha`, `--revision`, `--manifest-only` manifest body).
 
-```yaml
----
-title: "Collection: <name>"
-source: "<upstream URL or path>"
-type: repos
-ingested: YYYY-MM-DD
-tags: [collection, collection-manifest, <adapter>]
-summary: "Manifest for a collection ingest of <name>: N child sources captured from <revision>."
-collection: "<collection-slug>"
-adapter: git|mediawiki-dump|mediawiki-api|csv-messages|wayback-cdx
-revision: "<commit sha, dump filename/date, API snapshot timestamp, dataset hash, or CDX query timestamp>"
-canonical_url: "<canonical upstream URL>"
-license: "<detected license or unknown>"
----
-```
+### If the adapter is `mediawiki-dump`
 
-Child source:
+Follow `skills/knowmade/references/collection-adapters.md` § MediaWiki dump.
 
-```yaml
----
-title: "<upstream title>"
-source: "<canonical upstream URL or file path>"
-type: articles
-ingested: YYYY-MM-DD
-tags: [collection, <collection-slug>, ...]
-summary: "2-3 sentence factual summary."
-collection: "<collection-slug>"
-adapter: git|mediawiki-dump|mediawiki-api|csv-messages|wayback-cdx
-upstream_id: "<path, page id, message id, capture timestamp, or title>"
-upstream_type: git-file|mediawiki-page|message-row|wayback-snapshot
-revision: "<revision id, timestamp, or commit sha>"
-sha: "<blob sha or content hash when available>"
-canonical_url: "<per-item URL>"
-content_format: markdown|mediawiki|wikitext|text|csv|tsv|json|jsonl|html
-license: "<detected license or unknown>"
-authors: [optional names]
-categories: [optional upstream categories]
-outlinks: [optional upstream links]
-fetched: YYYY-MM-DD
----
-```
+### If the adapter is `mediawiki-api`
 
-Keep the full upstream text in the body, preserving tables, code blocks, proposal metadata, and references as much as possible. Do not summarize away normative requirements in specs.
+Follow `skills/knowmade/references/collection-adapters.md` § MediaWiki API.
 
-## Git adapter
+### If the adapter is `csv-messages`
 
-Use a shallow clone for ordinary remote ingestion unless the user provides a local path:
+Follow `skills/knowmade/references/collection-adapters.md` § CSV/JSON messages.
 
-```bash
-git clone --depth 1 <url> <tmpdir>
-git -C <tmpdir> rev-parse HEAD
-git -C <tmpdir> ls-tree -r --format='%(objectname) %(path)' HEAD
-```
+### If the adapter is `wayback-cdx`
 
-With `--revision <ref>`, resolve `<ref>^{commit}` and use that full SHA for all
-tree/blob operations and canonical URLs. With `--manifest-only`, require a local
-repository or make a full clone (never `--depth 1`) so the selected revision is
-actually available while validating it:
+Follow `skills/knowmade/references/collection-adapters.md` § Wayback CDX.
 
-```bash
-git -C <repo> rev-parse '<ref>^{commit}'
-git -C <repo> ls-tree -r --full-tree --format='%(objectname) %(path)' <commit>
-```
+### If `--compile` is set
 
-Apply the normal include/exclude and text-file filters, then write one manifest
-whose body is:
+After raw ingestion, survey with `llm-wiki compile plan` and run the normal compile workflow (`/knowmade:compile`) with the collection rules in `skills/knowmade/references/ingestion-collections.md` § Collection Compilation (clusters, not one article per page; manifest citation; confidence).
 
-```markdown
-| Path | Blob SHA |
-|---|---|
-| `CONTEXT.md` | `<full blob sha>` |
-```
+### If `--new-topic <name>`
 
-Set `manifest_only: true` in its frontmatter. Do not copy file bodies. A
-compiled article cites the manifest in `sources:` and may use
-`<collection>@<commit>:<path>` for claim-level locations. A later revision gets
-a new dated manifest; never edit the prior manifest.
+Derive a slug from the name (lowercase, hyphens, no special characters, at most 40 characters) and run `llm-wiki init --topic <slug> --description "<name>"` (pass `--hub <path>` when no hub is configured; ask where to create it rather than assuming `~/wiki`). If the CLI cannot run, follow `skills/knowmade/references/wiki-setup.md` § Init manual fallback. Collision checks treat archived topics as unavailable unless the user restores or includes them. Target the new wiki for this ingestion.
 
-Candidate files:
-- Include text-like source files: `.md`, `.mediawiki`, `.wiki`, `.rst`, `.txt`, `.adoc`.
-- Exclude `.git/`, `.github/`, generated assets, binaries, images, archives, vendored dependencies, scripts, and test vectors by default.
-- For BIP-style repositories, prioritize root-level `bip-####.mediawiki` and `bip-####.md` files; treat sibling images/test vectors as referenced assets, not primary raw sources unless the user includes them.
+### If the target wiki is archived or `--include-archived` is given
 
-For each file:
-- `upstream_id`: repository-relative path.
-- `revision`: HEAD commit SHA.
-- `sha`: Git blob SHA.
-- `canonical_url`: GitHub/GitLab blob URL pinned to the commit when possible.
-- Parse proposal headers when present, especially `BIP`, `Layer`, `Title`, `Authors`, `Status`, `Type`, `Requires`, `License`, and `Discussion`.
+Collection ingest skips archived topic wikis by default. If `--wiki <name>` resolves to `status: archived` or a path under `topics/.archive/`, stop and ask the user to restore it with `/knowmade:archive restore <name>` or rerun with `--include-archived`. When explicitly included, write only inside that archived topic path and keep it archived. Auto-classification does not use archived topics.
 
-For `bitcoin/bips`, classify the collection manifest as `raw/repos/` and each BIP proposal as `raw/articles/`. During later compile, prefer synthesized articles around concepts and standards clusters rather than one compiled article per BIP.
+### If the collection may be an inventory candidate, a dataset, or has hundreds of children
 
-## MediaWiki dump adapter
+Run the fit check in `skills/knowmade/references/collection-setup.md` § Fit check before writing, and link the manifest from a matching inventory record afterwards.
 
-Use official XML dumps when available. They are better than crawling and carry revision metadata.
+### If the CLI cannot run
 
-1. Download or read the dump file.
-2. Decompress with `bunzip2 -c` or `gunzip -c` when needed.
-3. Parse streaming XML with Python stdlib `xml.etree.ElementTree.iterparse` to avoid loading the whole dump into memory.
-4. Default to namespace `0`. Skip redirects, talk/user/file/special pages, and pages whose title contains `:` unless `--namespace` or filters explicitly include them.
-5. For each page:
-   - `upstream_id`: page id if present, else title.
-   - `revision`: revision id and timestamp.
-   - `canonical_url`: site URL plus normalized title when derivable.
-   - `content_format`: `wikitext`.
-   - Preserve the latest revision text in the body.
-
-If the dump has many pages, write in batches and rebuild indexes at the end.
-
-## MediaWiki API adapter
-
-Use the API for targeted imports or when dumps are unavailable.
-
-1. Discover `api.php` from the source URL. Common forms:
-   - `https://example.org/w/api.php`
-   - `https://example.org/wiki/api.php`
-2. Fetch page inventory with:
-   ```
-   action=query&list=allpages&apnamespace=<namespace>&aplimit=max&format=json
-   ```
-   Follow `continue` until done or `--limit` is reached.
-3. Fetch content in batches with `prop=revisions` and `rvslots=main&rvprop=ids|timestamp|user|comment|content`.
-4. Optionally fetch `categories` and `links` for provenance and later graph compilation.
-5. Respect rate limits. If the API throttles, slow down and continue; do not fall back to HTML crawling.
-
-## CSV/JSON messages adapter
-
-Use `csv-messages` for bounded exports where each CSV/TSV row, JSON array item,
-or JSONL line is a message, post, email, transcript item, or similar record.
-Examples include Cypherpunks-style mailing-list CSVs and message-like JSON
-exports.
-
-1. Read local files directly or download URL sources to a temporary file.
-2. Parse `.csv`, `.tsv`, `.json`, and `.jsonl` with Python stdlib. Do not split
-   arbitrary nested JSON unless the user identifies the message array path.
-3. Infer fields conservatively:
-   - id: `id`, `message_id`, `Message-ID`, `url`, or stable row number.
-   - date: `date`, `created_at`, `timestamp`, `sent`, or `time`.
-   - author: `author`, `from`, `sender`, `name`, or `handle`.
-   - subject/title: `subject`, `title`, or first non-empty text fragment.
-   - body: `body`, `text`, `content`, `message`, `plain`, or `markdown`.
-4. In `--dry-run`, report row count, detected columns/keys, inferred mapping,
-   and a few representative titles without writing.
-5. If body field detection is ambiguous, ask before writing. If stable ids are
-   missing, use row number plus content hash as `upstream_id`.
-6. Write the manifest to `raw/repos/` and children to `raw/notes/` unless the
-   dataset is explicitly articles/formal documents.
-7. Preserve per-record provenance in frontmatter where known: `row_number`,
-   `message_id`, `author`, `date`, `subject`, `dataset_sha`, and
-   `source_columns`.
-
-## Wayback CDX adapter
-
-Use `wayback-cdx` for bounded archived web captures. The CDX result set is the
-inventory; never recursively crawl live or archived HTML.
-
-1. Accept either a CDX API URL or an original URL/prefix. For original URLs,
-   query `https://web.archive.org/cdx` with JSON output and
-   `fl=timestamp,original,statuscode,mimetype,digest,length`.
-2. Use `filter=statuscode:200` and `collapse=digest` by default. Apply
-   `--from`, `--to`, `--include`, `--exclude`, and `--limit`.
-3. Fetch captures with the `id_` replay form:
-   `https://web.archive.org/web/<timestamp>id_/<original-url>`.
-4. Convert HTML to markdown with readability. Prefer a temporary Python venv
-   using `readability-lxml` plus `markdownify` or `html2text`. If dependency
-   installation is unavailable, use WebFetch with an extraction prompt and
-   record that fallback in `extraction_tool`.
-5. Write the manifest to `raw/repos/` and children to `raw/articles/`.
-6. Preserve snapshot provenance in frontmatter: `wayback_timestamp`,
-   `wayback_original`, `wayback_digest`, `statuscode`, `mimetype`, `length`,
-   `canonical_url`, and `extraction_tool`.
-7. Skip binary, empty, duplicate, or mostly-navigation captures; report skip
-   counts by reason.
-
-## Compile guidance
-
-If `--compile` is set, run normal compilation after ingestion with these collection-specific rules:
-
-- For ordinary collections, use the manifest to understand scope but cite child raw files. For Git `--manifest-only`, cite the manifest itself in `sources:` and use its pinned `<collection>@<commit>:<path>` rows for claim-level provenance.
-- Compile clusters into useful wiki articles: concepts, standards families, timelines, glossary/reference indexes, and thesis files when a claim is being tested.
-- For BIPs, likely clusters include activation mechanisms, wallet standards, script upgrades, peer services, Taproot/Schnorr, mining/RPC, and the BIP process.
-- For community wikis, treat pages as explanatory sources with medium confidence unless corroborated by authoritative specs, code, papers, or multiple independent sources.
-- Preserve confidence nuance: a BIP being published means it met repository process criteria; it does not by itself prove adoption, consensus, or desirability.
+Rebuild indexes, the master statistics and the log entry by hand as `skills/knowmade/references/collection-setup.md` § CLI unavailable says.
 
 ## Report format
 

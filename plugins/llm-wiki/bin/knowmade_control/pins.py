@@ -36,7 +36,7 @@ from . import engine as _engine
 from . import frontmatter as _frontmatter
 from . import fsio as _fsio
 from .common import add_scope_arguments, is_under, read_registry
-from .markdown import sniff_style
+from .markdown import sniff_style, yaml_scalar
 from .roots import (
     is_archived_registry_entry,
     is_hub,
@@ -88,7 +88,7 @@ def pin_changes(knowmade: str | None, upstream: str | None) -> list[tuple[str, s
         if kind == "version":
             changes += [(version_key, value), (commit_key, None)]
         else:
-            changes += [(commit_key, f'"{value}"'), (version_key, None)]
+            changes += [(commit_key, yaml_scalar(value)), (version_key, None)]
     return changes
 
 

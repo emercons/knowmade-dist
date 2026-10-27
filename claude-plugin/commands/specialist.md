@@ -28,11 +28,22 @@ Use `scripts/llm-wiki` in a source checkout. Never assume a global install.
 
 ### If HUB does not resolve, or a topic must be resolved (`apply`, `suggest`)
 
-Read `skills/knowmade/references/hub-resolution.md`: § Resolve HUB, then
-§ Resolve the target wiki, Registry Path Resolution and Archived entries for
-`--wiki <topic>` (reject an archived topic). Resolve one active topic only for
-these subcommands; `enable` and `disable` pass `--wiki <topic>` to the helper,
-which resolves it.
+Let the helper resolve; do not re-derive the hub or a topic path by hand. Both
+go through the code every command shares (hub order, registry overlay and
+stale-path fallback, archived rejection).
+
+- HUB: `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" hub where --json` names the winner
+  as `selected.path`; `selected.is_hub` false means no initialized hub there.
+  Stop and say so, and ask the user where the hub is: the specialist library
+  lives in an initialized hub, and creating one is the `wiki` command's job.
+- Topic: `"${CLAUDE_PLUGIN_ROOT}/bin/llm-wiki" status --wiki <topic> --json`;
+  its `root` is the topic wiki. Exit 2 means unknown, archived, a hub, or a
+  private placeholder not checked out here: reject it (specialist never passes
+  `--include-archived`). `status` also runs lint and freshness, so call it only
+  for the topics you selected, never for every registered topic. Resolve one active topic for
+  `apply`, and for `suggest` each topic you selected from `wikis.json`;
+  `enable` and `disable` pass `--wiki <topic>` to the specialist helper, which
+  resolves it.
 
 ## Deterministic subcommands
 
