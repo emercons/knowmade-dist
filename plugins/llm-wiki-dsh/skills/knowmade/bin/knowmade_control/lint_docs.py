@@ -137,6 +137,8 @@ HUB_ALLOWED = {
     "wikis.json",
     "_index.md",
     "README.md",
+    # Hub settings: the engine pin (`pin set` creates it) and `private_anchors`.
+    "config.md",
     "log.md",
     "topics",
     "inbox",

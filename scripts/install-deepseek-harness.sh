@@ -46,7 +46,13 @@ mkdir -p "$STAGE"
 cp -R "$SOURCE/." "$STAGE/"
 printf 'managed by Knowmade scripts/install-deepseek-harness.sh\n' > "$STAGE/.knowmade-managed"
 rm -rf "$TARGET"
-mv "$STAGE" "$TARGET"
+# On Windows a scanner holding a freshly copied file refuses the rename for a
+# few seconds (knowmade#229); retry with growing waits, about 15 s in all.
+for wait in 0.1 0.2 0.5 1 1 2 2 3 5; do
+  mv "$STAGE" "$TARGET" 2>/dev/null && break
+  sleep "$wait"
+done
+[ -e "$TARGET" ] || mv "$STAGE" "$TARGET"
 trap - EXIT
 
 echo "Installed DeepSeek Harness skill: $TARGET"

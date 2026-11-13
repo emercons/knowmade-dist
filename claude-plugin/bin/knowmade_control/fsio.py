@@ -168,6 +168,27 @@ def _replace(tmp: Path, path: Path) -> None:
             time.sleep(_REPLACE_RETRY_INTERVAL)
 
 
+# A directory rename on Windows fails while any process holds a file inside
+# the directory open; a virus scanner inspecting freshly written files does
+# that for seconds, so the rename is retried with a longer, backed-off budget.
+_RENAME_DIR_RETRY_SECONDS = 15.0
+
+
+def rename_dir(src: Path, dst: Path) -> None:
+    """Rename directory ``src`` to ``dst``, retrying a transient Windows refusal."""
+    deadline = time.monotonic() + _RENAME_DIR_RETRY_SECONDS
+    delay = 0.05
+    while True:
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 1.0)
+
+
 def _fsync_directory(directory: Path) -> None:
     """Persist the directory entry after a rename; a no-op where unsupported."""
     if os.name == "nt":

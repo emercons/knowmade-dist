@@ -329,7 +329,7 @@ def stage_and_place(root: Path, target: Target, wiki_id: str, date: str) -> bool
     stage.mkdir()
     try:
         build_wiki(stage, target, wiki_id, date)
-        os.rename(stage, root)
+        _fsio.rename_dir(stage, root)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise

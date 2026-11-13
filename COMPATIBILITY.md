@@ -279,6 +279,26 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.15.3.1.0 — hub config.md is hub metadata
+
+Shipped 2026-11-13 (knowmade#228, "Hub lint flags the hub config.md as an
+unexpected file (C12)"; knowmade#229, "init fails on Windows with WinError 5
+when a scanner holds the staged topic"). The version's trailing `1.0` is unchanged: the absorbed
+upstream baseline is still v1.0.0.
+
+- **Corpus:** rule sets, check IDs, severities and the N-2 window are unchanged.
+  A hub root's allowed entries gain `config.md`: `pin set` creates it and the
+  C25 check reads `private_anchors` from it, so C12 no longer reports it and
+  `lint --fix` no longer quarantines it into `inbox/.unknown/`. A hub without
+  one is judged as before.
+- **CLI/protocol:** `init` renames its staging directory through
+  `fsio.rename_dir`, which on Windows retries a `PermissionError` with a
+  backed-off 15 s budget (a scanner holding a freshly written file inside the
+  stage refused the single rename). Output and exit codes are unchanged.
+- **Packaging:** `scripts/install-deepseek-harness.sh` retries the move of
+  its stage into `skills/knowmade` with growing waits (about 15 s in all)
+  for the same Windows scanner hold; the installed tree is unchanged.
+
 ### v0.15.2.1.0 — Sprint Q: the last context diets and a bare checker sha
 
 Shipped 2026-10-27 from PR #225 ("Sprint Q: context diet for adapter, specialist
