@@ -8,6 +8,12 @@ the deduplication key and collection compilation stay in
 [`ingestion-collections.md`](ingestion-collections.md). `<adapter>` values:
 `git`, `mediawiki-dump`, `mediawiki-api`, `csv-messages`, `wayback-cdx`.
 
+Each adapter below produces the inventory and the per-item fields; the writing
+is `llm-wiki source collection` (§ Collection writer in
+[`ingestion-collections.md`](ingestion-collections.md)). Put provenance the
+writer has no field for (`authors`, `row_number`, `wayback_timestamp`, ...) in
+an item's `extra`.
+
 ## Git
 
 Use Git for repositories such as `bitcoin/bips`; do not scrape GitHub HTML. Use a

@@ -90,7 +90,27 @@ Generation, with words taken from the upstream title or path.
 
 Deduplication key: `collection` + `upstream_id` + `revision`/`sha`. If the exact
 same upstream item was already ingested, skip it. If the item changed upstream,
-write a new raw source; never overwrite the old one.
+write a new raw source; never overwrite the old one. A blob `sha` decides when
+both sides carry one (a Git file unchanged across commits is the same item);
+otherwise the `revision` does.
+
+### Collection writer
+
+`llm-wiki source collection` writes the manifest and the children above, applies
+the deduplication key and rebuilds the indexes and the log once. Hand it
+`--items <file.jsonl>` (or `-` for standard input), one object per child:
+`title`, `source`, `summary`, `upstream_id`, `revision` and/or `sha`, the body
+as `body` or `body_file` (relative to the items file), and optionally
+`upstream_type` (default from the adapter), `canonical_url`, `content_format`,
+`license`, `fetched`, `type` (`raw/` subdirectory), `tags` (added after
+`collection` and the slug), `slug` and `extra` (any further provenance, such
+as `authors`, `categories`, `outlinks`, `row_number`; lists of text allowed;
+it may not reuse a key the verb writes). With `--manifest-only` the rows are
+`{upstream_id, sha}` only. The run arguments are `--collection`, `--adapter`,
+`--source`, `--revision` (the manifest's), `--candidates`, `--license`, `--name`,
+`--canonical-url`, `--manifest-summary`, `--manifest-body-file`, `--dry-run`.
+The JSON result reports counts, the manifest path and the skipped duplicates.
+`source note --extra` takes the same collection keys for a single item.
 
 ### Collection Compilation
 

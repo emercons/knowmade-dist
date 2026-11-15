@@ -101,6 +101,7 @@ PIN_KEYS = (
     UPSTREAM_SHA_ALIAS,
 )
 _SHA = re.compile(r"^[0-9a-f]{7,40}$")
+_FULL_SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _VERSION = re.compile(r"^[0-9][0-9A-Za-z.+-]*$")
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -180,7 +181,86 @@ def engine_manifest() -> Path | None:
     return located[0] if located else None
 
 
+# Refs git keeps per worktree (in the worktree's own git directory); every
+# other ref lives in the common directory the worktree shares.
+_PER_WORKTREE_REFS = ("refs/worktree/", "refs/bisect/", "refs/rewritten/")
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+
+
+def _packed_ref(common: Path, ref: str) -> str | None:
+    text = _read_text(common / "packed-refs")
+    if text is None:
+        return None
+    for line in text.splitlines():
+        if not line or line[0] in "#^":
+            continue
+        sha, _sep, name = line.partition(" ")
+        if name == ref:
+            return sha
+    return None
+
+
+def _read_head_files(root: Path) -> str | None:
+    """``HEAD`` of the repository whose ``.git`` is ``root/.git``, read from its files.
+
+    The engine asks for its own checkout's commit on every lint, and starting
+    ``git`` costs far more than the lint step it serves on Windows. This reads
+    the plain layouts git writes: a ``.git`` directory or a ``gitdir:`` file
+    (a linked worktree, whose ``commondir`` names the shared directory), a
+    detached or symbolic ``HEAD``, loose refs and ``packed-refs``. None means
+    "ask git": a reftable ref store, a SHA-256 repository, an unborn branch,
+    an unreadable or unexpected file. Unlike ``git rev-parse`` it does not
+    apply ``safe.directory``, which guards against running a foreign
+    repository's configured programs; reading two text files runs none.
+    """
+    try:
+        dotgit = root / ".git"
+        if dotgit.is_dir():
+            gitdir = dotgit
+        elif dotgit.is_file():
+            pointer = (_read_text(dotgit) or "").strip()
+            if not pointer.startswith("gitdir:"):
+                return None
+            target = Path(pointer[len("gitdir:"):].strip())
+            gitdir = target if target.is_absolute() else root / target
+        else:
+            return None
+        common = gitdir
+        commondir = _read_text(gitdir / "commondir")
+        if commondir is not None:
+            target = Path(commondir.strip())
+            common = target if target.is_absolute() else gitdir / target
+        config = (_read_text(common / "config") or "").lower()
+        if "refstorage" in config or "objectformat" in config or (common / "reftable").exists():
+            return None
+        value = (_read_text(gitdir / "HEAD") or "").strip()
+        for _depth in range(5):
+            if _FULL_SHA1.match(value):
+                return value
+            if not value.startswith("ref: "):
+                return None
+            ref = value[len("ref: "):].strip()
+            parts = ref.split("/")
+            if parts[0] != "refs" or any(part in ("", ".", "..") for part in parts):
+                return None
+            base = gitdir if ref.startswith(_PER_WORKTREE_REFS) else common
+            loose = _read_text(base.joinpath(*parts))
+            value = loose.strip() if loose is not None else (_packed_ref(common, ref) or "")
+        return None
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
 def _git_head(root: Path) -> str | None:
+    commit = _read_head_files(root)
+    if commit is not None:
+        return commit
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -205,8 +285,9 @@ def _build_commit() -> str | None:
 def engine_commit(root: Path | None = None) -> str | None:
     """Return the commit of the engine build, or None when it is unknown.
 
-    A source checkout asks git, so the live commit wins over whatever the last
-    sync embedded. A vendored copy under a plugin root belongs to whatever
+    A source checkout reads its live HEAD (from git's files, or from git when
+    the layout needs it), so the live commit wins over whatever the last sync
+    embedded. A vendored copy under a plugin root belongs to whatever
     repository installed it, so git is never consulted there: the commit is the
     one ``_build.py`` carries, or None when there is no usable build identity.
     """

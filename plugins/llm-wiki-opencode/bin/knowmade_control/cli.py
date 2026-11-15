@@ -42,12 +42,12 @@ class Namespace(NamedTuple):
 
 def _register_source(subparsers: Any) -> argparse.ArgumentParser:
     # Late-bound so the shared roots resolver is looked up when a command runs.
-    from . import raw_note, roots, source_lifecycle
+    from . import raw_collection, raw_note, roots, source_lifecycle
 
     return source_lifecycle.register_parser(
         subparsers,
         resolve_wiki_root=lambda args: roots.resolve_wiki_root_args(args),
-        extensions=(raw_note.register_note,),
+        extensions=(raw_note.register_note, raw_collection.register_collection),
     )
 
 

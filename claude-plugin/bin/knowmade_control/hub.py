@@ -102,6 +102,27 @@ def _ancestor_has_git(path: Path) -> bool:
     return any((candidate / ".git").exists() for candidate in (resolved, *resolved.parents))
 
 
+def _no_repository_reachable(path: Path) -> bool:
+    """True when git, run from ``path``, cannot find any repository.
+
+    Git's discovery walks from the working directory to the filesystem root
+    and stops at the first directory that holds a ``.git`` entry or is itself
+    a git directory (a bare repository, or the inside of a ``.git``), which
+    always has a ``HEAD``. The repository-selecting variables that could point
+    it elsewhere are removed by ``git_environment``. So when no ancestor has
+    either entry, ``rev-parse --is-inside-work-tree`` can only answer "not a
+    git repository", and asking it is a wasted process start.
+    """
+    try:
+        resolved = path.resolve()
+        return not any(
+            (candidate / ".git").exists() or (candidate / "HEAD").exists()
+            for candidate in (resolved, *resolved.parents)
+        )
+    except OSError:
+        return False
+
+
 def is_inside_git_work_tree(path: Path) -> bool:
     """True when ``path`` lies inside a git work tree, at its root or nested.
 
@@ -110,9 +131,11 @@ def is_inside_git_work_tree(path: Path) -> bool:
     root (knowmade#87). When git is not installed, or cannot evaluate the
     repository (for example a ``safe.directory`` refusal), a ``.git`` entry in
     ``path`` or any ancestor counts as inside: the guards then fail safe rather
-    than treating a committable hub as a plain directory.
+    than treating a committable hub as a plain directory. Without a ``.git``
+    or ``HEAD`` entry in ``path`` or any ancestor no repository is reachable,
+    and the answer is False without starting git.
     """
-    if not path.is_dir():
+    if not path.is_dir() or _no_repository_reachable(path):
         return False
     git = shutil.which("git")
     if git is not None:
@@ -162,6 +185,39 @@ def git_ignores_path(repo: Path, relative_path: str) -> bool | None:
     if result.returncode == 1:
         return False
     return None
+
+
+def git_ignores_paths(repo: Path, relative_paths: list[str]) -> list[bool] | None:
+    """:func:`git_ignores_path` for several paths in one git run, in order.
+
+    ``check-ignore --stdin -z`` reads NUL-terminated paths, prints each one an
+    ignore rule excludes (as given, NUL-terminated) and judges every path on
+    its own, so the answers are the ones one call per path would give. None
+    when git is not installed or could not evaluate the repository.
+    """
+    if not relative_paths:
+        return []
+    git = shutil.which("git")
+    if git is None:
+        return None
+    try:
+        result = subprocess.run(
+            [git, *_fsio.GIT_READ_OPTIONS, "check-ignore", "--stdin", "-z"],
+            input="".join(f"{path}\0" for path in relative_paths).encode("utf-8"),
+            cwd=str(repo),
+            env=_fsio.git_environment(),
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    try:
+        ignored = set(result.stdout.decode("utf-8").split("\0"))
+    except UnicodeDecodeError:
+        return None
+    return [path in ignored for path in relative_paths]
 
 
 def gitignore_declares_private_rule(root: Path) -> bool:
@@ -243,13 +299,15 @@ def missing_state_ignore_rules(root: Path) -> list[str]:
     consulted, only the literal rule in ``root/.gitignore`` counts.
     """
     literal = gitignore_rules(root)
+    every_probe = [probe for _rule, _pathspec, probes in STATE_IGNORE_RULES for probe in probes]
+    answers = git_ignores_paths(root, every_probe)
+    ignored = dict(zip(every_probe, answers)) if answers is not None else None
     missing: list[str] = []
     for rule, _pathspec, probes in STATE_IGNORE_RULES:
-        answers = [git_ignores_path(root, probe) for probe in probes]
-        if any(answer is None for answer in answers):
+        if ignored is None:
             covered = rule in literal
         else:
-            covered = all(answers)
+            covered = all(ignored[probe] for probe in probes)
         if not covered:
             missing.append(rule)
     return missing

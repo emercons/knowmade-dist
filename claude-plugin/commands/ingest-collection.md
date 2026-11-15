@@ -53,10 +53,10 @@ Never recursively crawl HTML pages as a collection import. Use structured upstre
 3. Fetch an inventory of candidate items with stable upstream IDs and revision markers (the adapter branch below).
 4. Apply filters and `--limit`.
 5. If more than 500 child sources would be written and the user did not explicitly provide `--limit`, show the count and ask for confirmation before writing; for hundreds of children also run the fit check (branch below).
-6. For each child item, skip it if a raw source already has the same `collection`, `upstream_id`, and `revision`/`sha`. If the upstream item changed, write a new immutable raw source; do not overwrite the old one.
-7. Write one processed manifest artifact to `raw/repos/` with `tags: [collection, collection-manifest, <adapter>]`.
-8. Write processed child artifacts to `raw/articles/` unless the adapter-specific rule says otherwise. `csv-messages` usually writes children to `raw/notes/`. Git `--manifest-only` writes no children.
-9. After the batch, run `llm-wiki index rebuild` (it rebuilds every raw index from frontmatter; never hand-edit hundreds of table rows) and `llm-wiki log append --kind ingest-collection "<collection> via <adapter>: N new, M skipped, K total candidates"`. If `index rebuild` exits 1 or 2, report its findings and stop before the log line. Then do items 4 and 5 of `skills/knowmade/references/ingestion.md` § Post-Ingestion Index Updates yourself (master `_index.md` source count and Recent Changes; move the intake item to `inbox/.processed/` with provenance); the CLI does neither.
+6. Write the batch with `llm-wiki source collection --collection <slug> --adapter <adapter> --source <upstream> --revision <rev> --items <items.jsonl>` (add `--candidates <K>` for the log line, `--license <id>`, `--dry-run`, and `--manifest-only` for Git pins). `<items.jsonl>` is one JSON object per child you built in step 3; its fields are in `skills/knowmade/references/ingestion-collections.md` § Collection writer.
+7. The CLI validates every item before the first write (a refusal exits 2 and writes nothing), skips an item a raw source already holds (same `collection`, `upstream_id` and `sha`, or `revision` when either has no `sha`; a changed upstream item becomes a new source and the old one stays), and writes one manifest to `raw/repos/` with `tags: [collection, collection-manifest, <adapter>]`.
+8. Children go to `raw/articles/` (`raw/notes/` for `csv-messages`; an item's `type` overrides); Git `--manifest-only` takes `{upstream_id, sha}` rows, renders them as the manifest table and writes no children.
+9. The same call rebuilds the raw indexes once and appends the `ingest-collection` log line; if its JSON `index.status` is `incomplete`, report the findings and stop. Then do items 4 and 5 of `skills/knowmade/references/ingestion.md` § Post-Ingestion Index Updates yourself (master `_index.md` source count and Recent Changes; move the intake item to `inbox/.processed/` with provenance); the CLI does neither.
 10. Report the inbox intake trace, manifest path, counts, skipped duplicates, filters, and next compile suggestion.
 
 ### If the adapter is `git` (including `--manifest-only` and `--revision`)
@@ -97,7 +97,7 @@ Run the fit check in `skills/knowmade/references/collection-setup.md` § Fit che
 
 ### If the CLI cannot run
 
-Rebuild indexes, the master statistics and the log entry by hand as `skills/knowmade/references/collection-setup.md` § CLI unavailable says.
+Write the manifest and children by hand with the frontmatter in `skills/knowmade/references/ingestion-collections.md` (deduplicate on `collection` + `upstream_id` + `revision`/`sha` yourself), then rebuild indexes, the master statistics and the log entry as `skills/knowmade/references/collection-setup.md` § CLI unavailable says.
 
 ## Report format
 

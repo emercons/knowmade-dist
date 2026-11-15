@@ -48,12 +48,16 @@ MAX_STEM = 60
 _DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-# The optional frontmatter ingestion.md (PDF flow) and wiki-format.md
-# (collection provenance) name. ``page_count`` is the one integer.
+# The optional frontmatter ingestion.md (PDF flow), wiki-format.md and
+# ingestion-collections.md (collection provenance) name. ``page_count`` is the
+# one integer and ``manifest_only`` the one boolean; the rest are strings.
 EXTRA_KEYS = (
     "content_format", "sha256", "page_count", "extraction_tool", "extraction_status",
     "fetched", "canonical_url", "license", "revision",
+    "collection", "adapter", "upstream_id", "upstream_type", "sha", "manifest_only",
 )
+# Sentinel ``upstream_id`` of a collection manifest in the duplicate index.
+MANIFEST_ID = "<manifest>"
 H1_RE = re.compile(r"^#\s+\S")
 
 
@@ -79,9 +83,14 @@ def _fit(stem: str, suffix: str = "") -> str:
     return stem[:room].rstrip("-") + suffix
 
 
-def choose_stem(directory: Path, date: str, title: str, slug: str | None) -> str:
-    """The filename stem (no ``.md``) for the note."""
-    taken = {path.name.lower() for path in directory.glob("*.md")} if directory.is_dir() else set()
+def choose_stem(directory: Path, date: str, title: str, slug: str | None, taken: set[str] | None = None) -> str:
+    """The filename stem (no ``.md``) for the note.
+
+    ``taken`` is the lowercase file names already in ``directory`` (a batch passes its own
+    running set; the default reads the directory).
+    """
+    if taken is None:
+        taken = {path.name.lower() for path in directory.glob("*.md")} if directory.is_dir() else set()
     if slug is not None:
         words = slug[11:] if _DATE_PREFIX_RE.match(slug) else slug
         if not _SLUG_RE.match(words):
@@ -118,19 +127,83 @@ def parse_tags(raw: str) -> list[str]:
     return tags
 
 
-def parse_extras(items: list[str]) -> list[tuple[str, str]]:
-    extras: list[tuple[str, str]] = []
+def parse_extras(items: list[str]) -> list[tuple[str, Any]]:
+    extras: list[tuple[str, Any]] = []
     for item in items:
         key, sep, value = item.partition("=")
         key, value = key.strip(), value.strip()
         if not sep or key not in EXTRA_KEYS or not value:
             raise NoteError(f"--extra must be KEY=VALUE with KEY one of: {', '.join(EXTRA_KEYS)}")
-        if key == "page_count" and not value.isdigit():
-            raise NoteError("--extra page_count must be an integer")
         if any(existing == key for existing, _ in extras):
             raise NoteError(f"--extra {key} given twice")
-        extras.append((key, value))
+        if key == "page_count":
+            if not value.isdigit():
+                raise NoteError("--extra page_count must be an integer")
+            extras.append((key, int(value)))
+        elif key == "manifest_only":
+            if value not in ("true", "false"):
+                raise NoteError("--extra manifest_only must be true or false")
+            extras.append((key, value == "true"))
+        else:
+            extras.append((key, value))
     return extras
+
+
+def format_extra(value: Any) -> str:
+    """One frontmatter value: bools and integers bare, lists inline and quoted, text quoted."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(yaml_quote(str(item)) for item in value) + "]"
+    return yaml_quote(str(value))
+
+
+def extra_text(value: Any) -> str:
+    """The text of an extra value, for the privacy scan."""
+    return " ".join(str(item) for item in value) if isinstance(value, (list, tuple)) else str(value)
+
+
+class SeenItems:
+    """The collection sources already in ``raw/``, for the deduplication key.
+
+    ``ingestion-collections.md``: ``collection`` + ``upstream_id`` + ``revision``/``sha``.
+    A blob ``sha`` is the sharper marker when both sides carry one (a Git file
+    unchanged across commits is the same item); otherwise the ``revision`` decides.
+    A manifest has no ``upstream_id``; it is keyed by :data:`MANIFEST_ID`.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.items: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+        raw = root / "raw"
+        if not raw.is_dir():
+            return
+        for path in sorted(raw.rglob("*.md")):
+            if path.name == "_index.md":
+                continue
+            try:
+                fields = _frontmatter.load(path).fields
+            except (_frontmatter.FrontmatterError, OSError):
+                continue
+            collection = fields.get("collection")
+            if not isinstance(collection, str) or not collection:
+                continue
+            tags = fields.get("tags")
+            manifest = isinstance(tags, list) and "collection-manifest" in tags
+            upstream_id = MANIFEST_ID if manifest else fields.get("upstream_id")
+            if isinstance(upstream_id, str) and upstream_id:
+                self.add(collection, upstream_id, str(fields.get("revision") or ""), str(fields.get("sha") or ""), path.relative_to(root).as_posix())
+
+    def add(self, collection: str, upstream_id: str, revision: str, sha: str, rel: str) -> None:
+        self.items.setdefault((collection, upstream_id), []).append((revision, sha, rel))
+
+    def match(self, collection: str, upstream_id: str, revision: str, sha: str) -> str | None:
+        """The path of the source holding this exact item, or ``None``."""
+        for old_revision, old_sha, rel in self.items.get((collection, upstream_id), []):
+            if (old_sha == sha) if (sha and old_sha) else (old_revision == revision):
+                return rel
+        return None
 
 
 def read_body(args: argparse.Namespace) -> str:
@@ -149,6 +222,11 @@ def read_body(args: argparse.Namespace) -> str:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise NoteError("the body is not valid UTF-8") from exc
+    return clean_body(text)
+
+
+def clean_body(text: str) -> str:
+    """``text`` LF-normalised and trimmed; refuses an empty body or one carrying its own frontmatter."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
     if not text.strip():
         raise NoteError("the body is empty")
@@ -159,7 +237,7 @@ def read_body(args: argparse.Namespace) -> str:
 
 def render(
     *, title: str, source: str, type_: str, ingested: str, tags: list[str], summary: str,
-    project: str | None, extras: list[tuple[str, str]], body: str,
+    project: str | None, extras: list[tuple[str, Any]], body: str,
 ) -> str:
     lines = [
         "---",
@@ -173,7 +251,7 @@ def render(
     if project:
         lines.append(f"project: {project}")
     for key, value in extras:
-        lines.append(f"{key}: {value}" if key == "page_count" else f"{key}: {yaml_quote(value)}")
+        lines.append(f"{key}: {format_extra(value)}")
     lines += ["---", "", ""]
     heading = "" if H1_RE.match(body.lstrip().split("\n", 1)[0]) else f"# {title}\n\n"
     return "\n".join(lines) + heading + body + "\n"
@@ -207,7 +285,8 @@ def run_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path] 
     return 0 if result["ok"] else 2
 
 
-def write_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path] | None) -> dict[str, Any]:
+def target_root(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path] | None) -> Path:
+    """The initialised topic wiki the verb writes into; a hub or a missing wiki is a usage error."""
     if resolve_wiki_root is None:
         raise NoteError("no wiki resolver is available")
     root = Path(resolve_wiki_root(args)).resolve()
@@ -217,6 +296,11 @@ def write_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path
         raise NoteError(f"{root} is a hub; pass --wiki <slug>, --local or --path <topic>")
     if not (root / "_index.md").is_file():
         raise NoteError(f"{root} is not an initialised wiki (no _index.md)")
+    return root
+
+
+def write_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path] | None) -> dict[str, Any]:
+    root = target_root(args, resolve_wiki_root)
 
     title = re.sub(r"\s+", " ", args.title).strip()
     source = re.sub(r"\s+", " ", args.source).strip()
@@ -243,6 +327,17 @@ def write_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path
                 f'Project "{args.project}" does not exist. Create it first with /knowmade:project new {args.project} "goal".'
             )
     body = read_body(args)
+    collection = dict(extras)
+    if "upstream_id" in collection:
+        if not collection.get("collection"):
+            raise NoteError("--extra upstream_id needs --extra collection")
+        if not (collection.get("revision") or collection.get("sha")):
+            raise NoteError("a collection item needs --extra revision or sha for the deduplication key")
+        held = SeenItems(root).match(
+            collection["collection"], collection["upstream_id"], collection.get("revision", ""), collection.get("sha", "")
+        )
+        if held:
+            raise NoteError(f"duplicate: {held} already holds this collection item (same collection, upstream_id and revision/sha)", code=1)
 
     directory = root / "raw" / args.type
     stem = choose_stem(directory, ingested, title, args.slug)
@@ -253,7 +348,7 @@ def write_note(args: argparse.Namespace, resolve_wiki_root: Callable[[Any], Path
     if refusal is None and public:
         # Every field render() writes into the note is judged, extras and project included.
         texts = {rel: rel, "title": title, "source": source, "summary": summary, "tags": ", ".join(tags), "body": body}
-        texts.update({f"extra:{key}": value for key, value in extras})
+        texts.update({f"extra:{key}": extra_text(value) for key, value in extras})
         if args.project:
             texts["project"] = args.project
         refusal = privacy_refusal(texts)
@@ -307,8 +402,10 @@ def register_note(sub: Any, add_resolution: Callable[[argparse.ArgumentParser], 
         description=(
             "Writes raw/<type>/<slug>.md (no LLM): lint's frontmatter, the ingestion slug (-2, -3 on a "
             "derived collision), the body from --body-file or stdin, then `index rebuild` and the `ingest` "
-            "log entry. Master statistics and the inbox move stay with the agent. Exit 0 written; 1 the "
-            "note exists (explicit --slug); 2 usage error or a public wiki refusing private material "
+            "log entry. Collection keys (--extra collection/adapter/upstream_id/upstream_type/revision/sha) "
+            "skip an item already held (same collection, upstream_id, revision/sha). Master statistics and "
+            "the inbox move stay with the agent. Exit 0 written; 1 the note exists (explicit --slug) or "
+            "is a duplicate collection item; 2 usage error or a public wiki refusing private material "
             "(nothing written), or the note written but the index rebuild incomplete (ok false)."
         ),
     )

@@ -279,6 +279,47 @@ Compatibility-sensitive changes are recorded here per change set, newest first,
 classified by the three surfaces above. An entry stays "unreleased" until the
 release commit tags it; the version is then added to the heading.
 
+### v0.16.0.1.0 — collection writer; engine reads git state from files
+
+Shipped 2026-11-15 (PR #227, "Deterministic collection writer: llm-wiki source
+collection"; PR #232, "Engine: read git state from files where git's answer is
+certain"). The version's trailing `1.0` is unchanged: the absorbed upstream
+baseline is still v1.0.0.
+
+- **Corpus:** rule sets, check IDs, severities and the N-2 window are unchanged.
+  The frontmatter it writes (`collection`, `adapter`, `upstream_id`,
+  `upstream_type`, `revision`, `sha`, `manifest_only`, ...) is the one
+  `ingestion-collections.md` already named; lint reads no new key.
+- **CLI/protocol:** additive. New verb `llm-wiki source collection` (JSON schema
+  `knowmade/source-collection/v1`) writes a collection manifest and its child
+  sources from a JSONL file, skips items already held (same `collection` +
+  `upstream_id` + `sha`, or `revision` when either side has no `sha`), then
+  rebuilds the raw indexes once and appends one `ingest-collection` log line.
+  Everything is validated before the first write (exit 2, nothing written);
+  `--dry-run` writes nothing; `--manifest-only` renders `{upstream_id, sha}`
+  pins as the manifest table. `source note --extra` now also accepts
+  `collection`, `adapter`, `upstream_id`, `upstream_type`, `sha` and
+  `manifest_only` (a boolean), and exits 1 on a duplicate collection item;
+  every existing key, flag and exit code is unchanged. Tests:
+  `tests/test-source-lifecycle.py` (`SourceNoteTest`, `SourceCollectionTest`).
+  Engine (PR #232): output and exit codes are unchanged. A source checkout's
+  engine commit is read from git's files (`.git` directory or `gitdir:` file,
+  `commondir`, loose refs, `packed-refs`); a reftable store, a SHA-256
+  repository, an unborn branch or any unexpected file still asks
+  `git rev-parse HEAD`. Reading the files applies no `safe.directory` check, so
+  a checkout git refuses as dubiously owned now reports its commit instead of
+  none. The work-tree check answers "not inside" without git when no ancestor
+  holds a `.git` or `HEAD` entry, and the state-ignore check asks one
+  `check-ignore --stdin -z` run for all its probes (git unavailable or failing:
+  the literal `.gitignore` rule decides for every rule, as before per rule).
+  Tests: `tests/test-identity-contract.sh` compares each layout with git.
+- **Agent spec:** `ingest-collection` steps 6 to 9 call the CLI first and keep
+  the by-hand write as the fallback; the writer's item fields are in
+  `ingestion-collections.md` § Collection writer. Closes the last by-hand step
+  Sprint Q listed for that command.
+- **Packaging:** the new module ships in the generated `bin/knowmade_control/`
+  copies of the Claude, Codex, OpenCode and DeepSeek Harness packages.
+
 ### v0.15.3.1.0 — hub config.md is hub metadata
 
 Shipped 2026-11-13 (knowmade#228, "Hub lint flags the hub config.md as an

@@ -49,6 +49,7 @@ __all__ = [
     "privacy",
     "privacy_boundary",
     "projects",
+    "raw_collection",
     "raw_note",
     "redaction",
     "retract",

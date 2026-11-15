@@ -1147,7 +1147,7 @@ Require every row to be terminal and durable.
 
 Receive, extract, retain, resolve and verify source originals for one wiki.
 
-Subcommands: `receive`, `extract`, `attach-derived`, `decide`, `verify`, `resolve`, `paths`, `import-pointer`, `map`, `note`.
+Subcommands: `receive`, `extract`, `attach-derived`, `decide`, `verify`, `resolve`, `paths`, `import-pointer`, `map`, `note`, `collection`.
 
 ### `llm-wiki source receive`
 
@@ -1275,7 +1275,7 @@ List the aliases records and pointers name, and aliases claimed by two sources.
 
 ### `llm-wiki source note`
 
-Writes raw/<type>/<slug>.md (no LLM): lint's frontmatter, the ingestion slug (-2, -3 on a derived collision), the body from --body-file or stdin, then `index rebuild` and the `ingest` log entry. Master statistics and the inbox move stay with the agent. Exit 0 written; 1 the note exists (explicit --slug); 2 usage error or a public wiki refusing private material (nothing written), or the note written but the index rebuild incomplete (ok false).
+Writes raw/<type>/<slug>.md (no LLM): lint's frontmatter, the ingestion slug (-2, -3 on a derived collision), the body from --body-file or stdin, then `index rebuild` and the `ingest` log entry. Collection keys (--extra collection/adapter/upstream_id/upstream_type/revision/sha) skip an item already held (same collection, upstream_id, revision/sha). Master statistics and the inbox move stay with the agent. Exit 0 written; 1 the note exists (explicit --slug) or is a duplicate collection item; 2 usage error or a public wiki refusing private material (nothing written), or the note written but the index rebuild incomplete (ok false).
 
 | Argument | Meaning |
 |---|---|
@@ -1287,8 +1287,35 @@ Writes raw/<type>/<slug>.md (no LLM): lint's frontmatter, the ingestion slug (-2
 | `--slug SLUG` | Slug words instead of deriving them from the title; an existing note is then refused. |
 | `--ingested YYYY-MM-DD` | Ingest date (default: today, or LLM_WIKI_TODAY). |
 | `--project SLUG` | Tag the note with this project; it must exist. |
-| `--extra KEY=VALUE` | Extra frontmatter, one of content_format, sha256, page_count, extraction_tool, extraction_status, fetched, canonical_url, license, revision; repeatable. |
+| `--extra KEY=VALUE` | Extra frontmatter, one of content_format, sha256, page_count, extraction_tool, extraction_status, fetched, canonical_url, license, revision, collection, adapter, upstream_id, upstream_type, sha, manifest_only; repeatable. |
 | `--body-file PATH` | File holding the body, without frontmatter; default: standard input. |
+| `--no-index` | Skip the index rebuild. |
+| `--no-log` | Skip the log entry. |
+| `--path PATH` | Wiki root; defaults to normal wiki resolution. |
+| `--local` | Target .wiki/ in the current directory. |
+| `--wiki WIKI` | Named wiki from the hub registry. |
+| `--hub HUB` | Override hub path for --wiki resolution. |
+
+### `llm-wiki source collection`
+
+Writes raw/repos/<manifest>.md and one raw/<type>/<slug>.md per item (no LLM) with the frontmatter ingestion-collections.md lists, skipping an item whose collection + upstream_id + sha (revision when either side has no sha) is already held, then one `index rebuild` and one `ingest-collection` log entry. Items: one JSON object per line (title, source, summary, upstream_id, revision and/or sha, body or body_file, optional upstream_type, canonical_url, content_format, license, fetched, type, tags, slug, extra); with --manifest-only the rows are {upstream_id, sha} pins rendered as the manifest table and no children are written. Everything is validated before the first write: exit 0 done (including all-duplicate); 2 usage error or a refused item, nothing written, or written but the index rebuild incomplete (ok false). Master statistics and the inbox move stay with the agent.
+
+| Argument | Meaning |
+|---|---|
+| `--collection SLUG` | Collection slug, e.g. bitcoin-bips. (required) |
+| `--adapter {git,mediawiki-dump,mediawiki-api,csv-messages,wayback-cdx}` | Adapter that produced the items. (required) |
+| `--source SOURCE` | Upstream URL or path of the collection (the manifest's source). (required) |
+| `--revision REVISION` | Collection revision: commit SHA, dump filename/date, API snapshot or CDX query timestamp, dataset hash. (required) |
+| `--items PATH` | JSONL file of items (or `-` for standard input); with --manifest-only, {upstream_id, sha} rows. (required) |
+| `--name NAME` | Display name of the collection for the manifest title (default: the slug). |
+| `--canonical-url CANONICAL_URL` | Canonical upstream URL for the manifest. |
+| `--license LICENSE` | Detected license (default: unknown); children inherit it. |
+| `--manifest-summary MANIFEST_SUMMARY` | Manifest summary instead of the generated one. |
+| `--manifest-body-file PATH` | Manifest body instead of the generated one. |
+| `--manifest-only` | Git manifest-only: pin the rows in the manifest, write no children. |
+| `--candidates N` | Total candidate items before filters and limit, for the log line (default: the items given). |
+| `--ingested YYYY-MM-DD` | Ingest date (default: today, or LLM_WIKI_TODAY). |
+| `--dry-run` | Validate, deduplicate and report; write nothing. |
 | `--no-index` | Skip the index rebuild. |
 | `--no-log` | Skip the log entry. |
 | `--path PATH` | Wiki root; defaults to normal wiki resolution. |

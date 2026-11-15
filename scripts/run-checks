@@ -11,7 +11,7 @@
 #   scripts/run-checks --fast       # omit the steps that need an external runtime (see FAST_SKIP)
 #   scripts/run-checks --list       # print the step list and exit
 #   scripts/run-checks --step NAME  # run one step by name (repeatable)
-#   scripts/run-checks --jobs N     # run up to N independent steps at once (default: CPUs, at most 4; 1 = one at a time)
+#   scripts/run-checks --jobs N     # run up to N independent steps at once (default: CPUs, at most 8; 1 = one at a time)
 #   KNOWMADE_STRICT=1 scripts/run-checks   # a step that reports SKIP counts as a failure
 #
 # A step that cannot run its real checks on this machine prints a line
@@ -124,23 +124,27 @@ Codex runtime smoke test"
 # which steps are started, never the order they are reported, and a stale
 # entry costs a little wall time, nothing else. Measured on Windows (the
 # slowest platform), longest first.
-LONG_FIRST="CLI subcommand smoke
-Codex runtime smoke test
-Engine contract and wiki identity
-Federation registry and locate
+LONG_FIRST="Codex runtime smoke test
+CLI subcommand smoke
 Main deterministic lint suite
-Wiki init scaffold
+Engine contract and wiki identity
 Lint rejects every defect fixture
-Source original lifecycle"
+Check runner self-test
+Wiki init scaffold
+Lint fix classes and preflight
+Federation registry and locate
+Session capture"
 
-# The default job count: the CPU count, at most 4. The lane is dominated by
-# process spawns, so more than a few jobs mostly contend for the same
+# The default job count: the CPU count, at most 8. Since the suites run the
+# CLI in process (tests/lib/inproc_cli.py) the lane spawns far fewer
+# processes; on a 20-CPU Windows machine 4 jobs took 152 s, 8 took 111 s and
+# 12 took 107 s (2026-11-14), so beyond 8 the jobs mostly contend for the same
 # antivirus and filesystem filter drivers.
 default_jobs() {
   local n
   n="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
   case "$n" in '' | *[!0-9]* | 0) n=2 ;; esac
-  [ "$n" -gt 4 ] && n=4
+  [ "$n" -gt 8 ] && n=8
   echo "$n"
 }
 
